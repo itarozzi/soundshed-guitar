@@ -498,6 +498,10 @@ constexpr float kKnobCellWidth = 60.0f;
 constexpr float kKnobNameHeight = 12.0f;
 constexpr float kKnobValueHeight = 13.0f;
 constexpr float kKnobDiameter = 34.0f;
+constexpr float kLargeCellWidth = 74.0f;
+constexpr float kLargeNameHeight = 13.0f;
+constexpr float kLargeValueHeight = 15.0f;
+constexpr float kLargeDiameter = 40.0f;
 constexpr float kKnobDragPixels = 200.0f;
 // A 270 degree sweep, open at the bottom: 7 o'clock round to 5 o'clock.
 constexpr float kKnobStart = 3.14159265f * 0.75f;
@@ -515,8 +519,10 @@ el::view_limits ParamKnob::limits(const el::basic_context&) const
         return {{mBare, mBare}, {mBare, mBare}};
     }
 
-    const float h = kKnobNameHeight + kKnobDiameter + kKnobValueHeight + 4.0f;
-    return {{kKnobCellWidth, h}, {kKnobCellWidth, h}};
+    const float w = mLarge ? kLargeCellWidth : kKnobCellWidth;
+    const float h = mLarge ? kLargeNameHeight + kLargeDiameter + kLargeValueHeight + 4.0f
+                           : kKnobNameHeight + kKnobDiameter + kKnobValueHeight + 4.0f;
+    return {{w, h}, {w, h}};
 }
 
 void ParamKnob::draw(const el::context& ctx)
@@ -526,12 +532,14 @@ void ParamKnob::draw(const el::context& ctx)
     const auto b = ctx.bounds;
     const bool light = mTheme.IsLight();
     // The web UI's .node-param-label and .node-param-value.
-    const auto labelFont = Font(Weight::SemiBold).size(9.0f);
-    const auto valueFont = Font(Weight::SemiBold).size(10.0f);
+    const auto labelFont = Font(Weight::SemiBold).size(mLarge ? 10.0f : 9.0f);
+    const auto valueFont = Font(Weight::SemiBold).size(mLarge ? 12.0f : 10.0f);
+    const float nameHeight = mLarge ? kLargeNameHeight : kKnobNameHeight;
+    const float valueHeight = mLarge ? kLargeValueHeight : kKnobValueHeight;
     const el::color labelInk = light ? mTheme.TextSecondary() : el::rgba(201, 209, 225, 184);
     const el::color valueInk = light ? mTheme.Text() : el::rgba(231, 236, 246, 194);
 
-    const auto nameBounds = el::rect{b.left, b.top, b.right, b.top + kKnobNameHeight};
+    const auto nameBounds = el::rect{b.left, b.top, b.right, b.top + nameHeight};
 
     if (mBare <= 0.0f)
     {
@@ -539,7 +547,7 @@ void ParamKnob::draw(const el::context& ctx)
                  nameBounds, Text::Align::Centre);
     }
 
-    const float diameter = mBare > 0.0f ? mBare : kKnobDiameter;
+    const float diameter = mBare > 0.0f ? mBare : (mLarge ? kLargeDiameter : kKnobDiameter);
     const float cx = (b.left + b.right) * 0.5f;
     const float cy = mBare > 0.0f ? (b.top + b.bottom) * 0.5f : nameBounds.bottom + 2.0f + diameter * 0.5f;
     const float r = diameter * 0.5f;
@@ -619,7 +627,7 @@ void ParamKnob::draw(const el::context& ctx)
         return;
     }
 
-    const auto valueBounds = el::rect{b.left, b.bottom - kKnobValueHeight, b.right, b.bottom};
+    const auto valueBounds = el::rect{b.left, b.bottom - valueHeight, b.right, b.bottom};
     FillText(cnv, Ellipsize(cnv, mValueText, valueFont, valueBounds.width() + 6.0f), valueFont, valueInk, valueBounds,
              Text::Align::Centre);
 }
@@ -647,7 +655,8 @@ bool ParamKnob::click(const el::context& ctx, el::mouse_button btn)
         {
             mDragging = false;
 
-            if (onEdit && mBare <= 0.0f && btn.pos.y >= ctx.bounds.bottom - kKnobValueHeight - 2.0f)
+            if (onEdit && mBare <= 0.0f &&
+                btn.pos.y >= ctx.bounds.bottom - (mLarge ? kLargeValueHeight : kKnobValueHeight) - 2.0f)
             {
                 onEdit();
             }

@@ -268,7 +268,8 @@ class Shell
     void OpenEffectPresets();
     void OpenEnumPicker(const std::string& nodeId, const guitarfx::uiclient::EffectParamInfo& info);
     [[nodiscard]] Ptr BuildResourceSlot(const guitarfx::GraphNode& node, const std::string& resourceType,
-                                        int resourceIndex, const std::string& label, bool optional);
+                                        int resourceIndex, const std::string& label, bool optional,
+                                        bool stacked = false);
     [[nodiscard]] Ptr BuildSplitBranches(const guitarfx::GraphNode& splitter);
     /// A third-party plugin node's list, Open Plugin and Browse (NodeControls.cpp).
     [[nodiscard]] Ptr BuildPluginHost(const guitarfx::GraphNode& node);

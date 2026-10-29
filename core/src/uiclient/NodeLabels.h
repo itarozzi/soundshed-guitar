@@ -21,6 +21,13 @@ namespace guitarfx::uiclient
 /// library metadata.
 [[nodiscard]] std::string NodeArchitectureBadge(const ClientState& state, const GraphNode& node);
 
-/// The effect type's category ("amp", "cab", "drive", ...), falling back to the node's own.
+/// The node's category ("amp", "cab", "drive", ...) as the web UI's getNodeCategory reads it:
+/// the node's own when it names one (a Neural FX node is "fx"), else its effect type's, else
+/// "utility". The caller folds aliases (EffectPresentation::AliasCategory) where it shows one.
 [[nodiscard]] std::string NodeCategory(const ClientState& state, const GraphNode& node);
+
+/// Whether a neural model node's every loaded model carries both its input and output
+/// calibration (inputLevelDbu and outputLevelDbu): the editor's Calibrated chip
+/// (nodeLabels.ts isNodeFullyCalibratedFromNamMetadata).
+[[nodiscard]] bool NodeNamFullyCalibrated(const ClientState& state, const GraphNode& node);
 } // namespace guitarfx::uiclient

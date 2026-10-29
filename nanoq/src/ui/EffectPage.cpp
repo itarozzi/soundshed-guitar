@@ -44,16 +44,17 @@ EffectParamInfo BoundaryTrim()
 
 // The web UI's measurements: 60 px cells 13 apart in groups padded 13 at the sides, inside a
 // section padded 8, inside the panel padded 10; the panel at least 448 wide.
-constexpr float kCellWidth = 60.0f;
-constexpr float kCellHeight = 63.0f;
+constexpr float kCellWidth = 74.0f;
+constexpr float kCellHeight = 72.0f;
 constexpr float kPickerWidth = 120.0f;
-constexpr float kCellGap = 13.0f;
-constexpr float kGroupPadX = 13.0f;
+constexpr float kCellGap = 4.0f;
+constexpr float kGroupPadX = 11.0f;
 constexpr float kGroupGap = 13.0f;
-constexpr float kSectionPad = 8.0f;
+constexpr float kSectionPad = 14.0f;
 constexpr float kPanelPad = 10.0f;
 constexpr float kPanelMinWidth = 448.0f;
-constexpr float kHeaderHeight = 26.0f;
+constexpr float kHeaderHeight = 36.0f;
+constexpr float kStackedSlot = 16.0f + 6.0f + 26.0f; // a slot's label over its row
 
 /// An enum shown as a list rather than turned through on a knob: the engine asks for it.
 bool WantsPicker(const EffectParamInfo& info)
@@ -154,7 +155,7 @@ class EffectBackdrop final : public el::element
 
 /// The effect's artwork beside its controls (.default-effect-shell-equipment-panel): the loaded
 /// model's own picture, read as it draws since it may still be downloading, else the stock
-/// picture of its kind, covering a rounded panel.
+/// picture of its kind, the whole of it within a rounded panel.
 class ArtworkPanel final : public el::element
 {
   public:
@@ -184,7 +185,7 @@ class ArtworkPanel final : public el::element
 
         if (image)
         {
-            DrawImageCovering(cnv, *image, b);
+            DrawImageFitted(cnv, *image, b.inset(8.0f, 8.0f));
         }
     }
 
@@ -455,7 +456,7 @@ Ptr Shell::BuildEffectPage()
             // A knob: continuous values, and an enum short enough to turn through, as the web
             // UI's Mode knobs are.
             auto knob = std::make_shared<ParamKnob>(mTheme, info.name);
-            knob->DefaultPosition(ParamValueToPosition(info, info.defaultValue));
+            knob->Large(true).DefaultPosition(ParamValueToPosition(info, info.defaultValue));
             knob->onMenu = menu;
             mLive.Bind(
                 knob, [valueOf, info] { return valueOf(info); },
@@ -534,10 +535,10 @@ Ptr Shell::BuildEffectPage()
 
         return w;
     };
-    // A titled group: 4 above its title, the 12 px title, 2, the cells, 7. An untitled one: 8
-    // above the cells and 1 below.
+    // A titled group: 6 above its title, the 14 px title, 4, the cells, 8. An untitled one: 8
+    // above the cells and 4 below.
     auto groupHeight = [](const Group& g) {
-        return g.name.empty() ? 8.0f + kCellHeight + 1.0f : 4.0f + 12.0f + 2.0f + kCellHeight + 7.0f;
+        return g.name.empty() ? 8.0f + kCellHeight + 4.0f : 6.0f + 14.0f + 4.0f + kCellHeight + 8.0f;
     };
     auto buildGroup = [&](const Group& g, bool stretch) -> Ptr {
         std::vector<Ptr> row;
@@ -558,8 +559,8 @@ Ptr Shell::BuildEffectPage()
         }
 
         row.push_back(Stretch());
-        const float top = g.name.empty() ? 8.0f : 4.0f + 12.0f + 2.0f;
-        return Over(Pad(kGroupPadX, top, kGroupPadX, g.name.empty() ? 1.0f : 7.0f, FixedHeight(kCellHeight, Row(row))),
+        const float top = g.name.empty() ? 8.0f : 6.0f + 14.0f + 4.0f;
+        return Over(Pad(kGroupPadX, top, kGroupPadX, g.name.empty() ? 4.0f : 8.0f, FixedHeight(kCellHeight, Row(row))),
                     std::make_shared<InsetBox>(mTheme, g.name));
     };
 
@@ -595,7 +596,7 @@ Ptr Shell::BuildEffectPage()
     }
 
     const bool hasArt = stockArt != nullptr || !artUrl.empty();
-    constexpr float kArtWidth = 240.0f, kArtGap = 16.0f;
+    constexpr float kArtWidth = 300.0f, kArtGap = 12.0f, kArtMinHeight = 200.0f;
     const float artRoom = hasArt ? kArtWidth + kArtGap : 0.0f;
 
     const float maxPanel = std::max(kPanelMinWidth, stageWidth - 20.0f);
@@ -619,8 +620,10 @@ Ptr Shell::BuildEffectPage()
     std::string kind = boundary ? std::string(node->type == guitarfx::kNodeTypeInput ? "Input" : "Output")
                                 : (type != nullptr ? type->name : node->type);
     // The web UI's subtitle reads "DYNAMICS · NOISE GATE": the category as the engine names it.
-    const auto subtitleText = Upper((boundary ? std::string("utility") : category) + " \xC2\xB7 " + kind);
-    const auto subtitleFont = Font(Weight::SemiBold).size(9.0f);
+    std::string shownCategory =
+        boundary ? std::string("utility") : (node->category.empty() ? mPresentation.AliasCategory(category) : category);
+    std::replace_if(shownCategory.begin(), shownCategory.end(), [](char c) { return c == '-' || c == '_'; }, ' ');
+    const auto subtitleText = Upper(shownCategory + " \xC2\xB7 " + kind);
     const auto badgeText = boundary ? std::string() : NodeArchitectureBadge(mState, *node);
 
     std::vector<Ptr> rightSide;
@@ -672,11 +675,12 @@ Ptr Shell::BuildEffectPage()
         }
     }
 
-    // The DSP chip shows the effect's status readout under the header, as the web UI's meter badge.
+    // The meter shows the effect's status readout under the header, as the web UI's meter badge.
     if (!boundary)
     {
-        auto dsp = std::make_shared<IconButton>(mTheme, mIcons, "", IconButton::Look::Chip);
-        dsp->Size(44, 26).Label("DSP", 11.0f).Ink(mShowDspStatus ? mTheme.Accent() : mTheme.TextSecondary());
+        // The meter icon (.default-effect-shell-dsp-toggle), lit while the readout shows.
+        auto dsp = std::make_shared<IconButton>(mTheme, mIcons, "meter", IconButton::Look::Ghost);
+        dsp->Size(28, 26).IconSize(16).Ink(mShowDspStatus ? mTheme.Accent() : mTheme.TextSecondary());
         dsp->onClick = [this] {
             mShowDspStatus = !mShowDspStatus;
             mEffectSignature.clear();
@@ -684,7 +688,7 @@ Ptr Shell::BuildEffectPage()
         };
         rightSide.push_back(dsp);
         rightSide.push_back(HGap(8));
-        channelsWidth += 44.0f + 8.0f;
+        channelsWidth += 28.0f + 8.0f;
     }
 
     if (!IsSplitterType(node->type) && !IsMixerType(node->type))
@@ -697,6 +701,15 @@ Ptr Shell::BuildEffectPage()
             presets->onClick = [this] { OpenEffectPresets(); };
             rightSide.push_back(presets);
             rightSide.push_back(HGap(8));
+        }
+
+        // A neural model whose every model carries its input and output calibration.
+        if (!boundary && guitarfx::uiclient::NodeNamFullyCalibrated(mState, *node))
+        {
+            const std::string text = "CALIBRATED";
+            rightSide.push_back(std::make_shared<ArchBadge>(text, 9.0f, 22.0f));
+            rightSide.push_back(HGap(8));
+            channelsWidth += MeasureTextWidth(text, Font(Weight::SemiBold).size(9.0f)) + 21.0f + 8.0f;
         }
 
         auto bypass = std::make_shared<PowerSwitch>(mTheme, node->enabled);
@@ -729,12 +742,8 @@ Ptr Shell::BuildEffectPage()
         rightWidth = channelsWidth + ((type != nullptr || boundary) ? 77.0f + 8.0f + 40.0f : 40.0f);
     }
 
-    const float subtitleWidth = MeasureTextWidth(subtitleText, subtitleFont) + 2.0f;
-    const float badgeWidth =
-        badgeText.empty() ? 0.0f : MeasureTextWidth(badgeText, Font(Weight::SemiBold).size(8.0f)) + 12.0f + 6.0f;
     const float pencilWidth = boundary ? 0.0f : 22.0f;
-    const float roomForTitle = panelWidth - 2.0f * kPanelPad - 14.0f - 6.0f - pencilWidth - 10.0f - subtitleWidth -
-                               badgeWidth - rightWidth - 16.0f;
+    const float roomForTitle = panelWidth - 2.0f * kPanelPad - 14.0f - 8.0f - pencilWidth - rightWidth - 16.0f;
     const float titleWidth =
         std::clamp(MeasureTextWidth(titleText, titleFont) + 2.0f, 40.0f, std::max(40.0f, roomForTitle));
 
@@ -744,31 +753,34 @@ Ptr Shell::BuildEffectPage()
     auto subtitle = std::make_shared<Text>(mTheme, subtitleText, 9.0f, Weight::SemiBold);
     subtitle->Colour(mTheme.TextMuted()).Fixed(true);
 
-    std::vector<Ptr> header{led, HGap(6), FixedWidth(titleWidth, title)};
+    // The titles (.default-effect-shell-titles): the name, and under it the kind and the badge.
+    std::vector<Ptr> titleRow{FixedWidth(titleWidth, title)};
 
     if (!boundary)
     {
         auto pencil = std::make_shared<IconButton>(mTheme, mIcons, "pencil");
         pencil->Size(20, 20).IconSize(11).Ink(mTheme.TextMuted());
         pencil->onClick = [this, nodeId] { RenameNodeWithPrompt(nodeId); };
-        header.push_back(HGap(2));
-        header.push_back(Pad(0, 3, 0, 3, pencil));
+        titleRow.push_back(HGap(2));
+        titleRow.push_back(Middle(pencil));
     }
 
-    header.push_back(HGap(10));
-    header.push_back(subtitle);
+    titleRow.push_back(Stretch());
+    std::vector<Ptr> subtitleRow{Middle(subtitle)};
 
     if (!badgeText.empty())
     {
-        header.push_back(HGap(6));
-        header.push_back(std::make_shared<ArchBadge>(badgeText));
+        subtitleRow.push_back(HGap(6));
+        subtitleRow.push_back(std::make_shared<ArchBadge>(badgeText));
     }
 
-    header.push_back(Stretch());
+    subtitleRow.push_back(Stretch());
+    std::vector<Ptr> header{Middle(led), HGap(8),
+                            Col({FixedHeight(20, Row(titleRow)), FixedHeight(14, Row(subtitleRow)), VGap(2)})};
 
     for (auto& r : rightSide)
     {
-        header.push_back(r);
+        header.push_back(Middle(r));
     }
 
     // ── The controls section ──
@@ -777,8 +789,8 @@ Ptr Shell::BuildEffectPage()
     auto addToSection = [&](Ptr element, float height) {
         if (!section.empty())
         {
-            section.push_back(VGap(8));
-            sectionHeight += 8.0f;
+            section.push_back(VGap(12));
+            sectionHeight += 12.0f;
         }
 
         section.push_back(FixedHeight(height, std::move(element)));
@@ -813,37 +825,24 @@ Ptr Shell::BuildEffectPage()
                      40.0f);
     }
 
-    bool tabsPlaced = false;
-
     if (hasSlots && !layoutPlacesSlots)
     {
         const auto& rt = type->resourceType;
 
         if (node->type == guitarfx::EffectGuids::kCabIr)
         {
-            auto a = BuildResourceSlot(*node, rt, 0, "IR A", false);
-
-            if (auto t = tabs())
-            {
-                a = Row({a, HGap(14), t});
-                tabsPlaced = true;
-            }
-
-            addToSection(a, 26.0f);
+            addToSection(BuildResourceSlot(*node, rt, 0, "IR A", false, true), kStackedSlot);
             addToSection(BuildIrList(*node), mShowIrList ? 28.0f + 150.0f : 28.0f);
-            addToSection(BuildResourceSlot(*node, rt, 1, "IR B", true), 26.0f);
+            addToSection(BuildResourceSlot(*node, rt, 1, "IR B", true, true), kStackedSlot);
         }
         else
         {
-            auto slot = BuildResourceSlot(*node, rt, -1, rt == "nam" ? "Model" : rt == "ir" ? "IR" : "Resource", false);
-
-            if (auto t = tabs())
-            {
-                slot = Row({slot, HGap(14), t});
-                tabsPlaced = true;
-            }
-
-            addToSection(slot, 26.0f);
+            addToSection(BuildResourceSlot(*node, rt, -1,
+                                           rt == "nam"  ? "Model"
+                                           : rt == "ir" ? "IR"
+                                                        : "Resource",
+                                           false, true),
+                         kStackedSlot);
         }
     }
 
@@ -862,12 +861,19 @@ Ptr Shell::BuildEffectPage()
         addToSection(BuildBlendInfo(*node), 46.0f);
     }
 
-    if (!tabsPlaced)
+    if (node->type == guitarfx::EffectGuids::kDynamicsGate)
     {
-        if (auto t = tabs())
-        {
-            addToSection(Row({t, Stretch()}), 26.0f);
-        }
+        addToSection(Over(Pad(10, 22, 10, 6, BuildGateLearn(NodeGateLearnTarget(*node))),
+                          std::make_shared<InsetBox>(mTheme, "Noise Floor")),
+                     22.0f + 60.0f + 6.0f);
+    }
+
+    // The tabs (.node-param-tabs): on their own line, with a rule under them across the section.
+    if (auto t = tabs())
+    {
+        addToSection(Col({FixedHeight(28, Row({t, Stretch()})),
+                          FixedHeight(1, Fill(mTheme.Border(), std::make_shared<el::element>()))}),
+                     29.0f);
     }
 
     // An EQ's curve over its input's spectrum, above its knobs, as the web UI shows it.
@@ -884,11 +890,6 @@ Ptr Shell::BuildEffectPage()
     if (node->type == guitarfx::EffectGuids::kPickupMatch)
     {
         addToSection(BuildPickupDesignLines(), 36.0f);
-    }
-
-    if (node->type == guitarfx::EffectGuids::kDynamicsGate)
-    {
-        addToSection(BuildGateLearn(NodeGateLearnTarget(*node)), 60.0f);
     }
 
     if (const float h = IrAlignmentHeight(*node); h > 0.0f && !boundary)
@@ -970,7 +971,7 @@ Ptr Shell::BuildEffectPage()
     {
         // The layout may fill the height left under the header and the sections above it ("fit").
         const float above = 2.0f * kPanelPad + kHeaderHeight + 10.0f + 2.0f * kSectionPad + sectionHeight +
-                            (section.empty() ? 0.0f : 8.0f);
+                            (section.empty() ? 0.0f : 12.0f);
         const float roomBelow = std::max(0.0f, stageHeight - above - 8.0f);
         Ptr standard;
         el::extent standardSize{0.0f, 0.0f};
@@ -1013,7 +1014,7 @@ Ptr Shell::BuildEffectPage()
     }
 
     // ── The panel ──
-    const float sectionBox = sectionHeight + 2.0f * kSectionPad;
+    const float sectionBox = std::max(sectionHeight + 2.0f * kSectionPad, hasArt ? kArtMinHeight : 0.0f);
     const float panelHeight = kPanelPad + kHeaderHeight + 10.0f + sectionBox + kPanelPad;
     Ptr sectionElement =
         Over(Pad(kSectionPad, kSectionPad, kSectionPad, kSectionPad, Col(section)), std::make_shared<InsetBox>(mTheme));
@@ -1021,8 +1022,7 @@ Ptr Shell::BuildEffectPage()
     if (hasArt)
     {
         auto art = std::make_shared<ArtworkPanel>(mTheme, [this, artUrl] { return RemoteImage(artUrl); }, stockArt);
-        sectionElement =
-            Row({FixedWidth(kArtWidth, FixedHeight(std::min(sectionBox, 220.0f), art)), HGap(kArtGap), sectionElement});
+        sectionElement = Row({FixedWidth(kArtWidth, art), HGap(kArtGap), sectionElement});
     }
 
     auto body = Col({FixedHeight(kHeaderHeight, Row(header)), VGap(10), FixedHeight(sectionBox, sectionElement)});

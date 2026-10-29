@@ -54,6 +54,9 @@ class EffectPresentation
 
     [[nodiscard]] std::string CategoryIcon(const std::string& category) const;
 
+    /// A gear category folded into the one it shows as (pedal, preamp, full-rig: amp).
+    [[nodiscard]] std::string AliasCategory(const std::string& category) const;
+
     /// The category (after the node-category aliases), or null for one the table lacks.
     [[nodiscard]] const CategoryPresentation* Category(const std::string& category) const;
 
@@ -76,8 +79,6 @@ class EffectPresentation
     }
 
   private:
-    [[nodiscard]] std::string AliasCategory(const std::string& category) const;
-
     struct EffectEntry
     {
         std::string icon;

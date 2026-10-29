@@ -4,11 +4,14 @@
 
 #include "uiclient/NodeLabels.h"
 
+#include "dsp/EffectGuids.h"
 #include "uiclient/ChainLayout.h"
 #include "util/PathEncoding.h"
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
+#include <cstdlib>
 #include <filesystem>
 
 namespace guitarfx::uiclient
@@ -181,11 +184,60 @@ std::string NodeArchitectureBadge(const ClientState& state, const GraphNode& nod
 
 std::string NodeCategory(const ClientState& state, const GraphNode& node)
 {
+    if (!node.category.empty())
+    {
+        return node.category;
+    }
+
     if (const auto* typeInfo = state.FindEffectType(node.type); typeInfo != nullptr && !typeInfo->category.empty())
     {
         return typeInfo->category;
     }
 
-    return node.category;
+    return "utility";
+}
+
+bool NodeNamFullyCalibrated(const ClientState& state, const GraphNode& node)
+{
+    if (node.type != EffectGuids::kAmpNamOptimized && node.type != EffectGuids::kFxNam)
+    {
+        return false;
+    }
+
+    // A number the metadata holds, as text or as a number.
+    const auto hasLevel = [](const nlohmann::json& metadata, const char* key) {
+        const auto text = Trim(MetadataString(metadata, key));
+
+        if (text.empty())
+        {
+            return false;
+        }
+
+        char* end = nullptr;
+        const double value = std::strtod(text.c_str(), &end);
+        return end != nullptr && *end == '\0' && std::isfinite(value);
+    };
+
+    int considered = 0;
+    int calibrated = 0;
+
+    for (const auto& ref : node.resources)
+    {
+        if (ref.resourceId.empty())
+        {
+            continue;
+        }
+
+        ++considered;
+        const auto* resource = state.FindLibraryResource("nam", ref.resourceId);
+
+        if (resource != nullptr && hasLevel(resource->metadata, "inputLevelDbu") &&
+            hasLevel(resource->metadata, "outputLevelDbu"))
+        {
+            ++calibrated;
+        }
+    }
+
+    return considered > 0 && calibrated == considered;
 }
 } // namespace guitarfx::uiclient

@@ -1244,31 +1244,36 @@ class MiniSwitch final : public Pressable
 class ArchBadge final : public el::element
 {
   public:
-    explicit ArchBadge(std::string text) : mText(std::move(text))
+    /// `size` and `height` for a larger chip of the same look: the editor's Calibrated
+    /// (.default-effect-shell-chip-calibration).
+    explicit ArchBadge(std::string text, float size = 8.0f, float height = 13.0f)
+        : mText(std::move(text)), mSize(size), mHeight(height)
     {
     }
 
     el::view_limits limits(const el::basic_context& ctx) const override
     {
-        const float w = el::measure_text(ctx.canvas, mText, Font(Weight::SemiBold).size(8.0f)).x + 12.0f;
-        return {{w, 13.0f}, {w, el::full_extent}};
+        const float w = el::measure_text(ctx.canvas, mText, Font(Weight::SemiBold).size(mSize)).x + mHeight - 1.0f;
+        return {{w, mHeight}, {w, el::full_extent}};
     }
 
     void draw(const el::context& ctx) override
     {
         auto& cnv = ctx.canvas;
         const float cy = ctx.bounds.top + ctx.bounds.height() * 0.5f;
-        const el::rect pill{ctx.bounds.left, cy - 6.5f, ctx.bounds.right, cy + 6.5f};
+        const float half = mHeight * 0.5f;
+        const el::rect pill{ctx.bounds.left, cy - half, ctx.bounds.right, cy + half};
         cnv.fill_style(el::rgba(56, 118, 98, 71));
-        cnv.fill_round_rect(pill, 6.5f);
+        cnv.fill_round_rect(pill, half);
         cnv.stroke_style(el::rgba(128, 230, 188, 92));
         cnv.line_width(1.0f);
-        cnv.stroke_round_rect(pill.inset(0.5f, 0.5f), 6.5f);
-        FillText(cnv, mText, Font(Weight::SemiBold).size(8.0f), el::rgba(186, 255, 226, 255), pill, HAlign::Centre);
+        cnv.stroke_round_rect(pill.inset(0.5f, 0.5f), half);
+        FillText(cnv, mText, Font(Weight::SemiBold).size(mSize), el::rgba(186, 255, 226, 255), pill, HAlign::Centre);
     }
 
   private:
     std::string mText;
+    float mSize, mHeight;
 };
 
 /// The effect header's light (.default-effect-shell-led): green while signal passes, red when
@@ -1364,9 +1369,9 @@ class InsetBox final : public el::element
 
         if (!mTitle.empty())
         {
-            FillText(cnv, mTitle, Font(Weight::SemiBold).size(9.0f),
-                     light ? mTheme.TextSecondary() : el::rgba(220, 227, 243, 173),
-                     el::rect{b.left, b.top + 4.0f, b.right, b.top + 16.0f}, HAlign::Centre);
+            FillText(cnv, mTitle, Font(Weight::SemiBold).size(10.5f),
+                     light ? mTheme.TextSecondary() : el::rgba(220, 227, 243, 200),
+                     el::rect{b.left, b.top + 6.0f, b.right, b.top + 20.0f}, HAlign::Centre);
         }
     }
 

@@ -96,7 +96,7 @@ int IndexIn(const std::vector<const LibraryResource*>& list, const guitarfx::Res
 } // namespace
 
 Ptr Shell::BuildResourceSlot(const guitarfx::GraphNode& node, const std::string& resourceType, int resourceIndex,
-                             const std::string& label, bool optional)
+                             const std::string& label, bool optional, bool stacked)
 {
     auto& commands = mSession.Commands();
     const std::string nodeId = node.id;
@@ -168,10 +168,20 @@ Ptr Shell::BuildResourceSlot(const guitarfx::GraphNode& node, const std::string&
         },
         ref != nullptr);
 
+    auto controls = Row({slate("ui-prev", step(-1), !list.empty()), HGap(6), choose, HGap(6),
+                         slate("ui-next", step(1), !list.empty()), HGap(6), clear});
+
+    // Stacked, as the effect editor's model card (.neural-model-resource-selector): the label
+    // over the row, which takes the card's width.
+    if (stacked)
+    {
+        heading->Colour(mTheme.Pick(el::rgba(220, 227, 243, 200), mTheme.TextSecondary()));
+        return Col({FixedHeight(16, heading), VGap(6), FixedHeight(26, controls)});
+    }
+
     return Row(
         {FixedWidth(std::max(46.0f, MeasureTextWidth(Upper(label), Font(Weight::SemiBold).size(9.0f)) + 4.0f), heading),
-         HGap(10), slate("ui-prev", step(-1), !list.empty()), HGap(6), choose, HGap(6),
-         slate("ui-next", step(1), !list.empty()), HGap(6), clear});
+         HGap(10), controls});
 }
 
 void Shell::OpenEnumPicker(const std::string& nodeId, const EffectParamInfo& info)

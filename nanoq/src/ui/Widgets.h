@@ -235,6 +235,14 @@ class ParamKnob : public el::element, public Drawn
         return *this;
     }
 
+    /// The effect editor's size (.node-param-knob): a 40 px knob in a 74 px cell, its name and
+    /// value a size up. The default is the 34 px knob of the control bar and the flyouts.
+    ParamKnob& Large(bool large)
+    {
+        mLarge = large;
+        return *this;
+    }
+
     std::function<void(double normalised)> onChange;
     std::function<void()> onReset;
     /// A right click (a long press on a touch screen), at a point in view coordinates: the
@@ -255,6 +263,7 @@ class ParamKnob : public el::element, public Drawn
     double mValue = 0.0;
     double mDefault = 0.0;
     float mBare = 0.0f; // the diameter of a bare knob; 0 for the named one
+    bool mLarge = false;
     double mDragStartValue = 0.0;
     float mDragStartY = 0.0f;
     bool mDragging = false;
