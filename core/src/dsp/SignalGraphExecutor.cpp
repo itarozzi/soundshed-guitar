@@ -4,6 +4,7 @@
 #include "dsp/EffectRegistry.h"
 #include "dsp/EffectGuids.h"
 #include "dsp/effects/MixerEffect.h"
+#include "dsp/effects/SplitterEffect.h"
 #include "dsp/effects/InputAnalyzerEffect.h"
 #include "dsp/effects/CompositeEffectProcessor.h"
 #include "dsp/RealtimeParallel.h"
@@ -374,14 +375,10 @@ void SignalGraphExecutor::CreateProcessors()
             // Input/output are handled specially, use passthrough
             state.processor = std::make_unique<PassthroughProcessor>();
         }
-        else if (node.type == kNodeTypeSplitter)
+        else if (node.type == kNodeTypeMixer || node.type == kNodeTypeSplitter)
         {
-            // Splitter is handled specially with passthrough
-            state.processor = std::make_unique<PassthroughProcessor>();
-        }
-        else if (node.type == kNodeTypeMixer)
-        {
-            // Mixer uses MixerEffect for per-input control (level, pan, delay)
+            // MixerEffect for per-input control (level, pan, delay), SplitterEffect for what each
+            // branch gets; a passthrough if the registry has neither, which mixes and copies.
             state.processor = registry.Create(node.type);
 
             if (!state.processor)
@@ -972,8 +969,18 @@ void SignalGraphExecutor::Process(float** inputs, float** outputs, int numSample
         }
     }
 
+    // A splitter switched into or out of Stereo mode by automation or a scene: its first two
+    // branches change layout.
+    bool splitLayoutChanged = false;
+
+    for (const PlannedNode* splitter : mSplitterPlanNodes)
+    {
+        splitLayoutChanged =
+            splitLayoutChanged || splitter->splitter->SplitsChannels() != splitter->layoutSplitsChannels;
+    }
+
     // A bypassed widener has held its stereo long enough: the chain after it drops to mono.
-    if (widenHoldEnded)
+    if (widenHoldEnded || splitLayoutChanged)
     {
         ResolveChannelLayout(false);
     }

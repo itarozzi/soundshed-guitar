@@ -12,6 +12,7 @@
 #include "uiclient/NodeLabels.h"
 #include "uiclient/ParamFormat.h"
 #include "uiclient/ResourceIndex.h"
+#include "uiclient/SplitRouting.h"
 #include "util/PathEncoding.h"
 
 #include <algorithm>
@@ -299,8 +300,12 @@ Ptr Shell::BuildSplitBranches(const guitarfx::GraphNode& splitter)
 
     actions.push_back(Stretch());
 
+    // What the branches get, when the splitter routes them (splitBranches.ts).
+    const auto routing = guitarfx::uiclient::DescribeSplitRouting(splitter, count);
     auto hint = std::make_shared<Text>(
-        mTheme, "Each branch runs in parallel and meets the others at the mixer, whose levels set the blend.",
+        mTheme,
+        routing.empty() ? "Each branch runs in parallel and meets the others at the mixer, whose levels set the blend."
+                        : routing,
         metrics::kSmallText);
     hint->Colour(mTheme.TextMuted());
     return Col({FixedHeight(20, heading), VGap(4), FixedHeight(metrics::kRowHeight, Row(actions)), VGap(8),

@@ -34,7 +34,12 @@ import { bindHostedPluginActionControls, bindHostedPluginListControls } from "./
 import { bindIrAlignmentControls, buildIrAlignmentSectionHtml, IR_ALIGNMENT_PARAM_KEYS, isIrCabNode } from "./irAlignmentPanel.js";
 import { applyCustomLayoutScaling, bindLayoutOverlayBypassToggles } from "./layoutOverlay.js";
 import { buildMixerInputControlsHtml } from "./mixerInput.js";
-import { bindSplitBranchControls, buildSplitBranchControlsHtml } from "./splitBranches.js";
+import {
+  bindSplitBranchControls,
+  buildSplitBranchControlsHtml,
+  getSplitBranchState,
+  isSplitterParamInUse,
+} from "./splitBranches.js";
 import { bindBlendModeOverride, bindBypassButton, bindCustomEffectActionControls, bindNodeTitleEdit } from "./nodeActions.js";
 import { bindChannelModeControl, renderChannelModeControl } from "./channelMode.js";
 import { bindEnumPickerTriggers, buildEnumPickerTriggerHtml, isPickerParam } from "./enumPicker.js";
@@ -149,6 +154,12 @@ export function showNodeParamsPanel(node: GraphNode, preset: Preset): void {
   // Pickup Match's design parameters live in the design blocks, shown while a side is custom.
   if (isPickupMatchNode(node)) {
     paramDefs = paramDefs.filter((paramDef) => !PICKUP_DESIGN_PARAM_KEYS.includes(paramDef.key));
+  }
+
+  // A splitter shows only the split notes its branches use.
+  const splitState = getSplitBranchState(node, preset);
+  if (splitState) {
+    paramDefs = paramDefs.filter((paramDef) => isSplitterParamInUse(paramDef.key, splitState.count));
   }
 
   const isPitchShift = isPitchShiftType(node.type);

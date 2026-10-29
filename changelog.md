@@ -3,6 +3,14 @@
 ## Unreleased
 * **Verbal**: twelve reverbs in one, for when you want a reverb to be a big part of the sound. Pick a machine (Room, Hall, Plate, Spring, Swell, Bloom, Cloud, Choir, Shimmer, Tape Echo, Nonlinear or Reflections) and the panel shows its own controls alongside the common ones. Decay is in seconds and is what you hear, from a 0.2 s room to a 60 s cloud, and Pre-Delay reaches 1.5 s. Mix adds the reverb to your dry signal rather than trading one for the other, and the top of the knob is fully wet. Hold sustains the tail: Infinite keeps adding what you play, Freeze holds it under whatever comes next. Changing machine lets the old tail ring out. 18 factory presets, from Studio Room to Octave Shimmer and Reverse Reverb.
 * **Multi-band Gate**: a noise gate that splits your signal into six frequency bands and turns down only the bands that have fallen below their own threshold. As a note fades, the hiss up top goes quiet while the body of the note keeps ringing, so you don't get the sudden on/off of an ordinary gate. Mute your strings and press Learn: it listens to your noise for two seconds and sets all six thresholds for you. Offset nudges them all up or down together. No latency.
+* **Splitter modes**: a split can now decide what each branch gets. Pick a Mode on the Splitter:
+  * **Blend** sweeps from the top branch to the bottom one with Position. Put it on an expression pedal to morph between two rigs.
+  * **Switch** plays one branch at a time, like an A/B box. The other branches keep running, so a delay or reverb on the rig you left rings out.
+  * **Dynamics** sends soft playing to branch 1 and hard playing to branch 2. Pick holds each note on the branch its pick chose while it rings; Level follows your volume as it goes, so rolling the guitar's volume back moves you to branch 1.
+  * **Pitch** sends notes to branches by range, at the split notes you set: low notes to one rig, high notes to another. A bend over the split note doesn't move the note. It takes about 55 ms to hear a note's pitch, so until then, and for chords, the signal goes where Unpitched says: all branches, the last one used, or one you choose.
+  * **Stereo** sends the left input to branch 1 and the right to branch 2, so two instruments on one stereo input can each have their own rig. Any further branches get both.
+
+  Every change of branch crossfades over Crossfade (10 ms to start with). Copy, which sends everything to every branch as before, is still the default, so your presets sound the same.
 * IR Cab now has optional IR list for easy pairing
 * Many updates to the custom layout editor enabling better custom layout designs
 * Riff capture records on the new looper's recorder. An armed take now keeps the 10 ms before your first note, so the pick attack isn't cut, and waits for a note louder than your pickup's hum instead of a fixed level that a single coil's hum could set off. Your riff library and saved takes are unchanged.

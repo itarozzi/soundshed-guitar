@@ -2652,15 +2652,60 @@ Simple gain stage.
 | `gainDb` | -24..+24 | 0.0 | dB |
 
 ### Splitter (`splitter`)
-Creates parallel paths by inserting a splitter and an auto-join mixer.
+Creates parallel paths by inserting a splitter and an auto-join mixer. **Mode** sets what each
+branch gets. Branches are numbered as the chain draws them, top to bottom. Engine:
+`core/src/dsp/effects/SplitterEffect.h` (+ `SplitterSupport.h`).
 
-| Parameter | Range | Default | Unit |
-|-----------|-------|---------|------|
-| — | — | — | — |
+| Parameter | Range | Default | Unit | Shown in |
+|-----------|-------|---------|------|----------|
+| `mode` | Copy, Blend, Switch, Dynamics, Pitch, Stereo | Copy | enum | always |
+| `position` | 0..1 | 0 | amount | Blend |
+| `curve` | Equal power, Linear | Equal power | enum | Blend |
+| `branch` | Branch 1..4 | Branch 1 | enum | Switch |
+| `detect` | Pick, Level | Pick | enum | Dynamics |
+| `threshold` | -60..0 | -18 | dB | Dynamics |
+| `width` | 0..24 | 6 | dB | Dynamics |
+| `release` | 10..2000 (log) | 300 | ms | Dynamics |
+| `splitNote1`..`splitNote3` | E1..E6 (index 0..60) | C4, C5, C6 | enum | Pitch |
+| `lowestNote` | E2, D2, B1, F#1 | E2 | enum (advanced) | Pitch |
+| `unpitched` | All branches, Last branch, Branch 1..4 | All branches | enum | Pitch |
+| `crossfade` | 1..200 (log) | 10 | ms | Blend, Switch, Dynamics, Pitch |
+
+**Modes**:
+- **Copy**: every branch gets the whole signal, as a split always did. The branches read the
+  splitter's own buffer, so a Copy split runs exactly as it did before modes existed.
+- **Blend**: Position moves the signal from branch 1 (0) to the last branch (1), crossfading each
+  pair of neighbours. It's built for an expression pedal. Equal power keeps the loudness steady
+  between rigs that sound different; Linear suits branches that sound alike.
+- **Switch**: only the chosen branch plays, like an A/B/Y box. Every branch keeps running, so a
+  delay or reverb on the branch you left rings out.
+- **Dynamics**: soft playing goes to branch 1, hard to branch 2, crossfaded across Width (dB)
+  centred on Threshold. **Pick** judges each note by its pick's peak (`PickAttackDetector`) and
+  holds that until the next pick, so a hard note stays on branch 2 while it rings. For the first
+  5 ms of a pick the previous note's branch holds unless the new pick is already over the
+  threshold. **Level** follows a peak envelope with Release, so a note moves back to branch 1 as it
+  decays, and so does turning the guitar's volume down. Branches after the second get
+  everything.
+- **Pitch**: notes go to branches by range. Each split note is the lowest note of the branch
+  above it, and a split uses one fewer split note than it has branches (the panel hides the
+  rest). `NoteTracker` decides once per note: a bend or vibrato across a split note never moves
+  the note, but a legato move to a new note does. A pick's pitch is known about 55 ms after it
+  (84 ms worst, on the demo riffs). Until then, and for chords, which a mono tracker can't
+  pitch, the signal goes where **Unpitched** says: every branch at equal power (-3 dB each with
+  two), the branch the last note went to, or a fixed branch. Put the split before any drive:
+  distortion makes tracking worse.
+- **Stereo**: the left channel goes to branch 1 and the right to branch 2, each mono on both
+  sides; later branches get both channels as they came. The layout gives those two branches a
+  mono connection, so they run mono, and a mode change moves the layout at the next block
+  (docs/signal-chain.md). With a mono input, both branches get the same signal.
 
 **Notes**:
 - The `splitter` effect is user-addable.
 - A split has 2 to 4 branches (one per mixer input). It starts with two; the splitter's **Branches** control adds empty ones or removes empty ones (`setSplitBranchCount`). The count is the splitter's outgoing edges, so there is no parameter to keep in step with the graph.
+- Every change of branch ramps each branch's power over Crossfade, so a switch between two rigs neither dips nor bumps. A preset that loads in a routing mode starts on its branches without a ramp.
+- Detection runs on the mid of the two sides, and only in the mode that needs it. In dual mono, both sides are routed by that one decision.
+- A bypassed splitter copies. The editors don't offer bypass for a splitter; only automation can bypass one.
+- Under Branches, the panel says what the branches get in the current mode (`describeSplitRouting` in `splitBranches.ts`, `uiclient/SplitRouting.h` for Nano Q).
 - The `mixer` node is inserted automatically to rejoin branches and is not shown in the FX list.
 
 ### Signal Analyzer (`input_analyzer`)

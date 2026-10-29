@@ -180,6 +180,13 @@ class NoteTracker
         return mSounding ? mVelocity : 0.0f;
     }
 
+    /// An attack has been seen and is waiting for its pitch: a note is about to start, or a
+    /// chord or scrape whose pitch never comes.
+    [[nodiscard]] bool IsPending() const
+    {
+        return mPending;
+    }
+
     [[nodiscard]] static double MidiFromHz(double hz)
     {
         return 69.0 + 12.0 * std::log2(hz / 440.0);

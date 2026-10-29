@@ -53,7 +53,7 @@ Connection between nodes.
 |------|--------|---------|-------------|
 | `input` | 0 | 1 | Graph entry point |
 | `output` | 1 | 0 | Graph exit point |
-| `splitter` | 1 | N | Copies signal to multiple outputs |
+| `splitter` | 1 | N | Copies the signal to each output, or routes it by its Mode (see below) |
 | `mixer` | N | 1 | Sums multiple inputs with per-edge gain |
 
 ## Graph Structures
@@ -88,7 +88,7 @@ input → amp → split   → mixer → output
             └→ cab2 →┘
 ```
 
-**UI note**: Create this topology by inserting a **Splitter** effect from the Utility category. The mixer node is inserted automatically to rejoin the branches. A split has 2 to 4 branches, each on its own mixer input (`toPort`, which the mixer's `level_N`, `pan_N`, `delay_N` and `mute_N` params belong to); the splitter's Branches control changes the count. A splitter's `fromPort` only orders its branches: every output carries the same signal. Removing the split (the mixer's ×, or Delete on it) needs at most one branch holding effects; that branch's effects move back into the main path where the split was.
+**UI note**: Create this topology by inserting a **Splitter** effect from the Utility category. The mixer node is inserted automatically to rejoin the branches. A split has 2 to 4 branches, each on its own mixer input (`toPort`, which the mixer's `level_N`, `pan_N`, `delay_N` and `mute_N` params belong to); the splitter's Branches control changes the count. A splitter's `fromPort` only orders its branches. In Copy mode every output carries the same signal; the splitter's other modes (Blend, Switch, Dynamics, Pitch, Stereo; docs/fx-library.md, Splitter) give each branch a signal of its own. The executor numbers branches by `fromPort`, then `toPort`, then target id, the order the chain draws them; in a routing mode the splitter writes a buffer per branch each block and each branch's first node reads its own. Removing the split (the mixer's ×, or Delete on it) needs at most one branch holding effects; that branch's effects move back into the main path where the split was.
 
 Mixers sum incoming edges with per-edge `gain` for blend control.
 
@@ -274,7 +274,7 @@ If edges reference `__input__` or `__output__` but those nodes are missing, the 
 
 ### Processor Creation
 - Effect instantiation via `EffectRegistry::Create(type)`
-- Reserved types (`input`, `output`, `splitter`, `mixer`) use `PassthroughProcessor`
+- `input` and `output` use `PassthroughProcessor`; `splitter` and `mixer` come from the registry (`SplitterEffect`, `MixerEffect`), with a passthrough if either is missing
 - Parameters applied via `SetParameter()` / `SetConfig()`
 - Resources resolved via `ResourceLibrary` and loaded via `LoadResource(path)`
 

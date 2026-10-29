@@ -12,6 +12,7 @@
 #include "uiclient/EffectLayouts.h"
 #include "uiclient/NodeLabels.h"
 #include "uiclient/ParamFormat.h"
+#include "uiclient/SplitRouting.h"
 #include "util/PathEncoding.h"
 
 #include <algorithm>
@@ -351,9 +352,19 @@ Ptr Shell::BuildEffectPage()
     }
     else if (type != nullptr && !customControls)
     {
+        // A splitter shows only the split notes its branches use.
+        const int branches = IsSplitterType(node->type) && mState.activePreset
+                                 ? guitarfx::uiclient::CountSplitBranches(mState.activePreset->graph, node->id)
+                                 : 0;
+
         for (const auto& param : type->parameters)
         {
             anyAdvanced = anyAdvanced || param.advanced;
+
+            if (branches > 0 && !guitarfx::uiclient::IsSplitterParamInUse(param.key, branches))
+            {
+                continue;
+            }
 
             if (param.advanced == mShowAdvanced && IsParamVisible(param, *node, type))
             {

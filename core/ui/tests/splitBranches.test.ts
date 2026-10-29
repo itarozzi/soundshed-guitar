@@ -12,7 +12,14 @@ vi.mock("../ts/bridge.js", () => ({ postMessage: (payload: unknown) => posted.pu
 document.body.innerHTML = `<div id="node-params-panel"></div>`;
 
 const { EffectGuids } = await import("../ts/effectGuids.js");
-const { bindSplitBranchControls, buildSplitBranchControlsHtml, getSplitBranchState } = await import(
+const {
+  bindSplitBranchControls,
+  buildSplitBranchControlsHtml,
+  describeSplitRouting,
+  getSplitBranchState,
+  isSplitterParamInUse,
+  refreshSplitRouting,
+} = await import(
   "../ts/signalPath/paramsPanel/splitBranches.js"
 );
 
@@ -110,5 +117,47 @@ describe("the Branches control", () => {
   it("is nothing for other nodes", () => {
     const preset = threeWay();
     expect(buildSplitBranchControlsHtml(preset.graph!.nodes.find((n) => n.id === "ampA")!, preset)).toBe("");
+  });
+});
+
+describe("routing modes", () => {
+  const splitterIn = (preset: Preset): GraphNode => preset.graph!.nodes.find((n) => n.id === "split")!;
+
+  it("says nothing in Copy, and what the branches get in the other modes", () => {
+    const splitter = node("split", EffectGuids.kSplitter);
+    expect(describeSplitRouting(splitter, 2)).toBe("");
+    splitter.params.mode = 3;
+    expect(describeSplitRouting(splitter, 2)).toBe("Soft playing to branch 1, hard to branch 2");
+    expect(describeSplitRouting(splitter, 4)).toBe(
+      "Soft playing to branch 1, hard to branch 2; branches 3 and 4 get everything",
+    );
+    splitter.params.mode = 4;
+    expect(describeSplitRouting(splitter, 3)).toBe("Notes to branches 1 to 3 by range, at the split notes");
+    splitter.params.mode = 5;
+    expect(describeSplitRouting(splitter, 3)).toBe("Left to branch 1, right to branch 2; branch 3 gets both");
+  });
+
+  it("shows only the split notes the split has branches for", () => {
+    expect(["splitNote1", "splitNote2", "splitNote3"].map((key) => isSplitterParamInUse(key, 2))).toEqual([
+      true,
+      false,
+      false,
+    ]);
+    expect(isSplitterParamInUse("splitNote3", 4)).toBe(true);
+    expect(isSplitterParamInUse("mode", 2)).toBe(true);
+  });
+
+  it("keeps the panel's routing line in step with the mode", () => {
+    const preset = threeWay();
+    const splitter = splitterIn(preset);
+    const panel = document.getElementById("node-params-panel")!;
+    panel.innerHTML = buildSplitBranchControlsHtml(splitter, preset);
+    const line = panel.querySelector<HTMLElement>(".split-branch-routing")!;
+    expect(line.hidden).toBe(true);
+
+    splitter.params.mode = 1;
+    refreshSplitRouting(splitter);
+    expect(line.hidden).toBe(false);
+    expect(line.textContent).toBe("Position moves the signal from branch 1 to branch 3");
   });
 });

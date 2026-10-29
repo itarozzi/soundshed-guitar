@@ -14,12 +14,14 @@
 #include "dsp/EffectProcessor.h"
 #include "dsp/EffectRegistry.h"
 #include "dsp/effects/MixerEffect.h"
+#include "dsp/effects/SplitterEffect.h"
 
 #include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <limits>
 #include <map>
+#include <tuple>
 #include <vector>
 
 namespace guitarfx
@@ -43,6 +45,7 @@ void SignalGraphExecutor::BuildExecutionPlan()
     mExecutionLevelPlan.clear();
     mInputPlanNode = nullptr;
     mOutputPlanNodes.clear();
+    mSplitterPlanNodes.clear();
     mTempoAwareStates.clear();
 
     const auto boundaryGainDb = [this](const char* nodeId) -> const double* {
@@ -89,6 +92,11 @@ void SignalGraphExecutor::BuildExecutionPlan()
             planned.mixer = dynamic_cast<MixerEffect*>(state.processor.get());
         }
 
+        if (planned.isSplitter && state.processor)
+        {
+            planned.splitter = dynamic_cast<SplitterEffect*>(state.processor.get());
+        }
+
         if (state.processor)
         {
             planned.noteOutput = state.processor->GetNoteOutput();
@@ -109,6 +117,43 @@ void SignalGraphExecutor::BuildExecutionPlan()
         }
 
         mPlan.push_back(std::move(planned));
+    }
+
+    // Each splitter edge's branch number: its place among the splitter's edges in the order the
+    // chain draws them (uiclient ChainLayout, the web UI's sortEdgesByPort).
+    std::map<std::size_t, int> branchOfEdge;
+
+    for (auto& planned : mPlan)
+    {
+        if (!planned.splitter)
+        {
+            continue;
+        }
+
+        std::vector<std::size_t> branches;
+
+        for (std::size_t edgeIndex = 0; edgeIndex < mGraph.edges.size(); ++edgeIndex)
+        {
+            if (mGraph.edges[edgeIndex].from == planned.state->id)
+            {
+                branches.push_back(edgeIndex);
+            }
+        }
+
+        std::sort(branches.begin(), branches.end(), [this](std::size_t a, std::size_t b) {
+            const GraphEdge& first = mGraph.edges[a];
+            const GraphEdge& second = mGraph.edges[b];
+            return std::tie(first.fromPort, first.toPort, first.to) <
+                   std::tie(second.fromPort, second.toPort, second.to);
+        });
+
+        for (std::size_t rank = 0; rank < branches.size(); ++rank)
+        {
+            branchOfEdge[branches[rank]] = static_cast<int>(rank);
+        }
+
+        planned.splitBranches = std::min(static_cast<int>(branches.size()), splitter::kMaxBranches);
+        mSplitterPlanNodes.push_back(&planned);
     }
 
     // Resolve incoming edges to source states. Same ordering as the old
@@ -137,6 +182,15 @@ void SignalGraphExecutor::BuildExecutionPlan()
             plannedEdge.source = FindNodeState(edge.from);
             plannedEdge.gain = static_cast<float>(edge.gain);
             plannedEdge.toPort = edge.toPort;
+
+            // A branch past the last the splitter routes reads its input, as from a plain split.
+            if (const auto branchIt = branchOfEdge.find(edgeIndex);
+                branchIt != branchOfEdge.end() && branchIt->second < splitter::kMaxBranches)
+            {
+                plannedEdge.splitter = &mPlan[static_cast<std::size_t>(planIndexById[edge.from])];
+                plannedEdge.branch = branchIt->second;
+            }
+
             planned.incoming.push_back(plannedEdge);
         }
 
@@ -229,6 +283,17 @@ void SignalGraphExecutor::ResolveChannelLayout(bool notifyAll)
 {
     const bool stereoInput = (mInputLayout == ChannelLayout::Stereo);
 
+    // A splitter in Stereo mode gives its first two branches one channel each.
+    for (PlannedNode* splitter : mSplitterPlanNodes)
+    {
+        splitter->layoutSplitsChannels = splitter->splitter->SplitsChannels();
+    }
+
+    const auto edgeIsStereo = [](const PlannedEdge& edge) {
+        const bool oneChannel = edge.splitter && edge.branch < 2 && edge.splitter->layoutSplitsChannels;
+        return edge.source && edge.source->outputStereo && !oneChannel;
+    };
+
     // Execution order, so every source is resolved before the nodes it feeds.
     for (const auto& level : mExecutionLevelPlan)
     {
@@ -248,7 +313,7 @@ void SignalGraphExecutor::ResolveChannelLayout(bool notifyAll)
             {
                 for (const PlannedEdge& edge : planned.incoming)
                 {
-                    inputStereo = inputStereo || (edge.source && edge.source->outputStereo);
+                    inputStereo = inputStereo || edgeIsStereo(edge);
                 }
             }
 
@@ -423,30 +488,38 @@ void SignalGraphExecutor::ProcessPlannedNode(PlannedNode& planned, int numSample
         const int inputPort = edge.toPort;
         state->hasInput = true;
 
+        // A splitter that routed this block wrote each branch a signal of its own.
+        const float* sourceLeft = sourceState->bufferLeft.data();
+        const float* sourceRight = sourceState->bufferRight.data();
+
+        if (edge.splitter && edge.splitter->splitter->RoutedThisBlock())
+        {
+            sourceLeft = edge.splitter->splitter->PortLeft(edge.branch);
+            sourceRight = edge.splitter->splitter->PortRight(edge.branch);
+        }
+
         if (isMixer && mixerEffect)
         {
             // ProcessInput applies the input's delay along with its level and pan. A muted input
             // goes through it too: its mute is a glide to silence, and its delay line has to
             // keep up, or unmuting would replay what it held from before the mute.
-            mixerEffect->ProcessInput(inputPort, sourceState->bufferLeft.data(), sourceState->bufferRight.data(),
-                                      state->bufferLeft.data(), state->bufferRight.data(), numSamples, edgeGain);
+            mixerEffect->ProcessInput(inputPort, sourceLeft, sourceRight, state->bufferLeft.data(),
+                                      state->bufferRight.data(), numSamples, edgeGain);
         }
         else if (shouldAccumulate)
         {
             for (int i = 0; i < numSamples; ++i)
             {
-                state->bufferLeft[static_cast<size_t>(i)] += sourceState->bufferLeft[static_cast<size_t>(i)] * edgeGain;
-                state->bufferRight[static_cast<size_t>(i)] +=
-                    sourceState->bufferRight[static_cast<size_t>(i)] * edgeGain;
+                state->bufferLeft[static_cast<size_t>(i)] += sourceLeft[i] * edgeGain;
+                state->bufferRight[static_cast<size_t>(i)] += sourceRight[i] * edgeGain;
             }
         }
         else
         {
             for (int i = 0; i < numSamples; ++i)
             {
-                state->bufferLeft[static_cast<size_t>(i)] = sourceState->bufferLeft[static_cast<size_t>(i)] * edgeGain;
-                state->bufferRight[static_cast<size_t>(i)] =
-                    sourceState->bufferRight[static_cast<size_t>(i)] * edgeGain;
+                state->bufferLeft[static_cast<size_t>(i)] = sourceLeft[i] * edgeGain;
+                state->bufferRight[static_cast<size_t>(i)] = sourceRight[i] * edgeGain;
             }
         }
     }
@@ -567,7 +640,16 @@ void SignalGraphExecutor::ProcessPlannedNode(PlannedNode& planned, int numSample
         }
         else if (planned.isSplitter)
         {
-            // Fans out what it was given; there is nothing to run or to bypass.
+            // Fans out what it was given. In Copy mode, or bypassed, every branch reads that;
+            // otherwise each branch gets a buffer of its own, which Route writes and the
+            // branches' gathers read (PlannedEdge::splitter).
+            if (planned.splitter)
+            {
+                processTimed([&]() {
+                    planned.splitter->Route(state->bufferLeft.data(), state->bufferRight.data(), planned.splitBranches,
+                                            numSamples);
+                });
+            }
         }
         else if (planned.isMixer)
         {
