@@ -70,6 +70,7 @@ All UUID constants are defined in `core/src/dsp/EffectGuids.h`. The table below 
 | `kEqParametric` | `4b4025ca-64cd-4180-be79-81873b618dba` | `eq_parametric` |
 | `kEqGraphic` | `ef8240ba-c973-4e09-ab65-4faf56a8ecbf` | `eq_graphic` |
 | `kPickupMatch` | `df1f4ed4-5d84-4a21-9474-ad6ab014fca5` | `pickup_match` |
+| `kEqPitchTracking` | `b8b9922c-72d0-4a5b-a387-4ebd13789e37` | `eq_pitch_tracking` |
 | `kDelayDigital` | `673d3e7a-e9ef-4c5d-a4c4-619dff3355ed` | `delay_digital` |
 | `kDelayDoubler` | `778aaef4-40e3-4efa-8782-6a8bfa1d1661` | `delay_doubler` |
 | `kDelayTape` | `c46cecdc-d800-416e-a9cf-b9a13bd3ab35` | `delay_tape` |
@@ -165,7 +166,7 @@ back to linear on both sides.
 Log-taper parameters: `ring_mod` `frequency`; `delay_digital` `highCut` and `lowCut`; `cab_ir`
 `lowCutHz` and `highCutHz`; `reverb_advanced` `lowCut` and `highCut`; `harmonizer` `highCut`;
 `vibe` `rate`; `tremolo` `crossover`; `dynamics_gate` `swell`; `reverb_verbal` `decay`, `preDelay`,
-`riseTime`, `echoTime` and `shapeTime`.
+`riseTime`, `echoTime` and `shapeTime`; `eq_pitch_tracking` `width1`–`width3` and `cutoff`.
 
 ### Conditional controls
 A parameter that means nothing in some modes can say when it shows: `ParameterDef::visibleWhenKey`
@@ -1167,6 +1168,63 @@ Max Treble Boost still caps treble added at any Amount.
 distance from the bridge, comb the string's harmonics by harmonic number. The notches move with the note played, so a fixed filter cannot follow them exactly; String
 Sensing applies their average. The classes also assume the
 measured load. A short cable, a 1M input or a rolled-off volume knob moves a real pickup's peak.
+
+### Pitch Tracking EQ (`eq_pitch_tracking`)
+**Experimental**: offered in the FX library (and Nano Q's effect picker) only with the
+Experimental Effects feature on.
+
+An EQ whose bands follow the note being played. A fixed band sits on a different harmonic of
+every note; here each band is placed at a multiple of the fundamental `dsp/PitchTracker.h` finds
+(see *Pitch tracker* under Ring Modulator), so it lifts or cuts the same harmonic, and the tone
+keeps the same character, anywhere on the neck.
+
+    in -+- band 1 - band 2 - band 3 - low-pass - x Level - out
+        +- pitch tracker (mono sum) -> each band at Harmonic x f0, the low-pass at Cutoff x f0
+
+| Parameter | Range | Default | Unit |
+|-----------|-------|---------|------|
+| `harmonic1` / `2` / `3` | 0.5–16, half steps | 2 / 4 / 6 | × f0 |
+| `gain1` / `2` / `3` | −18 to +18 | 4 / 3 / 2 | dB |
+| `width1` / `2` / `3` | 0.1–2, log taper | 0.5 | harmonics |
+| `lowPass` | Off / On | Off | enum |
+| `cutoff` | 1–32, log taper (shown with the low-pass on) | 8 | × f0 |
+| `glide` (advanced) | 0–200 | 20 | ms |
+| `lowestNote` (advanced) | E2 / D2 / B1 / F#1 | E2 | enum |
+| `level` | −12 to +12 | 0 | dB |
+
+- **Bands** are RBJ peaking sections. Harmonic 1 is the fundamental, 2 its octave, 3 the octave
+  and a fifth, 0.5 an octave below. Width is the bandwidth in harmonics, that is in units of f0,
+  so Q is Harmonic / Width (held to 0.2–80): a width under 1 touches one harmonic whatever note
+  is played. At width 0.5, +12 dB on the 3rd harmonic moves the 2nd and 4th by 0.6 and 1.1 dB.
+- **Low-pass** is key-tracked as a synth filter is: a 12 dB/octave Butterworth at Cutoff × f0, so
+  low notes are not fizzy and high ones not dull. At Cutoff 4 the 8th harmonic loses 12.3 dB on
+  a G2 and 12.5 dB on a G4.
+- **Tracking.** Until a first note is found the effect is flat, sample for sample; it then fades
+  in over 15 ms. The followed pitch glides to each new note over Glide, in octaves, and the
+  coefficients ramp every 32 samples. Through silence and chords, which the tracker cannot read,
+  the bands stay on the last note it held. The tracker needs a few periods of a note, so the
+  attack of each new note goes through with the previous note's EQ (15–40 ms, longest on low
+  notes). Lowest Note narrows the tracker's window for a guitar that never goes below it.
+- A band that the note pushes past 0.45 of the sample rate fades out over the half-octave below,
+  rather than piling up at the top.
+- Read-only feedback: `trackedFrequency` (the tracker's pitch), `fundamental` (the pitch the
+  bands follow, after Glide), `bandFrequency1`–`3` and `lowPassFrequency` (0 before a first note,
+  or with the low-pass off).
+- About 2.3 µs per 64-sample stereo block at 48 kHz in Release. On 20 s of the demo DI riff every
+  preset adds nothing above 12 kHz (no zipper or clicks from the moving filters), and the
+  tracker holds a guitar pitch for 98% of blocks.
+
+**Factory presets** set everything but Level and Lowest Note, the player's own. The first holds
+the defaults, and it is what a new node starts with.
+
+| Preset | What it does |
+|---|---|
+| Even Warmth | 2nd, 4th and 6th harmonics up 4, 3 and 2 dB |
+| Odd Bite | 3rd, 5th and 7th up 5, 3 and 2 dB: reedier, more forward |
+| Hollow | 2nd, 4th and 6th cut 9, 7 and 5 dB: a hollow, clarinet-like tone |
+| Singing Fundamental | Fundamental +6 dB, 2nd +2 dB, 8th −3 dB, for leads |
+| Tame Fizz | 7th, 9th and 11th cut 5 dB, low-pass at 12 × f0, for a fizzy drive |
+| Even Brightness | Only the key-tracked low-pass, at 6 × f0 |
 
 ### Digital Delay (`delay_digital`)
 Clean stereo digital delay, with its tone filters and drive inside the feedback loop.
@@ -2392,7 +2450,8 @@ note). Their rates go no faster than 1/8 triplets. They were chosen when a new p
 ### Pitch tracking in Synth Voice, the Auto Arpeggiator and the tuner
 
 The same `dsp/PitchTracker.h` (see *Pitch tracker* under Ring Modulator) follows the note for
-three more features, each of which used to run a brute-force YIN of its own.
+three more features, each of which used to run a brute-force YIN of its own. The Pitch Tracking
+EQ (`eq_pitch_tracking`) uses it too, to place its bands.
 
 | Feature | How it uses the tracker |
 |---|---|

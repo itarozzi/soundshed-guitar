@@ -354,7 +354,7 @@ void Shell::ShowToast(const std::string& title, const std::string& detail, bool 
 std::vector<const EffectTypeInfo*> Shell::OfferedEffects() const
 {
     namespace guids = guitarfx::EffectGuids;
-    const std::set<std::string> experimental{guids::kTransposeStft, guids::kTransposeHybrid};
+    const std::set<std::string> experimental{guids::kTransposeStft, guids::kTransposeHybrid, guids::kEqPitchTracking};
     using guitarfx::uiclient::Feature;
     using guitarfx::uiclient::IsFeatureEnabled;
     const bool showExperimental = IsFeatureEnabled(mState, Feature::ExperimentalEffects);

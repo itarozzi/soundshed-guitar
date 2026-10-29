@@ -76,6 +76,7 @@ Level calibrated so the pedal matches bypass loudness. See the FX library's Driv
 |---------|------|----------------|
 | `eq_parametric` | 4-Band Parametric EQ | `lowGain/Freq/Q`, `lowMidGain/Freq/Q`, `highMidGain/Freq/Q`, `highGain/Freq/Q` (gains ±12 dB; shelf Q defaults 0.707) |
 | `eq_graphic` | Graphic Equalizer | Profile-owned 5/10-band Bass, Guitar, and General Purpose configurations. Each band has `bandNEnabled`, `bandNGain`, `bandNFreq`, and `bandNQ`. |
+| `eq_pitch_tracking` | Pitch Tracking EQ (experimental) | Three bands at `harmonicN` × the note played, with `gainN` and `widthN` (in harmonics); optional key-tracked `lowPass` at `cutoff` × the note |
 
 ### 2.5 Modulation
 

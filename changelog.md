@@ -12,6 +12,7 @@
   * **Stereo** sends the left input to branch 1 and the right to branch 2, so two instruments on one stereo input can each have their own rig. Any further branches get both.
 
   Every change of branch crossfades over Crossfade (10 ms to start with). Copy, which sends everything to every branch as before, is still the default, so your presets sound the same.
+* **Pitch Tracking EQ** (experimental, turn on Experimental Effects to see it): an EQ whose bands follow the note you play. Instead of a frequency, each of its three bands picks a harmonic of the note (the octave, the fifth above it, and so on), so it lifts or cuts the same part of the tone anywhere on the neck. Lift the even harmonics for warmth, cut them for a hollow tone, or push the fundamental for a lead that sings. An optional low-pass follows the note too, so low notes aren't fizzy and high ones aren't dull. It follows single notes; through chords it stays on the last note it heard. 6 factory presets.
 * IR Cab now has optional IR list for easy pairing
 * Many updates to the custom layout editor enabling better custom layout designs
 * Riff capture records on the new looper's recorder. An armed take now keeps the 10 ms before your first note, so the pick attack isn't cut, and waits for a note louder than your pickup's hum instead of a fixed level that a single coil's hum could set off. Your riff library and saved takes are unchanged.
