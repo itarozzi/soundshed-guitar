@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   MB_MIN_SPLIT_RATIO,
   DepthDisplay,
+  bandStates,
   crossoverAt,
   draggedCrossover,
   multibandPlotAxis,
@@ -47,5 +48,18 @@ describe("how hard each band works, as drawn", () => {
     expect(display.update([band(0), band(0), band(0), band(0)], 1100)[0]).toBeCloseTo(9, 6);
     expect(display.update([band(10), band(0), band(0), band(0)], 1200)[0]).toBe(10);
     expect(display.update(undefined, 5000)[0]).toBe(0);
+  });
+});
+
+describe("each band's On and Solo, as drawn", () => {
+  it("has every band on and heard for an effect without them", () => {
+    expect(bandStates({ drive1: 30 })).toEqual(Array(4).fill({ on: true, soloed: false, heard: true }));
+  });
+
+  it("hears only the soloed bands while any is soloed, whether or not they are on", () => {
+    const states = bandStates({ on2: 0, solo2: 1, solo4: 1 });
+    expect(states.map((state) => state.heard)).toEqual([false, true, false, true]);
+    expect(states.map((state) => state.on)).toEqual([true, false, true, true]);
+    expect(states.map((state) => state.soloed)).toEqual([false, true, false, true]);
   });
 });

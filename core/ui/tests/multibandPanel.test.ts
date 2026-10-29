@@ -1,7 +1,7 @@
 /**
  * The multi-band effects' section of the params panel: which effects get it, and what the
  * Compressor's and the Distortion's plots show differently (the hanging bar's legend and sign,
- * and where each band's strip mark comes from).
+ * where each band's strip mark comes from, and the Compressor's knees).
  */
 import { describe, expect, it } from "vitest";
 import type { EqSpectrumBand } from "../ts/eqSpectrum";
@@ -42,6 +42,11 @@ describe("the multi-band panel", () => {
     const kind = MULTIBAND_KINDS[EffectGuids.kMultibandCompressor];
     expect(kind.depthSign).toBe("−");
     expect(kind.thresholds({ threshold1: -30, threshold3: -12 }, undefined)).toEqual([-30, -24, -12, -24]);
+  });
+
+  it("shades the Compressor's knees, from the knobs, and no knee for the Distortion", () => {
+    expect(MULTIBAND_KINDS[EffectGuids.kMultibandCompressor].knees?.({ knee2: 0, knee4: 24 })).toEqual([6, 0, 6, 24]);
+    expect(MULTIBAND_KINDS[EffectGuids.kMultibandDistortion].knees).toBeUndefined();
   });
 
   it("marks the Distortion's strip where the engine says its knee is, else from Drive", () => {

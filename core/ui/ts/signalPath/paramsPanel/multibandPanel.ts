@@ -2,7 +2,8 @@
  * The multi-band effects' section of the params panel (the Multi-band Compressor
  * and Distortion): their four bands drawn over the live spectrum of the node's
  * input and output, with how hard each band works and its level
- * (multibandPlot.ts). The crossover lines can be dragged; a drag sets
+ * (multibandPlot.ts), dimmed where a band is off or another is soloed. The
+ * crossover lines can be dragged; a drag sets
  * crossover1..3 the way their knobs would. The two effects share bands and
  * crossovers; MULTIBAND_KINDS says what differs.
  */
@@ -14,6 +15,7 @@ import {
   MB_CROSSOVER_KEYS,
   MB_DEFAULT_THRESHOLD_DB,
   DepthDisplay,
+  bandStates,
   crossoverAt,
   draggedCrossover,
   drawMultibandPlot,
@@ -49,8 +51,12 @@ export interface MultibandKind {
   ariaLabel: string;
   /** Per band, the input level where its curve starts to act. */
   thresholds(params: Record<string, number | undefined>, bands: readonly EqSpectrumBand[] | undefined): number[];
+  /** Per band, the knee's width around that level, for an effect that has one. */
+  knees?: (params: Record<string, number | undefined>) => number[];
 }
 
+/** The compressor's Knee default (MultibandCompressorSupport.h). */
+const COMPRESSOR_DEFAULT_KNEE_DB = 6;
 /** The nominal operating level the engine assumes until told otherwise (LevelTargets.h). */
 const DEFAULT_NOMINAL_DBFS = -18;
 /** The distortion's knee over the nominal level (kKneeAboveNominalDb). */
@@ -72,6 +78,8 @@ export const MULTIBAND_KINDS: Readonly<Record<string, MultibandKind>> = {
     // From the knobs, so the mark follows a turn at once.
     thresholds: (params) =>
       Array.from({ length: MB_BAND_COUNT }, (_, band) => bandParam(params, `threshold${band + 1}`, MB_DEFAULT_THRESHOLD_DB)),
+    knees: (params) =>
+      Array.from({ length: MB_BAND_COUNT }, (_, band) => bandParam(params, `knee${band + 1}`, COMPRESSOR_DEFAULT_KNEE_DB)),
   },
   [EffectGuids.kMultibandDistortion]: {
     sectionClass: "mb-distortion",
@@ -132,6 +140,8 @@ function draw(canvas: HTMLCanvasElement, node: GraphNode, spectrum: EqSpectrum |
     spectrum,
     crossovers: orderedCrossovers(node.params),
     thresholdsDb: kind.thresholds(node.params, spectrum?.bands),
+    kneesDb: kind.knees?.(node.params),
+    bandStates: bandStates(node.params),
     depthDb: depthDisplay.update(spectrum?.bands, performance.now()),
     depthSign: kind.depthSign,
     activeCrossover,

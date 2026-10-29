@@ -21,14 +21,15 @@ namespace guitarfx
 {
 /**
  * Multi-band Compressor: four frequency bands, each compressed on its own level with its own
- * threshold, ratio and makeup.
+ * threshold, ratio, knee and makeup. Each band can be turned off (it passes untouched) or
+ * soloed (only the soloed bands are heard).
  *
  *   in ─ four-band LR4 split ─┬─ band 1 ─ × gain 1 ─┐
  *                             ├─ …                   ├─ Σ ─ out
  *                             └─ band 4 ─ × gain 4 ─┘
  *        each band's mean square ─ gain computer ─┘
  *
- * gain = Output · (Mix · compression · makeup + (1 − Mix))
+ * gain = Output · heard · (on · (Mix · compression · makeup + (1 − Mix)) + (1 − on))
  *
  * A boomy low string can be held down without squashing the pick attack above it, or fizz
  * tamed without thinning the body. The node panel draws the bands over the live spectrum,
@@ -37,10 +38,11 @@ namespace guitarfx
  * - The split is fourth-order Linkwitz-Riley crossovers with all-pass compensation
  *   (dsp/LinkwitzRileyCrossover.h), at three crossovers the player moves. Below every
  *   threshold the bands add up to a flat all-pass of the input.
- * - Gain reduction is a soft-knee curve on each band's detector, smoothed in dB by Attack and
+ * - Gain reduction is a knee curve on each band's detector, smoothed in dB by Attack and
  *   Release (slower in the lower bands), worked out every kControlInterval samples; the
  *   applied gain ramps per sample between.
  * - Mix blends each band with itself uncompressed, so dry and wet share the crossover's phase.
+ * - On and Solo glide like Makeup, so switching a band does not click.
  * - One detector per band drives both channels, except in dual mono.
  * - No latency.
  */
@@ -230,7 +232,7 @@ class MultibandCompressorEffect : public EffectProcessor
             meter.highHz = band < kSplits ? mMeterSplitHz[index].load(std::memory_order_relaxed) : 0.0;
             meter.gainReductionDb = mMeterReductionDb[index].exchange(0.0f, std::memory_order_relaxed);
             meter.levelDb = mMeterLevelDb[index].load(std::memory_order_relaxed);
-            meter.thresholdDb = Value(multiband_compressor::BandParam(band, 0));
+            meter.thresholdDb = Value(multiband_compressor::BandParam(band, multiband_compressor::kBandThreshold));
         }
 
         return count;
@@ -277,7 +279,10 @@ class MultibandCompressorEffect : public EffectProcessor
     {
         std::array<double, kBands> thresholdDb{};
         std::array<double, kBands> ratio{};
+        std::array<double, kBands> kneeDb{};
         std::array<double, kBands> makeup{}; ///< linear
+        std::array<double, kBands> on{};     ///< 1 compressing, 0 passing untouched
+        std::array<double, kBands> heard{};  ///< 0 while another band is soloed and this one is not
         std::array<double, kBands> attackCoef{};
         std::array<double, kBands> releaseCoef{};
         double mix = 1.0;
@@ -285,7 +290,7 @@ class MultibandCompressorEffect : public EffectProcessor
         bool linked = true;
     };
 
-    /// Makeup, Mix and Output glide over this, so a knob turn or a preset change does not step
+    /// Makeup, Mix, Output, On and Solo glide over this, so a knob turn or a preset change does not step
     /// the level mid-note and click (as the VCA compressor's do).
     static constexpr double kLevelSmoothingMs = 20.0;
 
@@ -358,13 +363,22 @@ class MultibandCompressorEffect : public EffectProcessor
         Settings settings;
         const double attackMs = Value(kAttack);
         const double releaseMs = Value(kRelease);
+        bool anySolo = false;
+
+        for (int band = 0; band < kBands; ++band)
+        {
+            anySolo = anySolo || Value(BandParam(band, kBandSolo)) >= 0.5f;
+        }
 
         for (std::size_t band = 0; band < kBands; ++band)
         {
             const int index = static_cast<int>(band);
-            settings.thresholdDb[band] = Value(BandParam(index, 0));
-            settings.ratio[band] = Value(BandParam(index, 1));
-            settings.makeup[band] = std::pow(10.0, Value(BandParam(index, 2)) / 20.0);
+            settings.thresholdDb[band] = Value(BandParam(index, kBandThreshold));
+            settings.ratio[band] = Value(BandParam(index, kBandRatio));
+            settings.kneeDb[band] = Value(BandParam(index, kBandKnee));
+            settings.makeup[band] = std::pow(10.0, Value(BandParam(index, kBandGain)) / 20.0);
+            settings.on[band] = Value(BandParam(index, kBandOn)) >= 0.5f ? 1.0 : 0.0;
+            settings.heard[band] = !anySolo || Value(BandParam(index, kBandSolo)) >= 0.5f ? 1.0 : 0.0;
             settings.attackCoef[band] = OnePole(attackMs * kTimeScale[band], kControlInterval);
             settings.releaseCoef[band] = OnePole(releaseMs * kTimeScale[band], kControlInterval);
         }
@@ -388,30 +402,40 @@ class MultibandCompressorEffect : public EffectProcessor
         }
     }
 
-    /// Smooths `reductionDb` toward what `level` asks for, one control step.
+    /// Smooths `reductionDb` toward what `level` asks for, one control step. A band turned off
+    /// lets go at its release and meters none, since none of it is heard.
     static void UpdateReduction(const Settings& settings, const std::array<double, kBands>& level,
                                 std::array<double, kBands>& reductionDb, std::array<float, kBands>& blockReductionDb)
     {
         for (std::size_t band = 0; band < kBands; ++band)
         {
+            const bool on = settings.on[band] > 0.0;
             const double levelDb = 10.0 * std::log10(std::max(level[band], 1.0e-12));
             const double target =
-                multiband_compressor::GainReductionDb(levelDb - settings.thresholdDb[band], settings.ratio[band]);
+                on ? multiband_compressor::GainReductionDb(levelDb - settings.thresholdDb[band], settings.ratio[band],
+                                                           settings.kneeDb[band])
+                   : 0.0;
             double& reduction = reductionDb[band];
             reduction +=
                 (target > reduction ? settings.attackCoef[band] : settings.releaseCoef[band]) * (target - reduction);
-            blockReductionDb[band] = std::max(blockReductionDb[band], static_cast<float>(reduction));
+
+            if (on)
+            {
+                blockReductionDb[band] = std::max(blockReductionDb[band], static_cast<float>(reduction));
+            }
         }
     }
 
     /// Sets the channel's gains ramping, over the next control interval, to what its gain
-    /// reduction, Makeup, Mix and Output now make.
+    /// reduction, Makeup, Mix, Output, On and Solo now make.
     void SetRamps(Channel& channel) const
     {
         for (std::size_t band = 0; band < kBands; ++band)
         {
             const double compressed = std::pow(10.0, -channel.reductionDb[band] / 20.0) * mMakeup[band];
-            const auto gain = static_cast<float>(mOutput * (mMix * compressed + (1.0 - mMix)));
+            const double processed = mMix * compressed + (1.0 - mMix);
+            const double on = mOn[band];
+            const auto gain = static_cast<float>(mOutput * mHeard[band] * (on * processed + (1.0 - on)));
 
             if (!mLevelsPrimed)
             {
@@ -426,12 +450,14 @@ class MultibandCompressorEffect : public EffectProcessor
         }
     }
 
-    /// Makeup, Mix and Output one control step closer to what the controls say.
+    /// Makeup, Mix, Output, On and Solo one control step closer to what the controls say.
     void GlideLevels(const Settings& settings)
     {
         if (!mLevelsPrimed)
         {
             mMakeup = settings.makeup;
+            mOn = settings.on;
+            mHeard = settings.heard;
             mMix = settings.mix;
             mOutput = settings.output;
             return;
@@ -440,6 +466,8 @@ class MultibandCompressorEffect : public EffectProcessor
         for (std::size_t band = 0; band < kBands; ++band)
         {
             mMakeup[band] += mLevelCoef * (settings.makeup[band] - mMakeup[band]);
+            mOn[band] += mLevelCoef * (settings.on[band] - mOn[band]);
+            mHeard[band] += mLevelCoef * (settings.heard[band] - mHeard[band]);
         }
 
         mMix += mLevelCoef * (settings.mix - mMix);
@@ -582,6 +610,8 @@ class MultibandCompressorEffect : public EffectProcessor
     std::array<double, kSplits> mSplitHz{};
     std::array<Channel, 2> mChannels;
     std::array<double, kBands> mMakeup{};
+    std::array<double, kBands> mOn{};
+    std::array<double, kBands> mHeard{};
     double mMix = 1.0;
     double mOutput = 1.0;
     bool mLevelsPrimed = false;
@@ -596,7 +626,7 @@ inline void RegisterMultibandCompressorEffect()
     info.aliases = {"dynamics_multiband_compressor"};
     info.displayName = "Multi-band Compressor";
     info.category = "dynamics";
-    info.description = "Four-band compressor: each band has its own threshold, ratio and makeup";
+    info.description = "Four-band compressor: each band has its own threshold, ratio, knee and makeup";
     info.requiresResource = false;
     info.parameters = BuildParameterDefs(multiband_compressor::kParams);
 

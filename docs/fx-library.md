@@ -811,7 +811,7 @@ Fade (2 / 500 ms, -30 dB).
 
 ### Multi-band Compressor (`dynamics_multiband_compressor`)
 A compressor in four frequency bands, each compressed on its own level with its own threshold,
-ratio and makeup. It holds down a boomy low string without squashing the pick attack above it,
+ratio, knee and makeup, and each with On and Solo. It holds down a boomy low string without squashing the pick attack above it,
 or tames fizz without thinning the body. Engine: `MultibandCompressorEffect.h`, with the
 parameter table, crossover ordering and gain curve in `MultibandCompressorSupport.h`. Plan:
 docs/plans/multiband-compressor.md. No latency.
@@ -823,20 +823,29 @@ docs/plans/multiband-compressor.md. No latency.
   an octave above the one below, and the top one under 0.45 × the sample rate.
 - **Detectors.** Each band's mean square over 8, 4, 2 and 1 ms (low band first). Linked across
   channels (the louder side), separate in dual mono.
-- **Gain.** A 6 dB soft knee, then (1 − 1/ratio) of the overshoot. The reduction is smoothed in
+- **Gain.** A knee `kneeN` wide centred on the threshold (a parabola, so no corner; 0 is a hard
+  knee), then (1 − 1/ratio) of the overshoot. The reduction is smoothed in
   dB by `attack` and `release`, stretched 2× in the low band and 1.5× in the low mid (a fast
   release on a low note pumps and distorts it). Worked out every 16 samples; the applied gain
   ramps per sample.
 - **Mix** blends each band with itself uncompressed, so dry and wet share the crossover's
   phase and a half-way Mix does not comb. Makeup is on the compressed part; `output` trims the
   sum. Makeup, Mix and Output glide over 20 ms.
+- **On and Solo.** A band turned off passes untouched (no compression, no makeup) and meters no
+  reduction; its detector lets go at its release, so turning it back on starts from rest. While
+  any band is soloed only the soloed bands are heard, each as it would be (compressed if on,
+  untouched if off), and Output still applies. Both glide over 20 ms, so switching does not click.
+  Solo is saved with the preset like any other param.
 
 | Param | Range | Default | Notes |
 |---|---|---|---|
 | `crossover1`..`crossover3` | 40..1000, 150..5000, 600..12000 Hz | 200, 800, 3000 Hz | Group Crossovers, log taper |
 | `threshold1`..`threshold4` | -60..0 dB | -24 dB | Groups Low, Low Mid, High Mid, High |
 | `ratio1`..`ratio4` | 1..20 | 3 | Log taper; 1 leaves the band alone |
+| `knee1`..`knee4` | 0..24 dB | 6 dB | Width centred on the threshold; 0 is a hard knee |
 | `gain1`..`gain4` | -12..+12 dB | 0 | Makeup |
+| `on1`..`on4` | toggle | on | Off passes the band untouched |
+| `solo1`..`solo4` | toggle | off | Any soloed: only the soloed bands are heard |
 | `attack` | 0.1..100 ms | 10 ms | Log taper |
 | `release` | 10..1000 ms | 120 ms | Log taper |
 | `mix` | 0..1 | 1 | Per band, in phase |
@@ -844,7 +853,9 @@ docs/plans/multiband-compressor.md. No latency.
 
 **The node panel** draws the bands over the spectrum: the input shaded, the output as a line,
 each band's gain reduction hanging from the top with its number, and under the plot each band's
-level against its threshold. The crossovers can be dragged. The engine side is the EQ's spectrum
+level against its threshold, with the knee shaded around it. A band that is off is labelled so and
+never shows reduction; bands silenced by another's solo are shaded over, and a soloed band's name
+turns gold. The crossovers can be dragged. The engine side is the EQ's spectrum
 tap plus `EffectProcessor::BandMeterCount`/`ReadBandMeters`: a watched node with band meters is
 also tapped after it runs, and `sldS` carries its output bins and bands (docs/user-interface.md).
 

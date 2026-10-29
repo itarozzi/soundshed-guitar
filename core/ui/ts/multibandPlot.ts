@@ -9,7 +9,9 @@
  *   - a column per band, divided at the crossovers, with how hard the band is
  *     working hanging from the top and its number: the compressor's gain
  *     reduction, the distortion's drive past its clipper's knee
- *   - under the plot, each band's level against where its curve starts to act
+ *   - under the plot, each band's level against where its curve starts to act,
+ *     with the compressor's knee as a shaded span around that mark
+ *   - a band turned off, or silenced by another band's solo, dimmed
  *
  * The engine sends the output bins and the band meters with the spectrum
  * ("sldS" o and b, eqSpectrum.ts). This file only draws and does the
@@ -125,12 +127,41 @@ export class DepthDisplay {
   }
 }
 
+/** A band's On and Solo, as the plot shows them. */
+export interface MultibandBandState {
+  /** Off, it passes untouched: nothing hangs from the top, and its level is never "over". */
+  on: boolean;
+  soloed: boolean;
+  /** False while another band is soloed and this one is not: drawn dimmed. */
+  heard: boolean;
+}
+
+function flag(params: Record<string, number | undefined>, key: string, fallback: boolean): boolean {
+  const value = params[key];
+  return typeof value === "number" && Number.isFinite(value) ? value >= 0.5 : fallback;
+}
+
+/** Each band's state from on1..4 and solo1..4; an effect without them has every band on and heard. */
+export function bandStates(params: Record<string, number | undefined>): MultibandBandState[] {
+  const soloed = Array.from({ length: MB_BAND_COUNT }, (_, band) => flag(params, `solo${band + 1}`, false));
+  const anySolo = soloed.some(Boolean);
+  return soloed.map((solo, band) => ({
+    on: flag(params, `on${band + 1}`, true),
+    soloed: solo,
+    heard: !anySolo || solo,
+  }));
+}
+
 export interface MultibandPlotState {
   spectrum: EqSpectrum | null;
   /** The crossovers to draw (orderedCrossovers). */
   crossovers: readonly number[];
   /** Per band, the input level where its curve starts to act: the strip's mark. */
   thresholdsDb: readonly number[];
+  /** Per band, the knee's width centred on that mark, shaded on the strip; none when absent. */
+  kneesDb?: readonly number[];
+  /** Per band, On and Solo (bandStates); every band on and heard when absent. */
+  bandStates?: readonly MultibandBandState[];
   /** How hard each band works, as DepthDisplay gives it. */
   depthDb: readonly number[];
   /** Before the depth's number: "−" for a cut, "+" for a drive. */
@@ -171,6 +202,9 @@ export function drawMultibandPlot(canvas: HTMLCanvasElement, state: MultibandPlo
   const levelOver = themeColor(styles, "--mb-level-over", "rgba(240, 150, 90, 0.85)");
   const thresholdMark = themeColor(styles, "--mb-threshold", colors.response);
   const stripBackground = themeColor(styles, "--mb-strip-bg", "rgba(0, 0, 0, 0.28)");
+  const kneeFill = themeColor(styles, "--mb-knee", "rgba(72, 168, 224, 0.3)");
+  const unheardFill = themeColor(styles, "--mb-unheard", "rgba(0, 0, 0, 0.5)");
+  const soloLabel = themeColor(styles, "--mb-solo", "rgba(240, 200, 80, 0.95)");
 
   ctx.clearRect(0, 0, width, height);
 
@@ -208,7 +242,9 @@ export function drawMultibandPlot(canvas: HTMLCanvasElement, state: MultibandPlo
     const left = edges[band];
     const right = edges[band + 1];
     const columnWidth = Math.max(0, right - left);
-    const depthDb = Math.min(MB_DEPTH_SCALE_DB, Math.max(0, state.depthDb[band] ?? 0));
+    const bandState = state.bandStates?.[band] ?? { on: true, soloed: false, heard: true };
+    // A band turned off does nothing, whatever the meter is still falling back from.
+    const depthDb = bandState.on ? Math.min(MB_DEPTH_SCALE_DB, Math.max(0, state.depthDb[band] ?? 0)) : 0;
 
     // How hard the band works hangs from the top, over half the plot at full scale.
     const depth = (depthDb / MB_DEPTH_SCALE_DB) * plotHeight * 0.5;
@@ -219,18 +255,29 @@ export function drawMultibandPlot(canvas: HTMLCanvasElement, state: MultibandPlo
       ctx.fillRect(left + 1, PADDING + depth - 1.5, columnWidth - 2, 2);
     }
 
-    // The band's name, and its depth while it is working.
-    ctx.fillStyle = label;
+    // A band silenced by another's solo is shaded over, spectrum, reduction and all: it still
+    // compresses, but none of it is heard.
+    if (!bandState.heard) {
+      ctx.fillStyle = unheardFill;
+      ctx.fillRect(left, PADDING, columnWidth, plotHeight);
+    }
+
+    // The band's name, with Solo or Off when it fits, and its depth while it is working.
+    ctx.fillStyle = bandState.soloed ? soloLabel : label;
+    ctx.globalAlpha = bandState.on && bandState.heard ? 1 : 0.55;
     ctx.textAlign = "center";
     const centre = left + columnWidth / 2;
     if (columnWidth > 36) {
-      ctx.fillText(MB_BAND_LABELS[band], centre, PADDING + 3);
+      const name = MB_BAND_LABELS[band];
+      const marked = bandState.soloed ? `${name} · Solo` : bandState.on ? name : `${name} · Off`;
+      ctx.fillText(ctx.measureText(marked).width <= columnWidth - 4 ? marked : name, centre, PADDING + 3);
     }
     if (depthDb >= 0.5 && columnWidth > 30) {
       ctx.fillStyle = depthEdge;
       // Under the bar's edge, so the edge never strikes through it.
       ctx.fillText(`${state.depthSign}${depthDb.toFixed(1)} dB`, centre, Math.max(PADDING + 16, PADDING + depth + 3));
     }
+    ctx.globalAlpha = 1;
 
     // The level strip: the band's level from the left, its threshold as a mark.
     const toStripX = (db: number): number => {
@@ -240,10 +287,17 @@ export function drawMultibandPlot(canvas: HTMLCanvasElement, state: MultibandPlo
     ctx.fillStyle = stripBackground;
     ctx.fillRect(left + 1, stripTop, columnWidth - 2, STRIP_HEIGHT);
     const threshold = state.thresholdsDb[band] ?? MB_DEFAULT_THRESHOLD_DB;
+    const kneeDb = state.kneesDb?.[band] ?? 0;
+    if (kneeDb > 0) {
+      const kneeLeft = toStripX(threshold - kneeDb / 2);
+      ctx.fillStyle = kneeFill;
+      ctx.fillRect(kneeLeft, stripTop, toStripX(threshold + kneeDb / 2) - kneeLeft, STRIP_HEIGHT);
+    }
     const level = levels?.[band]?.levelDb;
     if (typeof level === "number" && level > MB_LEVEL_MIN_DB) {
       const levelX = toStripX(level);
-      const thresholdX = toStripX(threshold);
+      // Off, nothing acts on the band, so none of its level is "over".
+      const thresholdX = bandState.on ? toStripX(threshold) : levelX;
       ctx.fillStyle = levelFill;
       ctx.fillRect(left + 2, stripTop + 3, Math.min(levelX, thresholdX) - left - 2, STRIP_HEIGHT - 6);
       if (levelX > thresholdX) {

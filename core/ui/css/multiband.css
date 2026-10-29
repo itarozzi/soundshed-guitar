@@ -15,6 +15,9 @@
   --mb-level: rgba(240, 240, 248, 0.42);
   --mb-level-over: rgba(240, 150, 90, 0.85);
   --mb-strip-bg: rgba(0, 0, 0, 0.28);
+  --mb-knee: rgba(72, 168, 224, 0.3);
+  --mb-unheard: rgba(0, 0, 0, 0.5);
+  --mb-solo: rgba(240, 200, 80, 0.95);
 }
 
 .theme-light .mb-section {
@@ -25,6 +28,9 @@
   --mb-level: rgba(58, 74, 96, 0.42);
   --mb-level-over: rgba(181, 82, 30, 0.85);
   --mb-strip-bg: rgba(17, 19, 24, 0.08);
+  --mb-knee: rgba(30, 110, 170, 0.22);
+  --mb-unheard: rgba(232, 236, 242, 0.65);
+  --mb-solo: rgba(150, 100, 0, 0.95);
 }
 
 /* The distortion's drive is red, so it does not read as the compressor's cut. */
