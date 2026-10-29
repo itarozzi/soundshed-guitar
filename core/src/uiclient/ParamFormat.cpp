@@ -5,6 +5,7 @@
 #include "uiclient/ParamFormat.h"
 
 #include "dsp/EffectGuids.h"
+#include "dsp/FiniteCheck.h"
 #include "dsp/ParamTaper.h"
 
 #include <algorithm>
@@ -68,7 +69,7 @@ std::optional<double> ParseTypedNumber(const std::string& text)
     char* end = nullptr;
     double value = std::strtod(begin, &end);
 
-    if (end == begin || !std::isfinite(value))
+    if (end == begin || !guitarfx::IsFinite(value))
     {
         return std::nullopt;
     }

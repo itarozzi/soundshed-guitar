@@ -4,6 +4,7 @@
  * messages/captureHandlers.ts and bridge.ts use them.
  */
 
+#include "dsp/FiniteCheck.h"
 #include "uiclient/Looper.h"
 #include "uiclient/UiClient.h"
 #include "uiclient/UiCommands.h"
@@ -45,7 +46,7 @@ double FiniteOr(const nlohmann::json& m, const char* key, double fallback)
     }
 
     const double v = it->get<double>();
-    return std::isfinite(v) ? v : fallback;
+    return guitarfx::IsFinite(v) ? v : fallback;
 }
 } // namespace
 

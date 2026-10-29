@@ -5,6 +5,7 @@
 #include "uiclient/NodeLabels.h"
 
 #include "dsp/EffectGuids.h"
+#include "dsp/FiniteCheck.h"
 #include "uiclient/ChainLayout.h"
 #include "util/PathEncoding.h"
 
@@ -215,7 +216,7 @@ bool NodeNamFullyCalibrated(const ClientState& state, const GraphNode& node)
 
         char* end = nullptr;
         const double value = std::strtod(text.c_str(), &end);
-        return end != nullptr && *end == '\0' && std::isfinite(value);
+        return end != nullptr && *end == '\0' && guitarfx::IsFinite(value);
     };
 
     int considered = 0;

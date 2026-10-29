@@ -41,6 +41,7 @@
 #include "dsp/SignalGraphExecutor.h"
 #include "dsp/effects/NoiseGateEffect.h"
 #include "presets/PresetTypes.h"
+#include "NonFiniteInputs.h"
 
 namespace
 {
@@ -761,7 +762,7 @@ void TestNonFiniteInputDoesNotLatch()
     // One bad sample from upstream. NaN propagates through a one-pole detector and compares
     // false against every threshold, so without a guard the gate never opens again.
     std::vector<float> poisoned(kBlockSize, 0.0f);
-    poisoned[10] = std::numeric_limits<float>::quiet_NaN();
+    poisoned[10] = test_support::RuntimeNaNf();
     RunMono(*gate, poisoned);
 
     const auto loud = Tone(0.5, static_cast<int>(kSampleRate * 0.25));

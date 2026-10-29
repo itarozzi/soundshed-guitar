@@ -576,6 +576,8 @@ set(GUITARFX_CORE_SOURCES
     src/controller/internal/HostedPluginSupport.cpp
     src/controller/internal/LayoutSupport.h
     src/controller/internal/LayoutSupport.cpp
+    src/controller/internal/LayoutImages.cpp
+    src/controller/internal/LayoutText.h
     src/controller/internal/MetronomeSupport.h
     src/controller/internal/NamResourceMetadata.h
     src/controller/internal/NamResourceMetadata.cpp

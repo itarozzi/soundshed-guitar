@@ -11,6 +11,7 @@
 #include "dsp/IRWavLoader.h"
 #include "util/AudioDecoder.h"
 #include "util/Wav.h"
+#include "NonFiniteInputs.h"
 
 #ifndef GUITARFX_TEST_RESOURCES_DIR
     #error "GUITARFX_TEST_RESOURCES_DIR must be defined"
@@ -302,7 +303,7 @@ std::vector<std::uint8_t> FloatAifc(const std::vector<float>& samples)
 bool TestFloatAiffDecode()
 {
     std::cout << "Test: float AIFF decode\n";
-    const float nan = std::numeric_limits<float>::quiet_NaN();
+    const float nan = test_support::RuntimeNaNf();
     const auto decoded = guitarfx::util::DecodeAudioBytes(FloatAifc({0.5f, -0.25f, nan, 0.125f}));
     const bool right = decoded && decoded->channels == 1 && decoded->channelSamples.size() == 1 &&
                        decoded->channelSamples[0] == std::vector<double>{0.5, -0.25, 0.0, 0.125};

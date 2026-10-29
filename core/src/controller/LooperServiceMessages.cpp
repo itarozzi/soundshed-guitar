@@ -6,6 +6,7 @@
 #include "IPluginHost.h"
 #include "MessageHandlerRegistry.h"
 #include "controller/MetronomeService.h"
+#include "dsp/FiniteCheck.h"
 
 #include <algorithm>
 #include <cmath>
@@ -138,13 +139,13 @@ void ReadSettings(const nlohmann::json& source, LooperService::Settings& setting
 
     settings.maxSeconds = nearest;
     settings.memoryBudgetMb = std::clamp(settings.memoryBudgetMb, 64, 4096);
-    settings.level = std::isfinite(settings.level) ? std::clamp(settings.level, 0.0, 2.0) : 1.0;
+    settings.level = guitarfx::IsFinite(settings.level) ? std::clamp(settings.level, 0.0, 2.0) : 1.0;
     settings.bars = std::clamp(settings.bars, 1, 64);
     settings.countInBars = std::clamp(settings.countInBars, 0, 2);
     settings.armThresholdDb =
-        std::isfinite(settings.armThresholdDb) ? std::clamp(settings.armThresholdDb, -80.0, -20.0) : -50.0;
+        guitarfx::IsFinite(settings.armThresholdDb) ? std::clamp(settings.armThresholdDb, -80.0, -20.0) : -50.0;
     settings.alignOffsetMs =
-        std::isfinite(settings.alignOffsetMs) ? std::clamp(settings.alignOffsetMs, -50.0, 50.0) : 0.0;
+        guitarfx::IsFinite(settings.alignOffsetMs) ? std::clamp(settings.alignOffsetMs, -50.0, 50.0) : 0.0;
 }
 
 nlohmann::json SettingsToJson(const LooperService::Settings& settings)
@@ -267,13 +268,13 @@ void LooperService::HandleSetLayer(const nlohmann::json& payload)
     if (const auto it = payload.find("level"); it != payload.end() && it->is_number())
     {
         const double level = it->get<double>();
-        mix.level.store(std::isfinite(level) ? static_cast<float>(std::clamp(level, 0.0, 2.0)) : 1.0f);
+        mix.level.store(guitarfx::IsFinite(level) ? static_cast<float>(std::clamp(level, 0.0, 2.0)) : 1.0f);
     }
 
     if (const auto it = payload.find("balance"); it != payload.end() && it->is_number())
     {
         const double balance = it->get<double>();
-        mix.balance.store(std::isfinite(balance) ? static_cast<float>(std::clamp(balance, -1.0, 1.0)) : 0.0f);
+        mix.balance.store(guitarfx::IsFinite(balance) ? static_cast<float>(std::clamp(balance, -1.0, 1.0)) : 0.0f);
     }
 
     if (const auto it = payload.find("muted"); it != payload.end() && it->is_boolean())

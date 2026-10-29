@@ -34,6 +34,7 @@
 #include "dsp/NoteTracker.h"
 #include "dsp/PickAttackDetector.h"
 #include "dsp/PitchTracker.h"
+#include "NonFiniteInputs.h"
 
 #ifndef GUITARFX_DEMO_AUDIO_DIR
     #error "GUITARFX_DEMO_AUDIO_DIR must be defined"
@@ -495,7 +496,7 @@ void TestBlockSizeAndNaN()
 
     for (std::size_t n = static_cast<std::size_t>(0.3 * rate); n < static_cast<std::size_t>(0.3 * rate) + 64; ++n)
     {
-        poisoned[n] = std::numeric_limits<float>::quiet_NaN();
+        poisoned[n] = test_support::RuntimeNaNf();
     }
 
     const auto events = Run(poisoned, rate);

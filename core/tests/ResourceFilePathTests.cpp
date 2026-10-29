@@ -37,6 +37,7 @@
 #include "storage/JsonStore.h"
 #include "util/Base64.h"
 #include "util/FileIO.h"
+#include "util/FileSystem.h"
 #include "util/LongPath.h"
 #include "util/PathEncoding.h"
 #include "util/PathSanitizer.h"
@@ -180,6 +181,9 @@ fs::path Sandbox(const std::string& name)
 #else
     setenv("HOME", root.string().c_str(), 1);
 #endif
+    // The tests read and write <root>/Soundshed Guitar, which is where APPDATA puts it on Windows;
+    // macOS would look under Library/, Linux under .config/.
+    guitarfx::FileSystem::SetPlatformRootOverride(root / "Soundshed Guitar");
     return root;
 }
 
@@ -657,6 +661,7 @@ void TestLongPathsLoad()
     Expect(registered, "loadModel adds the long-path model to the library");
 }
 
+#ifdef _WIN32
 /// A profile so deep that a factory archive's extraction folder passes the 248 characters
 /// CreateDirectory allows and its files pass MAX_PATH, while the archive itself sits at a short
 /// path, as an install's does. The files were written, but the existence check after the write
@@ -670,6 +675,7 @@ void TestFactoryArchiveUnderLongProfile()
     const auto profile = bundled / std::string(shortest < 252 ? 253 - shortest : 1, 'p');
     const auto packDir = profile / packTail;
     _putenv_s("APPDATA", profile.string().c_str());
+    guitarfx::FileSystem::SetPlatformRootOverride(profile / "Soundshed Guitar");
 
     const std::string modelName = kHashA + "-Deep-Model.nam";
     const std::string irName = kHashB + "-Deep-Cab.wav";
@@ -729,6 +735,7 @@ void TestFactoryArchiveUnderLongProfile()
                std::string(start) + ": the preset's model resolves to the extracted bytes");
     }
 }
+#endif
 } // namespace
 
 int main()

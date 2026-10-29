@@ -26,6 +26,7 @@
 #include "dsp/SpliceTransposer.h"
 #include "helpers/AudioThreadAllocations.h"
 #include "helpers/GuitarPhraseSynth.h"
+#include "NonFiniteInputs.h"
 
 namespace
 {
@@ -474,11 +475,11 @@ void TestHostileInput()
 
             if (i % 4801 == 100)
             {
-                x = std::numeric_limits<float>::quiet_NaN();
+                x = test_support::RuntimeNaNf();
             }
             else if (i % 7919 == 50)
             {
-                x = std::numeric_limits<float>::infinity();
+                x = test_support::RuntimeInfinityf();
             }
 
             if (i == tone.size() / 3)

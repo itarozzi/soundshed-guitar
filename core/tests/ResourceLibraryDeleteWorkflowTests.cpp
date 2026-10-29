@@ -17,6 +17,7 @@
 #include "presets/PresetStorage.h"
 #include "presets/PresetTypes.h"
 #include "presets/PresetTypesJson.h"
+#include "util/FileSystem.h"
 
 namespace fs = std::filesystem;
 
@@ -84,6 +85,9 @@ void SetSettingsEnvRoot(const fs::path& root)
 #else
     setenv("HOME", root.string().c_str(), 1);
 #endif
+    // The tests read and write <root>/Soundshed Guitar, which is where APPDATA puts it on Windows;
+    // macOS would look under Library/, Linux under .config/.
+    guitarfx::FileSystem::SetPlatformRootOverride(root / "Soundshed Guitar");
 }
 
 std::optional<nlohmann::json> FindLastMessageOfType(const std::vector<std::string>& messages, const std::string& type)

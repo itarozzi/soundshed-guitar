@@ -5,6 +5,8 @@
 
 #include "uiclient/EffectLayouts.h"
 
+#include "dsp/FiniteCheck.h"
+
 #include <algorithm>
 #include <cctype>
 #include <cmath>
@@ -63,7 +65,7 @@ std::optional<double> NumberOf(const nlohmann::json& object, const char* key)
         return std::nullopt;
     }
 
-    return std::isfinite(value) ? std::optional<double>(value) : std::nullopt;
+    return guitarfx::IsFinite(value) ? std::optional<double>(value) : std::nullopt;
 }
 
 double NumberOr(const nlohmann::json& object, const char* key, double fallback)
@@ -87,7 +89,7 @@ std::optional<double> StrictNumberOf(const nlohmann::json& object, const char* k
     }
 
     const double value = it->get<double>();
-    return std::isfinite(value) ? std::optional<double>(value) : std::nullopt;
+    return guitarfx::IsFinite(value) ? std::optional<double>(value) : std::nullopt;
 }
 
 bool BoolIs(const nlohmann::json& object, const char* key, bool value)

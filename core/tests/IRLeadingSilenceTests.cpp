@@ -30,6 +30,7 @@
 #include "dsp/IrLeadingSilence.h"
 #include "dsp/effects/BuiltinEffects.h"
 #include "presets/PresetTypes.h"
+#include "NonFiniteInputs.h"
 
 using namespace guitarfx;
 
@@ -258,7 +259,7 @@ bool TestFindsOnset()
     ok &= Expect(!ir_leading_silence::FindOnsetSample({}, {}), "an empty IR has no onset");
 
     std::vector<float> withBadSample(100, 0.0f);
-    withBadSample[5] = std::numeric_limits<float>::infinity();
+    withBadSample[5] = test_support::RuntimeInfinityf();
     withBadSample[70] = 1.0f;
     ok &= Expect(ir_leading_silence::FindOnsetSample(withBadSample, {}) == std::size_t{70},
                  "a non-finite sample counts as silence");

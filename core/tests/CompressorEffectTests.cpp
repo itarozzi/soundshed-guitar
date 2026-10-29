@@ -23,6 +23,7 @@
 
 #include "dsp/FiniteCheck.h"
 #include "dsp/effects/CompressorEffect.h"
+#include "NonFiniteInputs.h"
 
 namespace
 {
@@ -206,8 +207,8 @@ template <typename Compressor> void ExpectRecovers(const char* name, const Param
 void TestRecoversFromNonFiniteInput()
 {
     std::cout << "\nA NaN and an infinity in the input" << std::endl;
-    const float nan = std::numeric_limits<float>::quiet_NaN();
-    const float inf = std::numeric_limits<float>::infinity();
+    const float nan = test_support::RuntimeNaNf();
+    const float inf = test_support::RuntimeInfinityf();
     ExpectRecovers<guitarfx::CompressorEffect>("the VCA", kVca, nan, "a NaN");
     ExpectRecovers<guitarfx::CompressorEffect>("the VCA", kVca, inf, "an infinity");
     ExpectRecovers<guitarfx::OptoCompressorEffect>("the Opto", kOpto, nan, "a NaN");

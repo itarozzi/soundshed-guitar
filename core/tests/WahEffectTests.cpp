@@ -33,6 +33,7 @@
 #include "dsp/EffectRegistry.h"
 #include "dsp/FiniteCheck.h"
 #include "dsp/effects/WahEffect.h"
+#include "NonFiniteInputs.h"
 
 namespace
 {
@@ -74,7 +75,7 @@ void TestRegistration()
     wah->SetParam("control", 0.6);
     Check(wah->GetParam("control") == 1.0, "Control snaps to a choice");
     wah->SetParam("q", 0.3);
-    wah->SetParam("q", std::numeric_limits<double>::infinity());
+    wah->SetParam("q", test_support::RuntimeInfinity());
     Check(wah->GetParam("q") == 0.5, "a non-finite value is ignored", "q=" + Num(wah->GetParam("q")));
     Check(wah->GetParam("noSuchParam") == 0.0, "an unknown key reads as 0");
 }

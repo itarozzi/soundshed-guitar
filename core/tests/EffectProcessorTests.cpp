@@ -27,6 +27,7 @@
 #include "dsp/effects/AutoArpEffect.h"
 #include "dsp/effects/TempoSync.h"
 #include "presets/PresetTypes.h"
+#include "NonFiniteInputs.h"
 
 namespace
 {
@@ -1264,7 +1265,7 @@ bool TestParametricEQBandShapes()
     effect.SetParam("lowShape", -1.0);
     effect.SetParam("highShape", 42.0);
     passed = passed && effect.GetParam("lowShape") == 0.0 && effect.GetParam("highShape") == 1.0;
-    effect.SetParam("highShape", std::numeric_limits<double>::quiet_NaN());
+    effect.SetParam("highShape", test_support::RuntimeNaN());
     passed = passed && effect.GetParam("highShape") == 0.0;
     return passed;
 }

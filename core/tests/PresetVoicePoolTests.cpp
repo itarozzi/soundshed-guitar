@@ -6,6 +6,7 @@
 // each, and how the ramps move.
 
 #include "dsp/PresetVoicePool.h"
+#include "NonFiniteInputs.h"
 
 #include <cmath>
 #include <iostream>
@@ -148,7 +149,7 @@ void TestTailSpill()
 
     pool.SetTailSeconds(1000.0);
     Check(pool.GetTailSeconds() == PresetVoicePool::kMaxTailSeconds, "the tail length is capped");
-    pool.SetTailSeconds(std::numeric_limits<double>::quiet_NaN());
+    pool.SetTailSeconds(test_support::RuntimeNaN());
     Check(pool.GetTailSeconds() == 0.0, "a non-finite tail length turns the spill off");
     reaper.Stop();
 }

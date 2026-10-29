@@ -1,5 +1,6 @@
 #include "uiclient/PresetInspect.h"
 
+#include "dsp/FiniteCheck.h"
 #include "presets/PresetStorage.h"
 
 #include <algorithm>
@@ -450,7 +451,7 @@ std::vector<std::string> CleanupReport(const PresetCleanup& cleanup)
 
 void PeakHold::Push(double peakDb, double nowSeconds)
 {
-    if (!std::isfinite(peakDb))
+    if (!guitarfx::IsFinite(peakDb))
     {
         return;
     }
@@ -474,7 +475,7 @@ std::optional<double> PeakHold::Peak() const
 
 std::string FormatPeakDb(std::optional<double> peakDb)
 {
-    if (!peakDb || !std::isfinite(*peakDb))
+    if (!peakDb || !guitarfx::IsFinite(*peakDb))
     {
         return "\xE2\x80\x94";
     }

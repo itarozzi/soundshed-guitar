@@ -29,6 +29,7 @@
 #include "dsp/effects/BuiltinEffects.h"
 #include "presets/PresetTypes.h"
 #include "resources/ResourceLibrary.h"
+#include "NonFiniteInputs.h"
 
 using namespace guitarfx;
 
@@ -108,7 +109,7 @@ bool TestTaperMaths()
     passed &= Expect(TaperPositionToValue(logTaper, 1.0, 2000.0, 1.5) == 2000.0 &&
                          TaperPositionToValue(logTaper, 1.0, 2000.0, -0.5) == 1.0,
                      "A position outside 0..1 should clamp to the range");
-    passed &= Expect(TaperPositionToValue(logTaper, 1.0, 2000.0, std::numeric_limits<double>::quiet_NaN()) == 1.0,
+    passed &= Expect(TaperPositionToValue(logTaper, 1.0, 2000.0, test_support::RuntimeNaN()) == 1.0,
                      "A non-finite position should read as the bottom of the range");
     passed &= Expect(ParseParamTaper("log") == logTaper && ParseParamTaper("linear") == linearTaper &&
                          !ParseParamTaper("exp").has_value(),

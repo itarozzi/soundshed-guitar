@@ -4,6 +4,7 @@
 
 #include "uiclient/UiCommands.h"
 
+#include "dsp/FiniteCheck.h"
 #include "presets/PresetStorage.h"
 
 #include <algorithm>
@@ -144,7 +145,7 @@ void UiCommands::SavePresetWithDetails(const PresetDetails& details, bool asNew)
         payload["folderId"] = *details.folderId;
     }
 
-    if (details.designedPeakInputDbfs && std::isfinite(*details.designedPeakInputDbfs))
+    if (details.designedPeakInputDbfs && guitarfx::IsFinite(*details.designedPeakInputDbfs))
     {
         payload["designedPeakInputDbfs"] = std::round(*details.designedPeakInputDbfs * 10.0) / 10.0;
     }

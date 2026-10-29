@@ -16,10 +16,11 @@
 
 #include "controller/internal/ControllerUtils.h"
 #include "controller/internal/SettingsKeys.h"
+#include "dsp/FiniteCheck.h"
 
 #include <algorithm>
 #include <cmath>
-#include <limits>
+#include <optional>
 
 namespace guitarfx
 {
@@ -32,14 +33,18 @@ constexpr double kInputLevellingTargetPeakDbfs = -12.0;
 constexpr double kInputLevellingMaxTrimDb = 24.0;
 constexpr auto kTrainingStatusInterval = std::chrono::milliseconds(66);
 
-double PeakDbfs(float linear)
+/// None for silence. No non-finite value stands for "none" here: under -ffast-math an infinity or
+/// NaN constant need not survive to be tested (FiniteCheck.h), and an empty peak came out as one.
+std::optional<double> PeakDbfs(float linear)
 {
-    return linear > 0.0f ? 20.0 * std::log10(static_cast<double>(linear)) : -std::numeric_limits<double>::infinity();
+    return linear > 0.0f && guitarfx::IsFinite(linear)
+               ? std::optional<double>(20.0 * std::log10(static_cast<double>(linear)))
+               : std::nullopt;
 }
 
-nlohmann::json DbOrNull(double value)
+nlohmann::json DbOrNull(std::optional<double> value)
 {
-    return std::isfinite(value) ? nlohmann::json(std::round(value * 100.0) / 100.0) : nlohmann::json();
+    return value ? nlohmann::json(std::round(*value * 100.0) / 100.0) : nlohmann::json();
 }
 
 double TrimFor(double targetDbfs, double capturedDbfs)
@@ -66,10 +71,12 @@ std::string StringField(const nlohmann::json& object, const char* key)
     return it != object.end() && it->is_string() ? it->get<std::string>() : std::string{};
 }
 
-double NumberField(const nlohmann::json& object, const char* key)
+std::optional<double> NumberField(const nlohmann::json& object, const char* key)
 {
     const auto it = object.find(key);
-    return it != object.end() && it->is_number() ? it->get<double>() : std::numeric_limits<double>::quiet_NaN();
+    return it != object.end() && it->is_number() && guitarfx::IsFinite(it->get<double>())
+               ? std::optional<double>(it->get<double>())
+               : std::nullopt;
 }
 } // namespace
 
@@ -98,15 +105,9 @@ nlohmann::json PluginController::ReadInputLevellingProfiles() const
             continue;
         }
 
-        const double captured = NumberField(entry, "capturedPeakDbfs");
-        double target = NumberField(entry, "targetPeakDbfs");
-        target = std::isfinite(target) ? target : kInputLevellingTargetPeakDbfs;
-        double gain = NumberField(entry, "gainDb");
-
-        if (!std::isfinite(gain))
-        {
-            gain = std::isfinite(captured) ? target - captured : 0.0;
-        }
+        const auto captured = NumberField(entry, "capturedPeakDbfs");
+        const double target = NumberField(entry, "targetPeakDbfs").value_or(kInputLevellingTargetPeakDbfs);
+        const double gain = NumberField(entry, "gainDb").value_or(captured ? target - *captured : 0.0);
 
         nlohmann::json profile = {{"id", id},
                                   {"name", name},
@@ -156,8 +157,8 @@ void PluginController::SendInputLevellingTraining()
 {
     auto& hold = mPresetMixer.GetInputLevelHold();
     const bool active = mUserInputCalibrationTrainingActive && hold.IsArmed();
-    const double live = active ? PeakDbfs(hold.TakeLivePeak()) : -std::numeric_limits<double>::infinity();
-    const double captured = active ? PeakDbfs(hold.CapturedPeak()) : -std::numeric_limits<double>::infinity();
+    const auto live = active ? PeakDbfs(hold.TakeLivePeak()) : std::nullopt;
+    const auto captured = active ? PeakDbfs(hold.CapturedPeak()) : std::nullopt;
     const bool clipped = active && hold.Clipped();
 
     mInputLevellingLastSent = std::chrono::steady_clock::now();
@@ -168,7 +169,7 @@ void PluginController::SendInputLevellingTraining()
         {"capturedPeakDbfs", DbOrNull(captured)},
         {"clipped", clipped},
         {"recommendedTrimDb",
-         std::isfinite(captured) ? DbOrNull(TrimFor(kInputLevellingTargetPeakDbfs, captured)) : nlohmann::json()},
+         captured ? DbOrNull(TrimFor(kInputLevellingTargetPeakDbfs, *captured)) : nlohmann::json()},
         {"targetPeakDbfs", kInputLevellingTargetPeakDbfs}}
                         .dump());
 }
@@ -251,11 +252,10 @@ void PluginController::HandleSaveInputLevellingProfile(const nlohmann::json& pay
     }
 
     auto& hold = mPresetMixer.GetInputLevelHold();
-    const double captured = mUserInputCalibrationTrainingActive && hold.IsArmed()
-                                ? PeakDbfs(hold.CapturedPeak())
-                                : -std::numeric_limits<double>::infinity();
+    const auto captured =
+        mUserInputCalibrationTrainingActive && hold.IsArmed() ? PeakDbfs(hold.CapturedPeak()) : std::nullopt;
 
-    if (!std::isfinite(captured))
+    if (!captured)
     {
         fail("noPeak", "No training level captured. Play your guitar first.");
         return;
@@ -268,7 +268,7 @@ void PluginController::HandleSaveInputLevellingProfile(const nlohmann::json& pay
     }
 
     const std::string timestamp = BuildUtcIsoTimestamp();
-    const double capturedRounded = std::round(captured * 100.0) / 100.0;
+    const double capturedRounded = std::round(*captured * 100.0) / 100.0;
     nlohmann::json profile = {{"id", GenerateGuidV4String()},
                               {"name", name},
                               {"description", Trimmed(payload.value("description", std::string{}))},

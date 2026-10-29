@@ -1,18 +1,11 @@
 /**
  * Analysis.cpp - effect response requests, the analysis feeds' leases, and the editors'
- * measuring tools (see Analysis.h).
+ * measuring tools (see Analysis.h). AnalysisParsing.cpp reads their replies.
  */
 
 #include "uiclient/Analysis.h"
 
 #include "uiclient/UiClient.h"
-#include "util/Base64.h"
-
-#include <algorithm>
-#include <cmath>
-#include <cstdio>
-#include <cstring>
-#include <limits>
 
 namespace guitarfx::uiclient
 {
@@ -20,29 +13,6 @@ namespace
 {
 /// Leases the engine drops 5 s after the last renewal; renewed every 2 s, as the web UI does.
 constexpr double kLeaseRenewalSeconds = 2.0;
-
-std::optional<std::vector<double>> NumberArray(const nlohmann::json& value)
-{
-    if (!value.is_array())
-    {
-        return std::nullopt;
-    }
-
-    std::vector<double> numbers;
-    numbers.reserve(value.size());
-
-    for (const auto& item : value)
-    {
-        if (!item.is_number() || !std::isfinite(item.get<double>()))
-        {
-            return std::nullopt;
-        }
-
-        numbers.push_back(item.get<double>());
-    }
-
-    return numbers;
-}
 
 nlohmann::json AddressPayload(const NodeAddress& node)
 {
@@ -57,6 +27,7 @@ nlohmann::json AddressPayload(const NodeAddress& node)
 }
 } // namespace
 
+<<<<<<< Updated upstream
 double ResponseDbAt(const std::vector<double>& frequencies, const std::vector<double>& magnitudesDb, double hz)
 {
     const std::size_t count = std::min(frequencies.size(), magnitudesDb.size());
@@ -443,6 +414,8 @@ std::optional<IrAlignmentResponse> ParseIrAlignmentResponse(const nlohmann::json
     return response;
 }
 
+=======
+>>>>>>> Stashed changes
 Analysis::Analysis(UiClient& client) : mClient(client)
 {
 }

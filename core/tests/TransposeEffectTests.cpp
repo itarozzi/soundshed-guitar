@@ -28,6 +28,7 @@
 #include "dsp/effects/TransposeEffect.h"
 #include "helpers/AudioThreadAllocations.h"
 #include "helpers/GuitarPhraseSynth.h"
+#include "NonFiniteInputs.h"
 
 namespace
 {
@@ -316,8 +317,8 @@ void TestAllocationsAndNaN()
 
     effect.SetParam("semitones", -4.0);
     effect.SetParam("engine", 1.0);
-    effect.SetParam("semitones", std::numeric_limits<double>::quiet_NaN());
-    effect.SetParam("engine", std::numeric_limits<double>::quiet_NaN());
+    effect.SetParam("semitones", test_support::RuntimeNaN());
+    effect.SetParam("engine", test_support::RuntimeNaN());
     Check(effect.GetParam("semitones") == -4.0 && effect.GetParam("engine") == 1.0, "a NaN parameter changes nothing");
 }
 
@@ -429,13 +430,14 @@ void TestGlobalNoStaleReplay()
     std::cout << "\n--- The global transpose never replays stale audio ---\n";
     GlobalChain chain;
     const auto input = ToneChange(1.4, 0.4);
+    // Sample positions, not times: under -ffast-math pos / kSampleRate is a multiply by the
+    // reciprocal, which put the block at 0.8 s a hair under 0.8, so the shift never came back on.
+    const auto bypassFrom = static_cast<size_t>(std::llround(0.3 * kSampleRate));
+    const auto bypassTo = static_cast<size_t>(std::llround(0.8 * kSampleRate));
     const auto output = chain.Render(input, [&](size_t pos) {
-        const double t = static_cast<double>(pos) / kSampleRate;
-
-        if (pos < kBlockSize || std::abs(t - 0.3) < 0.5 * kBlockSize / kSampleRate ||
-            std::abs(t - 0.8) < 0.5 * kBlockSize / kSampleRate)
+        if (pos == 0 || pos == bypassFrom || pos == bypassTo)
         {
-            chain.editor.SetTranspose((t < 0.3 || t >= 0.8) ? -2 : 0);
+            chain.editor.SetTranspose((pos < bypassFrom || pos >= bypassTo) ? -2 : 0);
         }
     });
 

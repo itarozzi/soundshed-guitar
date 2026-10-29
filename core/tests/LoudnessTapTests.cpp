@@ -361,8 +361,10 @@ bool TestTapGivesTheMeterWhatWasPushed()
         meter.Push(direct.data(), stereo ? half.data() : direct.data(), direct.size());
 
         const std::string kind = stereo ? "Stereo" : "Mono";
+        // Not to the last bit: -ffast-math vectorises the meter's sums, so where a push starts moves
+        // their rounding (1.4e-9 LU on x86-64-v3). A sample dropped or doubled moves it ~2e-4 LU.
         const auto same = [](const std::optional<double>& a, const std::optional<double>& b) {
-            return a.has_value() == b.has_value() && (!a || std::abs(*a - *b) < 1e-9);
+            return a.has_value() == b.has_value() && (!a || std::abs(*a - *b) < 1e-6);
         };
         ok &= Report(kind + ": momentary matches", same(reading.momentaryLufs, meter.MomentaryLufs()),
                      Lufs(reading.momentaryLufs) + " vs " + Lufs(meter.MomentaryLufs()));

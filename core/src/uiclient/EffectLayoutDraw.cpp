@@ -5,6 +5,8 @@
 
 #include "uiclient/EffectLayouts.h"
 
+#include "dsp/FiniteCheck.h"
+
 #include <algorithm>
 #include <array>
 #include <cctype>
@@ -152,7 +154,7 @@ std::optional<double> ParseComponent(const std::string& text, double percentOf)
     char* end = nullptr;
     const double value = std::strtod(trimmed.c_str(), &end);
 
-    if (end == trimmed.c_str() || !std::isfinite(value))
+    if (end == trimmed.c_str() || !guitarfx::IsFinite(value))
     {
         return std::nullopt;
     }
@@ -174,7 +176,7 @@ std::optional<double> ParseAngle(const std::string& text)
     char* end = nullptr;
     const double value = std::strtod(lower.c_str(), &end);
 
-    if (end == lower.c_str() || !std::isfinite(value))
+    if (end == lower.c_str() || !guitarfx::IsFinite(value))
     {
         return std::nullopt;
     }
@@ -238,9 +240,9 @@ LayoutScaleResult ComputeLayoutScale(double designWidth, double designHeight, do
     const LayoutScaling spec = scaling.value_or(LayoutScaling{});
     const std::string mode = spec.mode == "fit" || spec.mode == "fixed" ? spec.mode : std::string("fit-width");
     const double maxScale = std::min(
-        kMaxScaleLimit, spec.maxScale && std::isfinite(*spec.maxScale) && *spec.maxScale > 0.0 ? *spec.maxScale : 1.0);
+        kMaxScaleLimit, spec.maxScale && guitarfx::IsFinite(*spec.maxScale) && *spec.maxScale > 0.0 ? *spec.maxScale : 1.0);
     const double minScale = std::min(
-        maxScale, spec.minScale && std::isfinite(*spec.minScale) && *spec.minScale > 0.0 ? *spec.minScale : 0.0);
+        maxScale, spec.minScale && guitarfx::IsFinite(*spec.minScale) && *spec.minScale > 0.0 ? *spec.minScale : 0.0);
 
     double raw = mode == "fixed" ? 1.0 : (designWidth > 0.0 ? availableWidth / designWidth : 1.0);
 
@@ -654,7 +656,7 @@ double LayoutLabelMaxWidth(const EffectLayout& layout)
 
 std::optional<double> LayoutSizeValue(const std::optional<double>& value, double lo, double hi)
 {
-    if (!value || !std::isfinite(*value))
+    if (!value || !guitarfx::IsFinite(*value))
     {
         return std::nullopt;
     }
@@ -697,14 +699,14 @@ const LayoutKnobImage* UsableKnobImage(const LayoutControlStyle& style)
 
 int FilmstripFrameCount(double frames)
 {
-    return std::isfinite(frames) && std::floor(frames) == frames && frames >= 2.0 && frames <= 1024.0
+    return guitarfx::IsFinite(frames) && std::floor(frames) == frames && frames >= 2.0 && frames <= 1024.0
                ? static_cast<int>(frames)
                : 0;
 }
 
 int FilmstripFrame(double position, int frames)
 {
-    const double clamped = std::isfinite(position) ? std::clamp(position, 0.0, 1.0) : 0.0;
+    const double clamped = guitarfx::IsFinite(position) ? std::clamp(position, 0.0, 1.0) : 0.0;
     return static_cast<int>(std::lround(clamped * (frames - 1)));
 }
 
@@ -720,9 +722,9 @@ FilmstripCell FilmstripCellOf(int frame, int frames, int columns)
 
 double KnobFaceAngle(double position, double minAngle, double maxAngle)
 {
-    const double clamped = std::isfinite(position) ? std::clamp(position, 0.0, 1.0) : 0.0;
-    const double from = std::isfinite(minAngle) ? minAngle : -135.0;
-    const double to = std::isfinite(maxAngle) ? maxAngle : 135.0;
+    const double clamped = guitarfx::IsFinite(position) ? std::clamp(position, 0.0, 1.0) : 0.0;
+    const double from = guitarfx::IsFinite(minAngle) ? minAngle : -135.0;
+    const double to = guitarfx::IsFinite(maxAngle) ? maxAngle : 135.0;
     return from + clamped * (to - from);
 }
 

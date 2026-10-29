@@ -4,6 +4,7 @@
  * the editors' measuring requests, which Analysis matches to their callbacks.
  */
 
+#include "dsp/FiniteCheck.h"
 #include "uiclient/Analysis.h"
 #include "uiclient/UiClient.h"
 
@@ -21,7 +22,7 @@ std::optional<double> OptionalNumber(const nlohmann::json& values, std::size_t i
     }
 
     const double value = values[index].get<double>();
-    return std::isfinite(value) ? std::optional<double>(value) : std::nullopt;
+    return guitarfx::IsFinite(value) ? std::optional<double>(value) : std::nullopt;
 }
 
 std::optional<double> OptionalField(const nlohmann::json& m, const char* key)

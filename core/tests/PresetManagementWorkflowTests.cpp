@@ -24,6 +24,7 @@
 #include "presets/PresetStorage.h"
 #include "presets/PresetTypes.h"
 #include "util/Base64.h"
+#include "util/FileSystem.h"
 
 namespace fs = std::filesystem;
 
@@ -173,6 +174,9 @@ void SetSettingsEnvRoot(const fs::path& root)
 #else
     setenv("HOME", root.string().c_str(), 1);
 #endif
+    // The tests write settings and presets at <root>/Soundshed Guitar, which is where APPDATA puts
+    // them on Windows; macOS would look under Library/, Linux under .config/.
+    guitarfx::FileSystem::SetPlatformRootOverride(root / "Soundshed Guitar");
 }
 
 guitarfx::Preset BuildPreset(const std::string& id, const std::string& name)

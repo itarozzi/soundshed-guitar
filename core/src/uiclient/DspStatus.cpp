@@ -4,6 +4,8 @@
 
 #include "uiclient/DspStatus.h"
 
+#include "dsp/FiniteCheck.h"
+
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -24,7 +26,7 @@ std::string Fixed(double value, int digits, const char* unit)
 template <typename Map> std::optional<double> Find(const Map& map, const std::string& key)
 {
     const auto it = map.find(key);
-    return it != map.end() && std::isfinite(it->second) ? std::optional<double>(it->second) : std::nullopt;
+    return it != map.end() && guitarfx::IsFinite(it->second) ? std::optional<double>(it->second) : std::nullopt;
 }
 } // namespace
 

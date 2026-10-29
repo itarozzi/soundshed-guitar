@@ -4,6 +4,7 @@
  * a UI shows for them.
  */
 
+#include "dsp/FiniteCheck.h"
 #include "uiclient/InputLevelling.h"
 #include "uiclient/UiClient.h"
 #include "uiclient/UiCommands.h"
@@ -25,7 +26,7 @@ std::optional<double> OptionalNumber(const nlohmann::json& object, const char* k
     }
 
     const double value = it->get<double>();
-    return std::isfinite(value) ? std::optional<double>(value) : std::nullopt;
+    return guitarfx::IsFinite(value) ? std::optional<double>(value) : std::nullopt;
 }
 
 std::string StringOf(const nlohmann::json& object, const char* key)
@@ -55,7 +56,7 @@ const InputLevellingProfile* InputLevellingState::Find(const std::string& id) co
 
 std::string FormatInputLevelDbfs(std::optional<double> value)
 {
-    if (!value || !std::isfinite(*value))
+    if (!value || !guitarfx::IsFinite(*value))
     {
         return "-";
     }
@@ -67,7 +68,7 @@ std::string FormatInputLevelDbfs(std::optional<double> value)
 
 std::string FormatInputTrimDb(std::optional<double> value)
 {
-    if (!value || !std::isfinite(*value))
+    if (!value || !guitarfx::IsFinite(*value))
     {
         return "-";
     }

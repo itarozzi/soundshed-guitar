@@ -1,5 +1,6 @@
 #include "uiclient/PracticeTool.h"
 
+#include "dsp/FiniteCheck.h"
 #include "uiclient/Looper.h"
 #include "uiclient/UiCommands.h"
 
@@ -56,7 +57,7 @@ std::string Lower(std::string text)
 
 bool IsFiniteNumber(const nlohmann::json& value)
 {
-    return value.is_number() && std::isfinite(value.get<double>());
+    return value.is_number() && guitarfx::IsFinite(value.get<double>());
 }
 
 double ReadNumber(const nlohmann::json& object, const char* key, double fallback)
@@ -84,7 +85,7 @@ std::optional<double> LeadingNumber(const std::string& text)
     }
 
     const double n = std::strtod(match.str().c_str(), nullptr);
-    return std::isfinite(n) ? std::optional<double>(n) : std::nullopt;
+    return guitarfx::IsFinite(n) ? std::optional<double>(n) : std::nullopt;
 }
 
 std::optional<Link> ParseLink(const nlohmann::json& value)
@@ -732,7 +733,7 @@ std::string DescribeLink(const Link& link)
 
 std::string FormatClock(double seconds)
 {
-    const long total = std::max(0L, static_cast<long>(std::floor(std::isfinite(seconds) ? seconds : 0.0)));
+    const long total = std::max(0L, static_cast<long>(std::floor(guitarfx::IsFinite(seconds) ? seconds : 0.0)));
     char buffer[24];
     std::snprintf(buffer, sizeof(buffer), "%ld:%02ld", total / 60, total % 60);
     return buffer;
@@ -1066,7 +1067,7 @@ void PracticeTool::SetEqEnabled(bool enabled)
 
 void PracticeTool::SetEqParam(const std::string& key, double value)
 {
-    if (mEq.params.count(key) == 0 || !std::isfinite(value))
+    if (mEq.params.count(key) == 0 || !guitarfx::IsFinite(value))
     {
         return;
     }
@@ -1329,7 +1330,7 @@ void PracticeTool::SetLoopTimes(const std::string& loopId, double startSec, doub
     auto* loop = FindLoop(loopId);
     const auto& t = Track();
 
-    if (!loop || !std::isfinite(startSec) || !std::isfinite(endSec))
+    if (!loop || !guitarfx::IsFinite(startSec) || !guitarfx::IsFinite(endSec))
     {
         return;
     }

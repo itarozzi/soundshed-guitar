@@ -4,6 +4,8 @@
 
 #include "uiclient/Instruments.h"
 
+#include "dsp/FiniteCheck.h"
+
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -111,7 +113,7 @@ std::optional<double> TapTempo::Tap(double nowSeconds)
 
 double ClampBpm(double bpm)
 {
-    if (!std::isfinite(bpm))
+    if (!guitarfx::IsFinite(bpm))
     {
         return 120.0;
     }
