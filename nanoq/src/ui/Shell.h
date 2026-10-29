@@ -304,6 +304,20 @@ class Shell
         std::string lastQuery; // the parameters last asked about
     };
 
+    /// What an EQ dialog shows (EqDialog.cpp): the Global EQ or the backing-track EQ.
+    struct EqDialogSpec
+    {
+        std::string title;
+        EqPlotSource source;
+        std::function<bool()> enabled;
+        std::function<void(bool)> setEnabled;
+        std::function<void()> reset;                    // the header's Reset, when the dialog has one
+        std::function<void()> onClosed;                 // after the dialog has gone
+        std::optional<guitarfx::uiclient::Topic> topic; // what moves the knobs from outside
+    };
+
+    void OpenEqDialog(EqDialogSpec spec);
+
     [[nodiscard]] static bool IsEqPlotType(const std::string& type);
     [[nodiscard]] Ptr MakeEqPlot(EqPlotSource source, bool overlay);
     void SyncEqPlot(EqPlotState& state);
@@ -592,7 +606,7 @@ class Shell
     void OpenTuner();
     void OpenMetronome();
     void OpenControls();
-    void OpenGlobalEq(el::rect anchor); // Controls.cpp
+    void OpenGlobalEq(); // EqDialog.cpp
 
     // Menus.cpp
     void OpenPresetMenu(std::optional<el::rect> anchor = std::nullopt);

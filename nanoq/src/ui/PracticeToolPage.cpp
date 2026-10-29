@@ -898,55 +898,6 @@ void Shell::AddPracticeLink(const std::string& projectId)
                });
 }
 
-void Shell::OpenPracticeEq()
-{
-    // The web UI's backing-track EQ modal: the four-band curve, on or off, and Reset. It is the
-    // same ParametricEQEffect as the signal path's, applied to the track only.
-    CloseOverlay();
-    EqPlotSource source;
-    source.effectType = guitarfx::EffectGuids::kEqParametric;
-    source.read = [this]() { return mPractice->GetEq().params; };
-    source.write = [this](const std::string& key, double value, bool) { mPractice->SetEqParam(key, value); };
-    auto plot = MakeEqPlot(std::move(source), true);
-
-    auto title = std::make_shared<Text>(mTheme, "BACKING TRACK EQ", 9.5f, Weight::SemiBold);
-    title->Colour(mTheme.TextSecondary());
-    auto power = std::make_shared<IconButton>(mTheme, mIcons, "", IconButton::Look::Boxed);
-    const auto label = [this] { return mPractice->GetEq().enabled ? std::string("On") : std::string("Off"); };
-    power->Size(56, 26).Label(label(), 11.0f).Lit(mPractice->GetEq().enabled);
-    power->onClick = [this, label, p = power.get()] {
-        mPractice->SetEqEnabled(!mPractice->GetEq().enabled);
-        p->Label(label(), 11.0f).Lit(mPractice->GetEq().enabled);
-        mSession.Repaint(*p);
-    };
-    auto reset = std::make_shared<IconButton>(mTheme, mIcons, "", IconButton::Look::Boxed);
-    reset->Size(60, 26).Label("Reset", 11.0f);
-    reset->onClick = [this] {
-        mPractice->ResetEq();
-
-        if (mOverlayPlot)
-        {
-            SyncEqPlot(*mOverlayPlot);
-        }
-    };
-    auto close = std::make_shared<IconButton>(mTheme, mIcons, "", IconButton::Look::Boxed);
-    close->Size(60, 26).Label("Done", 11.0f);
-    close->onClick = [this] { CloseOverlay(); };
-    auto hint = std::make_shared<Text>(
-        mTheme, "Drag a band's handle; double click it to reset. Shapes the track only, not your guitar.", 10.5f);
-    hint->Colour(mTheme.TextMuted());
-
-    const float width = std::min(620.0f, ViewSize().x - 32.0f);
-    ShowOverlay(Pad(14, 12, 14, 12,
-                    Col({FixedHeight(26, Row({title, Stretch(), power, HGap(6), reset, HGap(6), close})), VGap(8),
-                         FixedHeight(200, plot), VGap(8), FixedHeight(18, hint)})),
-                width, 26.0f + 8.0f + 200.0f + 8.0f + 18.0f + 24.0f);
-    mOnOverlayClosed = [this] {
-        mOverlayPlot.reset();
-        Mark(kPage); // the EQ button's light
-    };
-}
-
 bool Shell::DropPracticeTrack(const std::vector<std::string>& paths)
 {
     if (mPage != Page::Jam || mJamSection != JamSection::Practice || !mPractice)

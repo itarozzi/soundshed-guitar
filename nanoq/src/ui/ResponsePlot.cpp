@@ -367,9 +367,14 @@ void ResponsePlot::DrawHandles(canvas& cnv, const el::rect& plot) const
                 cnv.move_to(x, y);
                 cnv.line_to(wx, y);
                 cnv.stroke();
-                cnv.fill_style(BandColour(index, active ? 0.9f : 0.6f));
-                cnv.add_circle(cycfi::artist::circle(el::point{wx, y}, kQHandleRadius - 1.0f));
-                cnv.fill();
+                // A small square, as the web UI draws a band's width handles (eqCurve.ts).
+                const float r = kQHandleRadius - 0.5f;
+                const el::rect square{wx - r, y - r, wx + r, y + r};
+                cnv.fill_style(BandColour(index, active ? 0.55f : 0.3f));
+                cnv.fill_rect(square);
+                cnv.stroke_style(BandColour(index, active ? 1.0f : 0.85f));
+                cnv.line_width(1.5f);
+                cnv.stroke_rect(square);
             }
         }
 
