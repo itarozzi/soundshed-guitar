@@ -231,6 +231,27 @@ std::string GateLearnStatusText(const GateLearnStatus* status, double floorDb)
 
     if (status->state == "done")
     {
+        if (!status->bands.empty())
+        {
+            std::optional<double> loudest;
+
+            for (const auto& band : status->bands)
+            {
+                if (band.noiseFloorDb && (!loudest || *band.noiseFloorDb > *loudest))
+                {
+                    loudest = band.noiseFloorDb;
+                }
+            }
+
+            if (!loudest)
+            {
+                return "Thresholds set";
+            }
+
+            const auto noise = *loudest < floorDb ? "under " + db(floorDb) : "up to " + db(*loudest);
+            return "Noise " + noise + " \xC2\xB7 each band's threshold set just above it";
+        }
+
         if (!status->noiseFloorDb || !status->thresholdDb)
         {
             return "Threshold set";
