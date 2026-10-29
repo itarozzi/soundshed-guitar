@@ -158,6 +158,15 @@ void AddShellIcons(Icons& icons)
     }
 
     // The preset chooser's tools (preset-library-popover.html).
+    // The model browser's row details and pack grouping (resourceBrowser.ts).
+    icons.Add("ui-info", Svg("0 0 24 24", 2.0f,
+                             R"(<circle cx="12" cy="12" r="9"/><line x1="12" y1="16" x2="12" y2="11"/>)"
+                             R"(<line x1="12" y1="8" x2="12.01" y2="8"/>)"));
+    icons.Add("ui-box",
+              Svg("0 0 24 24", 2.0f,
+                  R"(<path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 )"
+                  R"(1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 )"
+                  R"(6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/>)"));
     icons.Add("ui-upload",
               Svg("0 0 24 24", 2.0f,
                   R"(<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 5 17 10"/>)"

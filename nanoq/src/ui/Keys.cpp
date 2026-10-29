@@ -111,7 +111,7 @@ bool Shell::HandleKey(const el::key_info& k)
 
         if (mOverlay)
         {
-            CloseOverlay();
+            CancelOverlay();
             return true;
         }
 

@@ -92,6 +92,9 @@ struct DialogParts
     float padY = 18.0f;
     /// What the close cross does, when it is more than closing (Cancel undoing a preview).
     std::function<void()> onClose;
+    /// The body takes the dialog's whole height (a list that scrolls in itself), rather than
+    /// sitting at its top.
+    bool stretch = false;
 };
 
 /// The Tones and Jam pages' sections (Shell::WithSectionNav): a side list in the full layout, chips
@@ -615,6 +618,10 @@ class Shell
                              const std::string& title = {}, const std::string& category = {});
     /// A library row's menu: details, rename, recategorise, copy the path, delete.
     void OpenLibraryResourceMenu(const std::string& resourceType, const std::string& resourceId, el::rect anchor);
+    /// A library entry's name, category and tags (the web UI's row edit dialog).
+    void EditLibraryResource(const std::string& resourceType, const std::string& resourceId, el::rect anchor);
+    /// Asks before deleting a library entry; one in use is refused, saying where.
+    void ConfirmDeleteLibraryResource(const std::string& resourceType, const std::string& resourceId, el::rect anchor);
     /// A one-line prompt on the drop-down layer, so it stacks over a dialog.
     void OpenInlinePrompt(el::rect anchor, const std::string& title, const std::string& initial,
                           std::function<void(const std::string&)> onSubmit);
@@ -641,6 +648,8 @@ class Shell
     [[nodiscard]] std::shared_ptr<Button> DialogButton(const std::string& label, std::function<void()> onClick,
                                                        bool primary);
     void CloseOverlay();
+    /// Esc or a tap outside: the dialog's own close (a Cancel that undoes a preview), else closing.
+    void CancelOverlay();
     /// Takes a layer (dialog, dropdown, toast, bar) out of the view once the current event is done,
     /// keeping the keyboard focus on the layer that has it.
     void RemoveLayer(Ptr layer);
@@ -806,7 +815,8 @@ class Shell
     Ptr mDropdown; // a drop-down list: a layer of its own, so one opened from a dialog stacks over it
     Ptr mToast;
     std::shared_ptr<bool> mAlive = std::make_shared<bool>(true);
-    std::function<void()> mOnOverlayClosed;                        // runs when the overlay closes
+    std::function<void()> mOnOverlayClosed; // runs when the overlay closes
+    std::function<void()> mOverlayCancel;   // what Esc and a tap outside do to the dialog: its own Cancel
     std::vector<guitarfx::uiclient::Subscription> mInstrumentSubs; // an open dialog's live feeds
     guitarfx::uiclient::Subscription mImportWatch;                 // a preset archive import, until it answers
     std::string mPickerCategory;

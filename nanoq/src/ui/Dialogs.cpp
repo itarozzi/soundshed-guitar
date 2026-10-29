@@ -65,7 +65,7 @@ void Shell::ShowOverlay(Ptr panel, float width, float height)
     // buttons allows little; the dialog's width is the one given.
     auto centred = el::share(
         el::align_center(el::align_middle(el::hold_any(FixedWidth(width, FixedHeight(height, Expand(face)))))));
-    mOverlay = KeyLayer(Over(centred, el::share(Backdrop([this] { CloseOverlay(); }))));
+    mOverlay = KeyLayer(Over(centred, el::share(Backdrop([this] { CancelOverlay(); }))));
 
     mSession.View().add(mOverlay);
 }
@@ -76,6 +76,7 @@ void Shell::ShowDialog(DialogParts parts)
     auto title = std::make_shared<Text>(mTheme, parts.title, 16.0f, Weight::SemiBold);
     title->Colour(mTheme.ModalText());
     auto close = std::make_shared<CloseCross>(mTheme);
+    auto cancel = parts.onClose; // Esc and a tap outside do the same as the cross
     close->onClick = parts.onClose ? std::move(parts.onClose) : std::function<void()>([this] { CloseOverlay(); });
     std::vector<Ptr> header{Stretch(title)};
 
@@ -96,16 +97,21 @@ void Shell::ShowDialog(DialogParts parts)
     const float width = std::min(parts.width, std::max(280.0f, view.x - 32.0f));
     Ptr body = Pad(parts.padX, parts.padY, parts.padX, parts.padY, std::move(parts.body));
 
-    // A window too short for the dialog scrolls its body under the header.
-    if (height < parts.height)
+    // A window too short for the dialog scrolls its body under the header; a body that fills
+    // the dialog scrolls in itself.
+    if (height < parts.height && !parts.stretch)
     {
         body = VScroll(body);
     }
 
     column.push_back(body);
+
     // Takes any height the body leaves, so the card fills the dialog and the footer sits at its
     // foot: a column of fixed rows is otherwise only as tall as its rows.
-    column.push_back(std::make_shared<el::element>());
+    if (!parts.stretch)
+    {
+        column.push_back(std::make_shared<el::element>());
+    }
 
     if (footer > 0.0f)
     {
@@ -121,6 +127,19 @@ void Shell::ShowDialog(DialogParts parts)
     }
 
     ShowOverlay(Over(Col(column), std::make_shared<DialogFace>(mTheme, footer)), width, height);
+    mOverlayCancel = std::move(cancel);
+}
+
+void Shell::CancelOverlay()
+{
+    if (mOverlayCancel)
+    {
+        const auto cancel = mOverlayCancel; // it closes the overlay, which forgets it
+        cancel();
+        return;
+    }
+
+    CloseOverlay();
 }
 
 std::shared_ptr<Button> Shell::DialogButton(const std::string& label, std::function<void()> onClick, bool primary)
@@ -134,6 +153,7 @@ std::shared_ptr<Button> Shell::DialogButton(const std::string& label, std::funct
 void Shell::CloseOverlay()
 {
     CloseDropdown();
+    mOverlayCancel = nullptr;
 
     // A dialog with live feeds (tuner, metronome) stops listening, and tells the engine it is
     // done, whether it was closed by its button or by a tap outside it.

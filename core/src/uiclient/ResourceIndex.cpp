@@ -290,6 +290,71 @@ std::string ResourceCreator(const LibraryResource& resource)
     return Trim(FirstMeta(resource, {"creatorName", "authorUsername", "modeledBy", "creator", "provider"}));
 }
 
+std::string FormatGearDescription(const std::string& make, const std::string& model)
+{
+    const auto gearMake = Trim(make);
+    const auto gearModel = Trim(model);
+    const auto lower = [](std::string text) {
+        std::transform(text.begin(), text.end(), text.begin(),
+                       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        return text;
+    };
+
+    if (!gearMake.empty() && lower(gearModel).rfind(lower(gearMake), 0) == 0)
+    {
+        return gearModel;
+    }
+
+    return gearMake.empty() ? gearModel : gearModel.empty() ? gearMake : gearMake + " " + gearModel;
+}
+
+std::string ResourceMetaLine(const LibraryResource& resource, const std::string& resourceType, bool withCategory)
+{
+    std::vector<std::string> parts;
+
+    if (withCategory)
+    {
+        const auto category = Trim(resource.category);
+        parts.push_back(category.empty() ? std::string("Uncategorized") : category);
+    }
+
+    if (const auto creator = ResourceCreator(resource); !creator.empty())
+    {
+        parts.push_back("by " + creator);
+    }
+
+    if (resourceType == "nam")
+    {
+        if (auto arch = ResourceArchitecture(resource); !arch.empty())
+        {
+            parts.push_back(std::move(arch));
+        }
+    }
+
+    if (auto gear = FormatGearDescription(FirstMeta(resource, {"gearMake"}), FirstMeta(resource, {"gearModel"}));
+        !gear.empty())
+    {
+        parts.push_back(std::move(gear));
+    }
+
+    auto toneType = Trim(FirstMeta(resource, {"toneType"}));
+    std::replace(toneType.begin(), toneType.end(), '_', ' ');
+
+    if (!toneType.empty())
+    {
+        parts.push_back(std::move(toneType));
+    }
+
+    std::string line;
+
+    for (const auto& p : parts)
+    {
+        line += (line.empty() ? "" : " \xC2\xB7 ") + p;
+    }
+
+    return line;
+}
+
 ResourceFacets LibraryFacets(const std::vector<const LibraryResource*>& resources)
 {
     std::set<std::string> tags, creators;

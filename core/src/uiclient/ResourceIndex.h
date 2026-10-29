@@ -44,6 +44,14 @@ struct ResourceDedup
 [[nodiscard]] std::vector<std::string> ResourceTags(const LibraryResource& resource);
 /// Who made it: creatorName, authorUsername, modeledBy, creator or provider.
 [[nodiscard]] std::string ResourceCreator(const LibraryResource& resource);
+/// The gear a model was captured from (formatGearDescription): make and model, the make left out
+/// when the model already starts with it ("Diezel" and "Diezel Herbert" read "Diezel Herbert").
+[[nodiscard]] std::string FormatGearDescription(const std::string& make, const std::string& model);
+/// The one line under a chooser row's title (renderResourceMetaParts), its parts joined by " · ":
+/// the category ("Uncategorized" for none) unless the list is filtered to one, "by" its creator,
+/// a model's architecture, the gear and the tone type.
+[[nodiscard]] std::string ResourceMetaLine(const LibraryResource& resource, const std::string& resourceType,
+                                           bool withCategory);
 
 struct ResourceFacets
 {

@@ -133,6 +133,17 @@ class BrowserRow final : public el::element
     int star = -1;        // -1: none; 0 or 1: the favourite star, off or on
     std::function<void()> onClick, onDouble, onButton, onStar, onMenu;
 
+    /// Icon buttons shown at the right while the row is hovered or chosen (.resource-browser-item-actions:
+    /// edit, details, delete, select). Each is told where the row is, for a menu to hang from it.
+    struct Action
+    {
+        std::string icon;
+        std::function<void(el::rect row)> onClick;
+        bool enabled = true;
+    };
+
+    std::vector<Action> actions;
+
     el::view_limits limits(const el::basic_context&) const override
     {
         const float h = heading ? 30.0f : (mDetail.empty() ? 36.0f : 44.0f);
@@ -206,6 +217,37 @@ class BrowserRow final : public el::element
         }
 
         float right = face.right - 12.0f;
+
+        // The actions, last first from the right, while hovered or chosen.
+        mActionRects.assign(actions.size(), el::rect{});
+
+        if (mHover || selected)
+        {
+            const float cy = face.top + face.height() * 0.5f;
+
+            for (std::size_t i = actions.size(); i-- > 0;)
+            {
+                const el::rect r{right - 26.0f, cy - 13.0f, right, cy + 13.0f};
+                mActionRects[i] = r;
+                const bool hot = static_cast<int>(i) == mHoverAction && actions[i].enabled;
+
+                if (hot)
+                {
+                    cnv.fill_style(mTheme.Text().opacity(0.1f));
+                    cnv.fill_round_rect(r, 6.0f);
+                }
+
+                const bool play = actions[i].icon == "ui-play";
+                mIcons.Draw(cnv, actions[i].icon, r.inset(6.5f, 6.5f),
+                            !actions[i].enabled ? mTheme.TextMuted().opacity(0.4f)
+                            : play              ? mTheme.Accent()
+                            : hot               ? mTheme.Ink()
+                                                : mTheme.TextSecondary());
+                right = r.left - 4.0f;
+            }
+
+            right -= 6.0f;
+        }
 
         if (star >= 0)
         {
@@ -282,6 +324,19 @@ class BrowserRow final : public el::element
             return btn.state == el::mouse_button::left;
         }
 
+        for (std::size_t i = 0; i < mActionRects.size() && i < actions.size(); ++i)
+        {
+            if (mActionRects[i].includes(btn.pos))
+            {
+                if (actions[i].enabled && actions[i].onClick)
+                {
+                    actions[i].onClick(bounds);
+                }
+
+                return true;
+            }
+        }
+
         if (star >= 0 && mStar.inset(-6.0f, -6.0f).includes(btn.pos))
         {
             if (onStar)
@@ -319,11 +374,21 @@ class BrowserRow final : public el::element
     {
         const bool inside = status != el::cursor_tracking::leaving;
         const bool overButton = inside && !button.empty() && mButton.includes(p);
+        int overAction = -1;
 
-        if (inside != mHover || overButton != mHoverButton)
+        for (std::size_t i = 0; inside && i < mActionRects.size(); ++i)
+        {
+            if (mActionRects[i].includes(p))
+            {
+                overAction = static_cast<int>(i);
+            }
+        }
+
+        if (inside != mHover || overButton != mHoverButton || overAction != mHoverAction)
         {
             mHover = inside;
             mHoverButton = overButton;
+            mHoverAction = overAction;
             ctx.view.refresh(ctx);
         }
 
@@ -340,7 +405,9 @@ class BrowserRow final : public el::element
     Icons& mIcons;
     std::string mTitle, mDetail;
     bool mHover = false, mHoverButton = false;
+    int mHoverAction = -1;
     el::rect mButton, mStar;
+    std::vector<el::rect> mActionRects;
 
   public:
     el::rect bounds; // where it was last drawn, for a menu to hang from
@@ -574,7 +641,7 @@ void Shell::OpenResourceBrowser(const std::string& nodeId, const std::string& re
     // ── Library ─────────────────────────────────────────────────────────────────
     // The web UI's Library tab (resourceBrowser.ts), from uiclient::ResourceIndex: each file
     // once, the filters, favourites first, and packs grouped when that is on.
-    const auto libraryList = [this, b, preview, refillList]() -> Ptr {
+    const auto libraryFilter = [b] {
         ResourceFilter filter;
         filter.query = b->query;
         filter.category = b->category.empty() ? std::string("all") : b->category;
@@ -582,10 +649,15 @@ void Shell::OpenResourceBrowser(const std::string& nodeId, const std::string& re
         filter.creator = b->creator.empty() ? std::string("all") : b->creator;
         filter.tags = b->tags;
         filter.favouritesOnly = b->favouritesOnly;
-        const auto entries = FilterLibrary(mState, b->resourceType, filter, b->selectedId);
+        return filter;
+    };
+    const auto libraryList = [this, b, preview, refillList, libraryFilter]() -> Ptr {
+        const auto entries = FilterLibrary(mState, b->resourceType, libraryFilter(), b->selectedId);
 
         const auto rowFor = [this, b, preview, refillList](const LibraryResource* r, const std::string& title) {
-            auto row = std::make_shared<BrowserRow>(mTheme, mIcons, title, Describe(r->metadata, r->category));
+            // The category is left out while the list is filtered to one: every row would say it.
+            auto row = std::make_shared<BrowserRow>(mTheme, mIcons, title,
+                                                    ResourceMetaLine(*r, b->resourceType, b->category.empty()));
             row->selected = r->id == b->selectedId || (!b->selectedPath.empty() && r->filePath == b->selectedPath);
             row->star = IsResourceFavorite(mState, r->id) ? 1 : 0;
             row->onStar = [this, refillList, id = r->id] {
@@ -609,6 +681,26 @@ void Shell::OpenResourceBrowser(const std::string& nodeId, const std::string& re
                     pick(id);
                 }
             };
+
+            // Edit (not a built-in one's), details, delete, and select (it plays in the chain).
+            const auto provider = MetaText(r->metadata, "provider");
+            const bool builtIn = provider == "built-in" || provider == "builtin" || provider == "factory";
+            const auto type = b->resourceType;
+
+            if (!builtIn)
+            {
+                row->actions.push_back(
+                    {"ui-edit", [this, type, id = r->id](el::rect at) { EditLibraryResource(type, id, at); }});
+            }
+
+            row->actions.push_back(
+                {"ui-info", [this, type, id = r->id](el::rect at) { OpenLibraryResourceMenu(type, id, at); }});
+            row->actions.push_back(
+                {"ui-trash", [this, type, id = r->id](el::rect at) { ConfirmDeleteLibraryResource(type, id, at); }});
+            row->actions.push_back({"ui-play", [preview, refillList, id = r->id](el::rect) {
+                                        preview(id, {});
+                                        refillList();
+                                    }});
             return row;
         };
 
@@ -681,7 +773,7 @@ void Shell::OpenResourceBrowser(const std::string& nodeId, const std::string& re
         return Col(rows);
     };
 
-    const auto libraryControls = [this, b, &commands, refillList]() -> Ptr {
+    const auto libraryControls = [this, b, &commands, refillList, preview, libraryFilter]() -> Ptr {
         if (!b->searchBox)
         {
             auto [element, box] = el::input_box(b->resourceType == "ir" ? "Search IRs..." : "Search models...",
@@ -803,27 +895,55 @@ void Shell::OpenResourceBrowser(const std::string& nodeId, const std::string& re
             row.push_back(tags);
         }
 
-        auto favourites = std::make_shared<IconButton>(mTheme, mIcons, "star", IconButton::Look::Boxed);
-        favourites->Size(30, 30).IconSize(14).Ink(b->favouritesOnly ? mTheme.Accent() : mTheme.TextSecondary());
-        favourites->onClick = [b, refillList] {
-            b->favouritesOnly = !b->favouritesOnly;
+        // All | Favourites (.resource-browser-favorites-filter).
+        auto favourites = std::make_shared<Segmented>(mTheme, std::vector<std::string>{"All", "Favourites"});
+        favourites->Select(b->favouritesOnly ? 1 : 0);
+        favourites->onSelect = [b, refillList](int index) {
+            b->favouritesOnly = index == 1;
             b->fillControls();
             refillList();
         };
         const bool grouped = IsPackGroupingEnabled(mState);
-        auto group = std::make_shared<IconButton>(mTheme, mIcons, "ui-folder", IconButton::Look::Boxed);
-        group->Size(30, 30).IconSize(14).Ink(grouped ? mTheme.Accent() : mTheme.TextSecondary());
+        auto group = std::make_shared<IconButton>(mTheme, mIcons, "ui-box", IconButton::Look::Boxed);
+        group->Size(32, 32).IconSize(15).Lit(grouped);
         group->onClick = [this, refillList, grouped] {
             mSession.Commands().SetSetting("resources.library.groupPacks", !grouped);
             refillList();
         };
+
+        // Previous and next through the list as it is drawn, each heard in the chain.
+        const auto step = [this, b, preview, refillList, libraryFilter](int delta) {
+            const auto order =
+                NavigationOrder(mState, FilterLibrary(mState, b->resourceType, libraryFilter(), b->selectedId));
+
+            if (order.empty())
+            {
+                return;
+            }
+
+            const auto at = std::find_if(order.begin(), order.end(),
+                                         [b](const LibraryResource* r) { return r->id == b->selectedId; });
+            const int count = static_cast<int>(order.size());
+            const int index = at == order.end()
+                                  ? (delta > 0 ? 0 : count - 1)
+                                  : std::clamp(static_cast<int>(at - order.begin()) + delta, 0, count - 1);
+            preview(order[static_cast<std::size_t>(index)]->id, {});
+            refillList();
+        };
+        auto previous = std::make_shared<IconButton>(mTheme, mIcons, "ui-prev", IconButton::Look::Boxed);
+        previous->Size(32, 32).IconSize(14);
+        previous->onClick = [step] { step(-1); };
+        auto next = std::make_shared<IconButton>(mTheme, mIcons, "ui-next", IconButton::Look::Boxed);
+        next->Size(32, 32).IconSize(14);
+        next->onClick = [step] { step(1); };
         auto file = std::make_shared<IconButton>(mTheme, mIcons, "", IconButton::Look::Boxed);
         file->Size(64, 30).Label("File...", 11.0f);
         file->onClick = [this, b, &commands] {
             commands.BrowseNodeResource(b->nodeId, b->resourceType, b->index);
             b->previewed = true; // a file chosen there is the new choice; Cancel puts back the old
         };
-        row.insert(row.end(), {HGap(6), favourites, HGap(4), group});
+        row.insert(row.end(),
+                   {HGap(6), favourites, HGap(6), Middle(group), HGap(6), Middle(previous), HGap(4), Middle(next)});
 
         if (!b->onPick)
         {
@@ -1397,7 +1517,7 @@ void Shell::OpenResourceBrowser(const std::string& nodeId, const std::string& re
         Fill(*b->tabs, Row(tabs));
     };
     b->fillControls = [this, b, libraryControls, folderControls, tone3000Controls] {
-        const float height = b->tab == Tab::Folder ? 68.0f : 30.0f;
+        const float height = b->tab == Tab::Folder ? 68.0f : b->tab == Tab::Library ? 34.0f : 30.0f;
         Fill(*b->controls, FixedHeight(height, b->tab == Tab::Library  ? libraryControls()
                                                : b->tab == Tab::Folder ? folderControls()
                                                                        : tone3000Controls()));
@@ -1430,7 +1550,14 @@ void Shell::OpenResourceBrowser(const std::string& nodeId, const std::string& re
         }
         else
         {
-            row = {Stretch()};
+            // What a click and a double click do (.resource-browser-footer-hint).
+            auto hint = std::make_shared<Text>(mTheme,
+                                               b->onPick ? "Double click an item to choose it."
+                                                         : "Select an item to preview it in the current signal chain, "
+                                                           "double click to select and return to the effect.",
+                                               11.5f);
+            hint->Colour(mTheme.TextSecondary());
+            row = {Middle(hint), HGap(12)};
         }
 
         auto cancel = std::make_shared<IconButton>(mTheme, mIcons, "", IconButton::Look::Primary);
@@ -1694,10 +1821,11 @@ void Shell::OpenResourceBrowser(const std::string& nodeId, const std::string& re
                              b->controls, VGap(10), b->list}),
                 .footerLeft = b->footer,
                 .width = std::min(944.0f, view.x - 16.0f),
-                .height = std::max(320.0f, view.y - 12.0f),
+                .height = std::max(320.0f, view.y - 40.0f),
                 .padX = 16.0f,
                 .padY = 10.0f,
-                .onClose = cancel});
+                .onClose = cancel,
+                .stretch = true});
     mOnOverlayClosed = [this, state] {
         mSession.Tones().RemoveListener(state->toneListener);
         state->subscriptions.clear();
@@ -1811,34 +1939,132 @@ void Shell::OpenLibraryResourceMenu(const std::string& resourceType, const std::
         items.push_back({"Copy the file's path", false, false, [path] { el::clipboard(path); }});
     }
 
-    items.push_back(
-        {"Delete...", false, false, [this, resourceType, resourceId, name, anchor] {
-             // Asked once more, on the same layer; the engine refuses one in use.
-             mSession.View().post([this, alive = std::weak_ptr<bool>(mAlive), resourceType, resourceId, name, anchor] {
-                 if (!alive.lock())
-                 {
-                     return;
-                 }
-
-                 const auto usage = mState.resourceUsage.find(resourceType + ":" + resourceId);
-                 std::vector<MenuItem> confirm{{"Delete " + name + " from the library?", false, true, {}}};
-
-                 if (usage != mState.resourceUsage.end() && usage->second.inUse)
-                 {
-                     confirm.push_back(
-                         {usage->second.detail + ": it cannot be deleted while in use.", false, true, {}});
-                 }
-                 else
-                 {
-                     confirm.push_back({"Delete", false, false, [this, resourceType, resourceId] {
-                                            mSession.Commands().DeleteLibraryResource(resourceType, resourceId);
-                                        }});
-                 }
-
-                 confirm.push_back({"Cancel", false, false, [] {}});
-                 OpenDropdown(anchor, std::move(confirm), 300.0f);
-             });
-         }});
+    items.push_back({"Delete...", false, false, [this, resourceType, resourceId, anchor] {
+                         // Asked once more, on the same layer, once this menu is gone.
+                         mSession.View().post(
+                             [this, alive = std::weak_ptr<bool>(mAlive), resourceType, resourceId, anchor] {
+                                 if (alive.lock())
+                                 {
+                                     ConfirmDeleteLibraryResource(resourceType, resourceId, anchor);
+                                 }
+                             });
+                     }});
     OpenDropdown(anchor, std::move(items), 300.0f);
+}
+
+void Shell::ConfirmDeleteLibraryResource(const std::string& resourceType, const std::string& resourceId,
+                                         el::rect anchor)
+{
+    const auto* r = mState.FindLibraryResource(resourceType, resourceId);
+
+    if (r == nullptr)
+    {
+        return;
+    }
+
+    // The engine refuses one in use; the usage asked for when the row's menu opened says so here.
+    mSession.Commands().QueryResourceUsage(resourceType, resourceId);
+    const std::string name = r->name.empty() ? r->id : r->name;
+    const auto usage = mState.resourceUsage.find(resourceType + ":" + resourceId);
+    std::vector<MenuItem> confirm{{"Delete " + name + " from the library?", false, true, {}}};
+
+    if (usage != mState.resourceUsage.end() && usage->second.inUse)
+    {
+        confirm.push_back({usage->second.detail + ": it cannot be deleted while in use.", false, true, {}});
+    }
+    else
+    {
+        confirm.push_back({"Delete", false, false, [this, resourceType, resourceId] {
+                               mSession.Commands().DeleteLibraryResource(resourceType, resourceId);
+                           }});
+    }
+
+    confirm.push_back({"Cancel", false, false, [] {}});
+    OpenDropdown(anchor, std::move(confirm), 300.0f);
+}
+
+void Shell::EditLibraryResource(const std::string& resourceType, const std::string& resourceId, el::rect anchor)
+{
+    // The web UI's edit (resourceBrowser.ts: name, category, tags), as a drop-down of fields under
+    // the row: the browser stays open behind it.
+    const auto* r = mState.FindLibraryResource(resourceType, resourceId);
+
+    if (r == nullptr)
+    {
+        return;
+    }
+
+    struct Fields
+    {
+        std::shared_ptr<el::basic_input_box> name, category, tags;
+    };
+
+    auto fields = std::make_shared<Fields>();
+    std::string tagText;
+
+    for (const auto& t : ResourceTags(*r))
+    {
+        tagText += (tagText.empty() ? "" : ", ") + t;
+    }
+
+    const auto field = [this](const char* label, const std::string& value,
+                              std::shared_ptr<el::basic_input_box>& box) -> Ptr {
+        auto [element, input] = el::input_box("", Font(Weight::Regular), 1.0f);
+        input->set_text(value);
+        box = input;
+        auto title = std::make_shared<Text>(mTheme, label, 11.0f, Weight::SemiBold);
+        title->Colour(mTheme.TextSecondary());
+        auto boxed = Over(PadXY(8, 0, Middle(el::share(std::move(element)))),
+                          el::share(Surface(mTheme.Input(), mTheme.Border(), 6.0f)));
+        return Col({FixedHeight(18, title), FixedHeight(32, boxed), VGap(8)});
+    };
+
+    auto save = std::make_shared<Button>(
+        mTheme, "Save",
+        [this, fields, resourceType, resourceId] {
+            std::vector<std::string> tags;
+            std::string text = fields->tags->get_utf8();
+            std::replace(text.begin(), text.end(), ';', ',');
+            std::size_t at = 0;
+
+            while (at <= text.size())
+            {
+                const auto end = std::min(text.find(',', at), text.size());
+                auto tag = text.substr(at, end - at);
+                tag.erase(0, tag.find_first_not_of(" \t"));
+                tag.erase(tag.find_last_not_of(" \t") + 1);
+
+                if (!tag.empty())
+                {
+                    tags.push_back(tag);
+                }
+
+                at = end + 1;
+            }
+
+            const auto name = fields->name->get_utf8();
+
+            if (!name.empty())
+            {
+                mSession.Commands().UpdateLibraryResource(resourceType, resourceId, name, fields->category->get_utf8(),
+                                                          tags);
+            }
+
+            CloseDropdown();
+        },
+        Button::Style::Primary);
+    save->MinWidth(80);
+    auto cancel = std::make_shared<Button>(mTheme, "Cancel", [this] { CloseDropdown(); }, Button::Style::Plain);
+    cancel->MinWidth(80);
+
+    auto panel = Pad(
+        12, 10, 12, 10,
+        Col({field("NAME", r->name.empty() ? r->id : r->name, fields->name),
+             field("CATEGORY", r->category, fields->category), field("TAGS (COMMA SEPARATED)", tagText, fields->tags),
+             FixedHeight(32, Row({Stretch(), cancel, HGap(8), save}))}));
+    CloseDropdown();
+    mDropdown = KeyLayer(PlacePanel(panel, el::rect{anchor.right - 360.0f, anchor.top, anchor.right, anchor.bottom},
+                                    360.0f, 220.0f, false, [this] { CloseDropdown(); }));
+    mSession.View().add(mDropdown);
 }
 } // namespace nanoq::ui

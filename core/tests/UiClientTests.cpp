@@ -1193,6 +1193,21 @@ void TestResourceIndex()
     Expect(DeduplicateResources(list, {"a1"}).aliasById.at("a2") == "a1", "a preferred id is kept over its duplicate");
     Expect(ResourceTags(list[2]) == std::vector<std::string>{"clean", "vintage"} && ResourceCreator(list[2]) == "Ann",
            "tags from metadata, and the creator");
+    Expect(FormatGearDescription("Diezel", "Diezel Herbert") == "Diezel Herbert" &&
+               FormatGearDescription("Mesa", "Rectifier") == "Mesa Rectifier" && FormatGearDescription("", "") == "",
+           "the gear, its make said once");
+    auto meta = res("m", "Lead", "H9",
+                    {{"creatorName", "csobrinos"},
+                     {"architectureVersion", "2"},
+                     {"gearMake", "Diezel"},
+                     {"gearModel", "Diezel Herbert"},
+                     {"toneType", "hi_gain"}});
+    Expect(ResourceMetaLine(meta, "nam", true) ==
+               "Amps \xC2\xB7 by csobrinos \xC2\xB7 A2 \xC2\xB7 Diezel Herbert \xC2\xB7 hi gain",
+           "a row's line: category, creator, architecture, gear, tone type");
+    meta.category.clear();
+    Expect(ResourceMetaLine(meta, "ir", false) == "by csobrinos \xC2\xB7 Diezel Herbert \xC2\xB7 hi gain",
+           "no category while filtered to one, and no architecture for an IR");
 
     ResourceFilter filter;
     filter.tags = {"CLEAN"};
