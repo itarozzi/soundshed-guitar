@@ -158,6 +158,40 @@ void UiClient::RegisterAnalysisHandlers()
         status.spreadDb = OptionalField(m, "spreadDb");
         status.thresholdDb = OptionalField(m, "thresholdDb");
         status.reason = m.value("reason", std::string());
+
+        // A Multi-band Gate's bands: live levels while listening, results once done. A band
+        // that brings no noise floor keeps the one last learned, and a listen that heard
+        // playing leaves the floors as they were (gateLearn.ts onGateLearnStatus).
+        const auto previous = std::move(status.bands);
+        status.bands.clear();
+        const bool heardPlaying = status.state == "failed" && status.reason == "playing";
+
+        if (const auto it = m.find("bands"); it != m.end() && it->is_array() && !heardPlaying)
+        {
+            for (const auto& entry : *it)
+            {
+                GateLearnBandStatus band;
+                band.levelDb = OptionalField(entry, "levelDb");
+                band.noiseFloorDb = OptionalField(entry, "noiseFloorDb");
+                band.spreadDb = OptionalField(entry, "spreadDb");
+                band.thresholdDb = OptionalField(entry, "thresholdDb");
+
+                if (const auto index = status.bands.size(); !band.noiseFloorDb && index < previous.size())
+                {
+                    band.noiseFloorDb = previous[index].noiseFloorDb;
+                }
+
+                status.bands.push_back(band);
+            }
+        }
+        else
+        {
+            for (const auto& kept : previous)
+            {
+                status.bands.push_back(GateLearnBandStatus{{}, kept.noiseFloorDb, {}, {}});
+            }
+        }
+
         Notify(Topic::Analysis);
     });
 

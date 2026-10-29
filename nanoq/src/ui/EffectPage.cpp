@@ -871,6 +871,15 @@ Ptr Shell::BuildEffectPage()
                      22.0f + 60.0f + 6.0f);
     }
 
+    if (node->type == guitarfx::EffectGuids::kMultibandGate)
+    {
+        auto target = MultibandGateLearnTarget(*node);
+        const float height = GateLearnHeight(target);
+        addToSection(Over(Pad(10, 22, 10, 6, BuildGateLearn(std::move(target))),
+                          std::make_shared<InsetBox>(mTheme, "Noise Floor by Band")),
+                     22.0f + height + 6.0f);
+    }
+
     // The tabs (.node-param-tabs): on their own line, with a rule under them across the section.
     if (auto t = tabs())
     {

@@ -372,7 +372,8 @@ class Shell
     void SyncEqPlotFeeds();
     [[nodiscard]] EqPlotSource NodeEqPlotSource(const guitarfx::GraphNode& node);
 
-    // GateLearn.cpp: the noise gate's Learn, in a gate node's editor and the global gate's settings.
+    // GateLearn.cpp: the noise gate's Learn, in a gate node's editor and the global gate's settings,
+    // and the Multi-band Gate's, one meter per band.
     struct GateLearnTarget
     {
         guitarfx::uiclient::NodeAddress address;
@@ -380,9 +381,15 @@ class Shell
         double minDb = -80.0, maxDb = 0.0; // the threshold's range: the meter's ends
         std::function<void(double thresholdDb)> apply;
         std::function<void()> ensureEnabled; // a bypassed gate hears nothing
+        // A Multi-band Gate: its bands' labels, low band first, their thresholds as the gate
+        // applies them, and what sets a finished listen's thresholds (each band has one).
+        std::vector<std::string> bandLabels;
+        std::function<std::vector<double>()> bandThresholds;
+        std::function<void(const std::vector<guitarfx::uiclient::GateLearnBandStatus>&)> applyBands;
     };
 
     [[nodiscard]] Ptr BuildGateLearn(GateLearnTarget target);
+    [[nodiscard]] static float GateLearnHeight(const GateLearnTarget& target);
 
     // FlyoutParams.cpp: a settings flyout's parameter rows (flyoutParamControls.ts).
     struct FlyoutBinding
@@ -395,6 +402,7 @@ class Shell
     [[nodiscard]] Ptr BuildFlyoutParamRows(const std::vector<guitarfx::uiclient::EffectParamInfo>& params,
                                            const FlyoutBinding& binding);
     [[nodiscard]] GateLearnTarget NodeGateLearnTarget(const guitarfx::GraphNode& node);
+    [[nodiscard]] GateLearnTarget MultibandGateLearnTarget(const guitarfx::GraphNode& node);
     void OpenGlobalGate(el::rect anchor);
     std::map<std::string, std::string> mGateLearnSeen; // each gate's Learn state when last looked at
     // InputLevelling.cpp: input levelling (the web UI's settings/inputCalibration.ts): the button
