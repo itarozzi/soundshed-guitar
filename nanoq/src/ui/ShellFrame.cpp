@@ -245,30 +245,13 @@ Ptr Shell::BuildTopBar()
     create->Size(30, 28).Caret(true);
     create->onClick = [this, b = create.get()] { OpenNewPresetMenu(b->Bounds()); };
 
-    // Edit: the preset's name. A factory preset cannot be renamed, so it is saved as a copy.
-    auto edit = ToolButton(mTheme, mIcons, "ui-edit", [this] {
-        const auto* summary = mState.FindPresetSummary(mState.activePresetId);
-        const auto& preset = mState.activePreset;
-
-        if (!preset)
-        {
-            return;
-        }
-
-        if (summary == nullptr || summary->source != "user")
-        {
-            SaveActivePreset(true);
-            return;
-        }
-
-        // The web UI's Edit: the save dialog over the preset playing.
-        OpenPresetDetails(false);
-    });
-    edit->Disabled(!havePreset);
-
-    // Save: a user preset is overwritten, a factory one is saved as a copy (SaveActivePreset).
+    // Edit and Save, as the web UI's toolbar (presets/toolbar.ts): only for a preset that may be
+    // overwritten; a factory one is copied with Save As, in the preset menu.
+    const bool canModify = havePreset && guitarfx::uiclient::CanModifyActivePreset(mState);
+    auto edit = ToolButton(mTheme, mIcons, "ui-edit", [this] { EditActivePreset(); });
+    edit->Disabled(!canModify);
     auto save = ToolButton(mTheme, mIcons, "ui-save", [this] { SaveActivePreset(false); });
-    save->Disabled(!dirty);
+    save->Disabled(!canModify);
 
     if (dirty)
     {
@@ -285,6 +268,7 @@ Ptr Shell::BuildTopBar()
     controls->Size(76, 28).Label("CONTROLS", 9.0f);
     controls->Ink(mTheme.TextSecondary());
     controls->onClick = [this] { OpenControls(); };
+    mLive.Bind(controls, [this] { return mControlsOpen; }, [](IconButton& b, bool open) { b.Lit(open); });
 
     std::vector<Ptr> items{HGap(15), prev,    HGap(6), pill,    HGap(6), next,    HGap(10), create,  HGap(4),
                            edit,     HGap(4), save,    HGap(8), random,  HGap(8), more,     HGap(19)};

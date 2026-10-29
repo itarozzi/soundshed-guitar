@@ -37,6 +37,15 @@ struct PresetQuery
 
 [[nodiscard]] bool IsPresetFavorite(const ClientState& state, const std::string& presetId);
 
+/// A user preset's id, as presets/toolbar.ts isUserPreset reads one: a number (a timestamp), one
+/// starting "user-", or a UUID. Factory and pack presets have other ids.
+[[nodiscard]] bool IsUserPresetId(const std::string& presetId);
+
+/// Whether the preset playing may be overwritten, renamed or deleted (canModifyPreset): a user
+/// preset the library holds, or any preset while the Factory Preset Archives tools are on. The
+/// toolbar's Edit and Save are off otherwise, and Save As makes the copy.
+[[nodiscard]] bool CanModifyActivePreset(const ClientState& state);
+
 /// A real folder by id, searched through the whole tree; null for the virtual ones.
 [[nodiscard]] const PresetFolder* FindPresetFolder(const std::vector<PresetFolder>& folders, const std::string& id);
 } // namespace guitarfx::uiclient

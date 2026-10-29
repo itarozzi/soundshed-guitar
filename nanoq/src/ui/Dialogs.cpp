@@ -681,6 +681,14 @@ void Shell::OpenEffectPicker(const std::string& afterNodeId, const std::string& 
     mOnOverlayClosed = [state] { state->fill = nullptr; };
 }
 
+void Shell::EditActivePreset()
+{
+    if (mState.activePreset && guitarfx::uiclient::CanModifyActivePreset(mState))
+    {
+        OpenPresetDetails(false);
+    }
+}
+
 void Shell::OpenPresetDetails(bool asNew)
 {
     // The web UI's save dialog (save-preset-modal.html). Details: the folder it is filed in, its

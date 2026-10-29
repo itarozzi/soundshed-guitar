@@ -623,6 +623,8 @@ class Shell
     /// Removes a node from the chain, or collapses the split it opens or closes (Keys.cpp): the
     /// Delete key and a card's cross.
     bool RemoveChainNode(const std::string& nodeId);
+    /// The toolbar's Edit: the save dialog over the preset playing (Dialogs.cpp).
+    void EditActivePreset();
 
     // Menus.cpp
     void OpenPresetMenu(std::optional<el::rect> anchor = std::nullopt);
@@ -652,6 +654,7 @@ class Shell
 
     Page mPage = Page::Chain;
     bool mWide = false;               // the full layout is in force
+    bool mControlsOpen = false;       // the compact layout's Controls strip is out
     el::extent mLastSize{0.0f, 0.0f}; // the regions sized to the window are rebuilt when it changes
     bool mPlayStageShown = false;     // the full layout's page slot holds the chain and editor
     float mChainAreaHeight = 0.0f;    // the full layout's chain, as tall as its lines

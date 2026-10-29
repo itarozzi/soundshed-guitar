@@ -289,7 +289,8 @@ class IconButton final : public Pressable
             ink = mTheme.Accent();
         }
 
-        if (mHasInk)
+        // Lit takes the accent over a chosen ink: a tile that is on reads as on.
+        if (mHasInk && !mLit)
         {
             ink = mInk;
         }

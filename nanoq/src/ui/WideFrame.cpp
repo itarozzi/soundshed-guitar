@@ -235,27 +235,12 @@ Ptr Shell::BuildHeader()
     create->Size(72, 28).IconSize(13).Label("NEW", 10.5f).Caret(true);
     create->onClick = [this, b = create.get()] { OpenNewPresetMenu(b->Bounds()); };
 
-    auto edit = boxed("ui-edit", [this] {
-        const auto* s = mState.FindPresetSummary(mState.activePresetId);
-        const auto& preset = mState.activePreset;
-
-        if (!preset)
-        {
-            return;
-        }
-
-        if (s == nullptr || s->source != "user")
-        {
-            SaveActivePreset(true);
-            return;
-        }
-
-        // The web UI's Edit: the save dialog over the preset playing.
-        OpenPresetDetails(false);
-    });
-    edit->Disabled(!havePreset);
+    // Edit and Save only for a preset that may be overwritten, as the web UI's toolbar.
+    const bool canModify = havePreset && guitarfx::uiclient::CanModifyActivePreset(mState);
+    auto edit = boxed("ui-edit", [this] { EditActivePreset(); });
+    edit->Disabled(!canModify);
     auto save = boxed("ui-save", [this] { SaveActivePreset(false); });
-    save->Disabled(!dirty);
+    save->Disabled(!canModify);
 
     if (dirty)
     {

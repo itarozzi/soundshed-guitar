@@ -4,6 +4,7 @@
  * the same preset.
  */
 
+#include "uiclient/PresetBrowse.h"
 #include "uiclient/PresetInspect.h"
 
 #include <algorithm>
@@ -137,8 +138,19 @@ void TestPeakHold()
     Expect(uic::FormatPeakDb(std::nullopt) == "\xE2\x80\x94", "no peak is a dash");
 }
 
+void TestUserPresetIds()
+{
+    Expect(uic::IsUserPresetId("1717568989143"), "a timestamp is a user preset");
+    Expect(uic::IsUserPresetId("user-black-album"), "so is a user- id");
+    Expect(uic::IsUserPresetId("4b0f9c1e-2d3a-4c5b-8e9f-0a1b2c3d4e5f"), "and a UUID");
+    Expect(!uic::IsUserPresetId("4b0f9c1e-2d3a-6c5b-8e9f-0a1b2c3d4e5f"), "not a UUID of another version");
+    Expect(!uic::IsUserPresetId("Preset-Pack-Vol.-1__black-album"), "a pack's preset is not");
+    Expect(!uic::IsUserPresetId(""), "nor is no preset");
+}
+
 int main()
 {
+    TestUserPresetIds();
     TestPeakHold();
     TestValidate();
     TestCleanup();

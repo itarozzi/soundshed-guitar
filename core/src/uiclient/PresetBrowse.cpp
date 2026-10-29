@@ -123,6 +123,60 @@ int ComparePresetNames(const PresetSummary& left, const PresetSummary& right)
     return NaturalCompare(left.id, right.id);
 }
 
+bool IsUserPresetId(const std::string& presetId)
+{
+    if (presetId.empty())
+    {
+        return false;
+    }
+
+    if (std::all_of(presetId.begin(), presetId.end(), [](unsigned char c) { return std::isdigit(c) != 0; }) ||
+        presetId.rfind("user-", 0) == 0)
+    {
+        return true;
+    }
+
+    // A UUID, version 1 to 5 and the RFC 4122 variant: 8-4-4-4-12 hex digits.
+    if (presetId.size() != 36)
+    {
+        return false;
+    }
+
+    for (std::size_t i = 0; i < presetId.size(); ++i)
+    {
+        const char c = presetId[i];
+
+        if (i == 8 || i == 13 || i == 18 || i == 23)
+        {
+            if (c != '-')
+            {
+                return false;
+            }
+        }
+        else if (std::isxdigit(static_cast<unsigned char>(c)) == 0)
+        {
+            return false;
+        }
+    }
+
+    const char version = presetId[14];
+    const char variant = static_cast<char>(std::tolower(static_cast<unsigned char>(presetId[19])));
+    return version >= '1' && version <= '5' && (variant == '8' || variant == '9' || variant == 'a' || variant == 'b');
+}
+
+bool CanModifyActivePreset(const ClientState& state)
+{
+    const bool held = !state.activePresetId.empty() &&
+                      (state.FindPresetSummary(state.activePresetId) != nullptr || state.activePreset.has_value());
+
+    if (held && IsUserPresetId(state.activePresetId))
+    {
+        return true;
+    }
+
+    return IsFeatureEnabled(state, Feature::FactoryPresetArchives);
+}
+
 bool IsPresetFavorite(const ClientState& state, const std::string& presetId)
 {
     return std::find(state.presetFavorites.begin(), state.presetFavorites.end(), presetId) !=

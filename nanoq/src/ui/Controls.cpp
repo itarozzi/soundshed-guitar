@@ -236,6 +236,10 @@ Shell::ControlCells Shell::BuildControlCells()
     auto eqButton = std::make_shared<IconButton>(mTheme, mIcons, "sliders", IconButton::Look::Boxed);
     eqButton->Size(46, 46).IconSize(18).Ink(mTheme.TextSecondary());
     eqButton->onClick = [this] { OpenGlobalEq(); };
+    // Lit in the accent while the Global EQ is on, as the web UI's .eq-icon-btn.
+    mLive.Bind(
+        eqButton, [chain] { return NodeEnabled(chain().postChainGraph, "global_eq"); },
+        [](IconButton& b, bool on) { b.Lit(on); });
     auto eqOn = std::make_shared<MiniSwitch>(mTheme, NodeEnabled(chain().postChainGraph, "global_eq"));
     eqOn->onClick = [this, chain] {
         mSession.Commands().SetGlobalChainToggle("eq.enabled", !NodeEnabled(chain().postChainGraph, "global_eq"));
@@ -311,5 +315,8 @@ void Shell::OpenControls()
     ShowPopover(Pad(8, 10, 8, 6, strip),
                 el::rect{metrics::kRailWidth + 6.0f, 0.0f, view.x - 6.0f, metrics::kTopBarHeight - 6.0f},
                 view.x - metrics::kRailWidth - 12.0f, 124.0f);
+    // The bar's CONTROLS stays lit while the strip is out, as the web UI's tab does.
+    mControlsOpen = true;
+    mOnOverlayClosed = [this] { mControlsOpen = false; };
 }
 } // namespace nanoq::ui
