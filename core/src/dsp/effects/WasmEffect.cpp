@@ -19,7 +19,9 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <random>
 #include <sstream>
+#include <string_view>
 #include <thread>
 #include <utility>
 
@@ -30,7 +32,10 @@ namespace guitarfx
 namespace
 {
 constexpr std::size_t kModuleSlot = 0;
-constexpr std::size_t kTempoParamIndex = WasmEffect::kTempoParamIndex;
+
+// Appended to every refusal that comes from a module written for the old interface.
+constexpr const char* kAbiMigrationHint =
+    " See \"Moving a module from ABI 1 to ABI 2\" in the Custom Effect authoring guide.";
 
 // The shared engine's epoch advances once per tick; a deadline is a number of ticks.
 constexpr std::chrono::milliseconds kEpochTick{10};
@@ -82,30 +87,27 @@ std::optional<std::size_t> ParseResourceSlotIndex(const ResourceRef& ref)
     }
 }
 
-std::optional<std::size_t> ParseGuestMacroIndex(const std::string& key)
+bool IsAsciiLetter(char ch)
 {
-    constexpr char kPrefix[] = "param";
+    return (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z');
+}
 
-    if (key.rfind(kPrefix, 0) != 0)
+bool IsAsciiDigit(char ch)
+{
+    return ch >= '0' && ch <= '9';
+}
+
+// A letter, then up to 31 letters, digits or underscores: safe in a preset key, a MIDI mapping and
+// a descriptor key, and never a number, so a numbered ABI 1 block can't pass for one.
+bool IsValidGuestId(std::string_view id)
+{
+    if (id.empty() || id.size() > WasmEffect::kMaxGuestIdLength || !IsAsciiLetter(id.front()))
     {
-        return std::nullopt;
+        return false;
     }
 
-    try
-    {
-        const std::size_t oneBasedIndex = static_cast<std::size_t>(std::stoul(key.substr(sizeof(kPrefix) - 1)));
-
-        if (oneBasedIndex == 0 || oneBasedIndex > WasmEffect::kGuestMacroCount)
-        {
-            return std::nullopt;
-        }
-
-        return oneBasedIndex - 1;
-    }
-    catch (...)
-    {
-        return std::nullopt;
-    }
+    return std::all_of(id.begin(), id.end(),
+                       [](char ch) { return IsAsciiLetter(ch) || IsAsciiDigit(ch) || ch == '_'; });
 }
 
 std::string TrimDescriptorToken(std::string value)
@@ -250,7 +252,18 @@ std::optional<WasmModuleDescriptor> BuildDescriptorFromEntries(const std::vector
 {
     WasmModuleDescriptor descriptor;
 
-    std::map<std::size_t, std::map<std::string, std::string>> parameterFields;
+    const auto fail = [error](std::string message) -> std::optional<WasmModuleDescriptor> {
+        if (error)
+        {
+            *error = std::move(message);
+        }
+
+        return std::nullopt;
+    };
+
+    // Params in the order their ids first appear, which is their order in the UI.
+    std::vector<std::pair<std::string, std::map<std::string, std::string>>> parameterFields;
+    std::unordered_map<std::string, std::size_t> parameterOrder;
     std::map<std::size_t, std::map<std::string, std::string>> resourceFields;
     std::string thumbnailBase64;
     std::string thumbnailMimeType = "image/png";
@@ -313,9 +326,47 @@ std::optional<WasmModuleDescriptor> BuildDescriptorFromEntries(const std::vector
             continue;
         }
 
-        if (const auto parsed = ParseIndexedDescriptorKey(entry.key, "param"))
+        if (entry.key.rfind("param.", 0) == 0)
         {
-            parameterFields[parsed->first][parsed->second] = entry.value;
+            // param.<id>.<field>; an id has no dots, so the field is everything after the second.
+            const std::string_view rest = std::string_view(entry.key).substr(6);
+            const std::size_t fieldSeparator = rest.find('.');
+            const std::string_view id = rest.substr(0, fieldSeparator);
+
+            if (!id.empty() && std::all_of(id.begin(), id.end(), IsAsciiDigit))
+            {
+                return fail("WASM descriptor key '" + entry.key +
+                            "' numbers its param, as ABI 1 did; ABI 2 keys params by id: param.<id>.<field>." +
+                            kAbiMigrationHint);
+            }
+
+            if (!IsValidGuestId(id))
+            {
+                return fail("WASM descriptor param id '" + std::string(id) +
+                            "' must be a letter followed by up to 31 letters, digits or underscores.");
+            }
+
+            if (fieldSeparator == std::string_view::npos || fieldSeparator + 1 >= rest.size())
+            {
+                return fail("WASM descriptor key '" + entry.key + "' names no field: use param.<id>.<field>.");
+            }
+
+            const std::string field(rest.substr(fieldSeparator + 1));
+
+            if (field == "slot" || field == "id")
+            {
+                return fail("WASM descriptor key '" + entry.key + "': ABI 2 params have no '" + field +
+                            "', the id in the key is all there is." + kAbiMigrationHint);
+            }
+
+            auto [orderIt, inserted] = parameterOrder.try_emplace(std::string(id), parameterFields.size());
+
+            if (inserted)
+            {
+                parameterFields.emplace_back(std::string(id), std::map<std::string, std::string>{});
+            }
+
+            parameterFields[orderIt->second].second[field] = entry.value;
             continue;
         }
 
@@ -326,62 +377,22 @@ std::optional<WasmModuleDescriptor> BuildDescriptorFromEntries(const std::vector
         }
     }
 
-    std::unordered_map<std::string, std::size_t> usedParamIds;
-    std::unordered_map<std::size_t, std::string> usedSlots;
-
-    for (const auto& [declIndex, fields] : parameterFields)
+    if (parameterFields.size() > WasmEffect::kMaxGuestParams)
     {
-        const auto idIt = fields.find("id");
+        return fail("WASM descriptor declares " + std::to_string(parameterFields.size()) + " params; the limit is " +
+                    std::to_string(WasmEffect::kMaxGuestParams) + ".");
+    }
 
-        if (idIt == fields.end() || idIt->second.empty())
+    for (const auto& [id, fields] : parameterFields)
+    {
+        if (WasmEffect::IsHostParamId(id))
         {
-            if (error)
-            {
-                *error = "WASM descriptor param." + std::to_string(declIndex) + " is missing required 'id'.";
-            }
-
-            return std::nullopt;
-        }
-
-        const auto slotIt = fields.find("slot");
-        const std::size_t slot =
-            slotIt != fields.end() ? ParseSizeTLike(slotIt->second).value_or(WasmEffect::kGuestMacroCount) : declIndex;
-
-        if (slot >= WasmEffect::kGuestMacroCount)
-        {
-            if (error)
-            {
-                *error = "WASM descriptor param." + std::to_string(declIndex) +
-                         " declares slot outside the supported 0.." +
-                         std::to_string(WasmEffect::kGuestMacroCount - 1) + " range.";
-            }
-
-            return std::nullopt;
-        }
-
-        if (usedParamIds.count(idIt->second) > 0)
-        {
-            if (error)
-            {
-                *error = "WASM descriptor declares duplicate parameter id '" + idIt->second + "'.";
-            }
-
-            return std::nullopt;
-        }
-
-        if (usedSlots.count(slot) > 0)
-        {
-            if (error)
-            {
-                *error = "WASM descriptor declares multiple parameters for guest slot " + std::to_string(slot) + ".";
-            }
-
-            return std::nullopt;
+            return fail("WASM descriptor param id '" + id +
+                        "' is the id of one of the host's own controls; give the param another.");
         }
 
         WasmGuestParameterDescriptor paramDescriptor;
-        paramDescriptor.slot = slot;
-        paramDescriptor.definition.id = idIt->second;
+        paramDescriptor.definition.id = id;
 
         if (const auto titleIt = fields.find("title"); titleIt != fields.end() && !titleIt->second.empty())
         {
@@ -393,7 +404,7 @@ std::optional<WasmModuleDescriptor> BuildDescriptorFromEntries(const std::vector
         }
         else
         {
-            paramDescriptor.definition.displayName = idIt->second;
+            paramDescriptor.definition.displayName = id;
         }
 
         if (const auto defaultIt = fields.find("default"); defaultIt != fields.end())
@@ -413,12 +424,7 @@ std::optional<WasmModuleDescriptor> BuildDescriptorFromEntries(const std::vector
 
         if (paramDescriptor.definition.maxValue < paramDescriptor.definition.minValue)
         {
-            if (error)
-            {
-                *error = "WASM descriptor param '" + idIt->second + "' has max < min.";
-            }
-
-            return std::nullopt;
+            return fail("WASM descriptor param '" + id + "' has max < min.");
         }
 
         if (const auto unitIt = fields.find("unit"); unitIt != fields.end())
@@ -456,8 +462,6 @@ std::optional<WasmModuleDescriptor> BuildDescriptorFromEntries(const std::vector
             paramDescriptor.definition.step = 1.0;
         }
 
-        usedParamIds[paramDescriptor.definition.id] = slot;
-        usedSlots[slot] = paramDescriptor.definition.id;
         descriptor.parameters.push_back(std::move(paramDescriptor));
     }
 
@@ -608,8 +612,71 @@ wasmtime_val_t MakeF32Value(float value)
     return result;
 }
 
-extern "C" wasm_trap_t* HostReadParamRaw(void* env, wasmtime_caller_t* caller, const wasmtime_val_t* args, size_t nargs,
-                                         wasmtime_val_t* results, size_t nresults)
+// The guest's bytes at [pointer, pointer + length) in its exported memory, valid until it next runs.
+std::optional<std::string_view> ReadGuestString(wasmtime_caller_t* caller, int32_t pointer, int32_t length,
+                                                std::size_t maxLength)
+{
+    if (!caller || pointer < 0 || length <= 0 || static_cast<std::size_t>(length) > maxLength)
+    {
+        return std::nullopt;
+    }
+
+    wasmtime_extern_t memoryItem{};
+
+    if (!wasmtime_caller_export_get(caller, "memory", std::strlen("memory"), &memoryItem))
+    {
+        return std::nullopt;
+    }
+
+    if (memoryItem.kind != WASMTIME_EXTERN_MEMORY)
+    {
+        wasmtime_extern_delete(&memoryItem);
+        return std::nullopt;
+    }
+
+    // Looked up on every call: memory.grow can move it.
+    wasmtime_context_t* context = wasmtime_caller_context(caller);
+    const std::size_t memorySize = wasmtime_memory_data_size(context, &memoryItem.of.memory);
+    const std::uint8_t* memoryData = wasmtime_memory_data(context, &memoryItem.of.memory);
+    wasmtime_extern_delete(&memoryItem);
+
+    const auto offset = static_cast<std::size_t>(pointer);
+    const auto size = static_cast<std::size_t>(length);
+
+    if (!memoryData || offset > memorySize || size > memorySize - offset)
+    {
+        return std::nullopt;
+    }
+
+    return std::string_view(reinterpret_cast<const char*>(memoryData + offset), size);
+}
+
+// param_handle(idPtr, idLen) -> handle, or -1 for an id the descriptor doesn't declare.
+extern "C" wasm_trap_t* HostParamHandleRaw(void* env, wasmtime_caller_t* caller, const wasmtime_val_t* args,
+                                           size_t nargs, wasmtime_val_t* results, size_t nresults)
+{
+    if (nresults > 0)
+    {
+        results[0] = MakeI32Value(-1);
+    }
+
+    if (!env || nargs < 2 || nresults < 1)
+    {
+        return nullptr;
+    }
+
+    if (const auto id = ReadGuestString(caller, args[0].of.i32, args[1].of.i32, WasmEffect::kMaxGuestIdLength))
+    {
+        results[0] = MakeI32Value(static_cast<WasmEffect*>(env)->GuestParamHandle(*id));
+    }
+
+    return nullptr;
+}
+
+// param_value(handle) -> value. A handle param_handle never gave traps: reading the wrong knob
+// quietly is what ABI 1 did, so a bad handle stops the module instead.
+extern "C" wasm_trap_t* HostParamValueRaw(void* env, wasmtime_caller_t* caller, const wasmtime_val_t* args,
+                                          size_t nargs, wasmtime_val_t* results, size_t nresults)
 {
     (void)caller;
 
@@ -623,8 +690,32 @@ extern "C" wasm_trap_t* HostReadParamRaw(void* env, wasmtime_caller_t* caller, c
         return nullptr;
     }
 
-    auto* host = static_cast<WasmEffect*>(env);
-    results[0] = MakeF32Value(host->ReadGuestParam(args[0].of.i32));
+    float value = 0.0f;
+
+    if (!static_cast<WasmEffect*>(env)->ReadGuestParamHandle(args[0].of.i32, value))
+    {
+        const std::string message =
+            "param_value was given handle " + std::to_string(args[0].of.i32) + ", which param_handle did not return";
+        return wasmtime_trap_new(message.data(), message.size());
+    }
+
+    results[0] = MakeF32Value(value);
+    return nullptr;
+}
+
+extern "C" wasm_trap_t* HostTempoBpmRaw(void* env, wasmtime_caller_t* caller, const wasmtime_val_t* args, size_t nargs,
+                                        wasmtime_val_t* results, size_t nresults)
+{
+    (void)caller;
+    (void)args;
+    (void)nargs;
+
+    if (nresults < 1)
+    {
+        return nullptr;
+    }
+
+    results[0] = MakeF32Value(env ? static_cast<WasmEffect*>(env)->GuestTempoBpm() : 120.0f);
     return nullptr;
 }
 
@@ -1099,18 +1190,17 @@ void WasmEffect::SetParam(const std::string& key, double value)
         return;
     }
 
-    if (const auto macroIndex = ParseGuestMacroIndex(key))
+    if (const auto indexIt = mGuestParamIndex.find(key); indexIt != mGuestParamIndex.end())
     {
-        mPendingGuestParamValues[key] = value;
-        mGuestMacros[*macroIndex] = value;
+        mGuestValues[indexIt->second] = value;
         return;
     }
 
-    mPendingGuestParamValues[key] = value;
-
-    if (const auto slotIt = mGuestParamSlots.find(key); slotIt != mGuestParamSlots.end())
+    // Automation runs SetParam on the audio thread, and only reaches ids the module declared; an
+    // unknown id is kept only until a descriptor has loaded to say which ids there are.
+    if (!mHasGuestDescriptor)
     {
-        mGuestMacros[slotIt->second] = value;
+        mPendingGuestParamValues[key] = value;
     }
 }
 
@@ -1136,19 +1226,14 @@ double WasmEffect::GetParam(const std::string& key) const
         return mBpm;
     }
 
-    if (const auto macroIndex = ParseGuestMacroIndex(key))
+    if (const auto indexIt = mGuestParamIndex.find(key); indexIt != mGuestParamIndex.end())
     {
-        return mGuestMacros[*macroIndex];
+        return mGuestValues[indexIt->second];
     }
 
     if (const auto pendingIt = mPendingGuestParamValues.find(key); pendingIt != mPendingGuestParamValues.end())
     {
         return pendingIt->second;
-    }
-
-    if (const auto slotIt = mGuestParamSlots.find(key); slotIt != mGuestParamSlots.end())
-    {
-        return mGuestMacros[slotIt->second];
     }
 
     return 0.0;
@@ -1250,28 +1335,45 @@ bool WasmEffect::LoadResources(const std::vector<ResourceRef>& refs, const std::
     return true;
 }
 
-float WasmEffect::ReadGuestParam(int index) const
+bool WasmEffect::IsHostParamId(std::string_view id)
 {
-    if (index < 0)
+    return std::find(kHostParamIds.begin(), kHostParamIds.end(), id) != kHostParamIds.end();
+}
+
+std::int32_t WasmEffect::GuestParamHandle(std::string_view id) const
+{
+    if (!mHasGuestDescriptor)
     {
-        return 0.0f;
+        return -1;
     }
 
-    const std::size_t readIndex = static_cast<std::size_t>(index);
-
-    if (readIndex == kTempoParamIndex)
+    for (std::size_t index = 0; index < mGuestParamCount; ++index)
     {
-        return static_cast<float>(mBpm);
+        if (mGuestDescriptor.parameters[index].definition.id == id)
+        {
+            return mGuestHandleBase + static_cast<std::int32_t>(index);
+        }
     }
 
-    const std::size_t slot = readIndex < kTempoParamIndex ? readIndex : readIndex - 1;
+    return -1;
+}
 
-    if (slot < mGuestMacros.size())
+bool WasmEffect::ReadGuestParamHandle(std::int32_t handle, float& value) const
+{
+    const std::int64_t index = static_cast<std::int64_t>(handle) - mGuestHandleBase;
+
+    if (!mHasGuestDescriptor || index < 0 || index >= static_cast<std::int64_t>(mGuestParamCount))
     {
-        return static_cast<float>(mGuestMacros[slot]);
+        return false;
     }
 
-    return 0.0f;
+    value = static_cast<float>(mGuestValues[static_cast<std::size_t>(index)]);
+    return true;
+}
+
+float WasmEffect::GuestTempoBpm() const
+{
+    return static_cast<float>(mBpm);
 }
 
 int WasmEffect::ReadGuestResourceSize(int slot) const
@@ -1379,6 +1481,12 @@ bool WasmEffect::BuildRuntimeOnly()
         return false;
     }
 
+    if (!CheckModuleImports())
+    {
+        TeardownRuntime();
+        return false;
+    }
+
     mLinker = wasmtime_linker_new(mEngine);
 
     if (!mLinker)
@@ -1429,9 +1537,15 @@ bool WasmEffect::BuildRuntimeOnly()
         return true;
     };
 
-    if (!defineHostImport("read_param",
+    if (!defineHostImport("param_handle",
+                          MakeFunctionType(wasm_functype_new_2_1(wasm_valtype_new_i32(), wasm_valtype_new_i32(),
+                                                                 wasm_valtype_new_i32())),
+                          HostParamHandleRaw) ||
+        !defineHostImport("param_value",
                           MakeFunctionType(wasm_functype_new_1_1(wasm_valtype_new_i32(), wasm_valtype_new_f32())),
-                          HostReadParamRaw) ||
+                          HostParamValueRaw) ||
+        !defineHostImport("tempo_bpm", MakeFunctionType(wasm_functype_new_0_1(wasm_valtype_new_f32())),
+                          HostTempoBpmRaw) ||
         !defineHostImport("read_resource_size",
                           MakeFunctionType(wasm_functype_new_1_1(wasm_valtype_new_i32(), wasm_valtype_new_i32())),
                           HostReadResourceSizeRaw) ||
@@ -1443,46 +1557,6 @@ bool WasmEffect::BuildRuntimeOnly()
         TeardownRuntime();
         return false;
     }
-
-    const auto loadAliasedFunctionExport = [&](const char* preferredName, const char* legacyName,
-                                               wasmtime_func_t& outFunction, bool required, bool& found) -> bool {
-        bool hasPreferred = false;
-
-        if (!LoadFunctionExport(preferredName, outFunction, false, hasPreferred))
-        {
-            return false;
-        }
-
-        if (hasPreferred)
-        {
-            found = true;
-            return true;
-        }
-
-        bool hasLegacy = false;
-
-        if (!LoadFunctionExport(legacyName, outFunction, false, hasLegacy))
-        {
-            return false;
-        }
-
-        if (hasLegacy)
-        {
-            found = true;
-            return true;
-        }
-
-        found = false;
-
-        if (required)
-        {
-            SetError(std::string("WASM module is missing required export '") + preferredName + "' (legacy '" +
-                     legacyName + "' is also accepted).");
-            return false;
-        }
-
-        return true;
-    };
 
     wasm_trap_t* trap = nullptr;
 
@@ -1505,19 +1579,120 @@ bool WasmEffect::BuildRuntimeOnly()
 
     mHasInstance = true;
 
-    if (!loadAliasedFunctionExport("audiofx_prepare", "guitarfx_prepare", mPrepareFunction, true,
-                                   mHasPrepareFunction) ||
-        !loadAliasedFunctionExport("audiofx_reset", "guitarfx_reset", mResetFunction, true, mHasResetFunction) ||
-        !loadAliasedFunctionExport("audiofx_process", "guitarfx_process", mProcessFunction, true,
-                                   mHasProcessFunction) ||
-        !loadAliasedFunctionExport("audiofx_get_latency_samples", "guitarfx_get_latency_samples", mLatencyFunction,
-                                   false, mHasLatencyFunction))
+    if (!CheckAbiVersion() || !LoadFunctionExport("audiofx_prepare", mPrepareFunction, true, mHasPrepareFunction) ||
+        !LoadFunctionExport("audiofx_reset", mResetFunction, true, mHasResetFunction) ||
+        !LoadFunctionExport("audiofx_process", mProcessFunction, true, mHasProcessFunction) ||
+        !LoadFunctionExport("audiofx_get_latency_samples", mLatencyFunction, false, mHasLatencyFunction))
     {
         TeardownRuntime();
         return false;
     }
 
     return true;
+}
+
+// Before linking, so a module written for another interface is refused by name instead of by
+// Wasmtime's "unknown import".
+bool WasmEffect::CheckModuleImports()
+{
+    static constexpr std::array<std::string_view, 5> kHostImports{"param_handle", "param_value", "tempo_bpm",
+                                                                  "read_resource_size", "read_resource_byte"};
+
+    wasm_importtype_vec_t imports;
+    wasmtime_module_imports(mModule, &imports);
+    std::string problem;
+
+    for (std::size_t i = 0; i < imports.size && problem.empty(); ++i)
+    {
+        const std::string moduleName = CopyWasmMessage(*wasm_importtype_module(imports.data[i]));
+        const std::string fieldName = CopyWasmMessage(*wasm_importtype_name(imports.data[i]));
+
+        if (moduleName == "host" && fieldName == "read_param")
+        {
+            problem = std::string("WASM module was written for Custom Effect ABI 1 (it imports host.read_param).") +
+                      kAbiMigrationHint;
+        }
+        else if (moduleName != "host" ||
+                 std::find(kHostImports.begin(), kHostImports.end(), fieldName) == kHostImports.end())
+        {
+            problem = "WASM module imports '" + moduleName + "." + fieldName +
+                      "', which a Custom Effect is not given. The host provides host.param_handle, "
+                      "host.param_value, host.tempo_bpm, host.read_resource_size and host.read_resource_byte.";
+        }
+    }
+
+    wasm_importtype_vec_delete(&imports);
+
+    if (!problem.empty())
+    {
+        SetError(problem);
+        return false;
+    }
+
+    return true;
+}
+
+bool WasmEffect::CheckAbiVersion()
+{
+    wasmtime_func_t abiFunction{};
+    bool hasAbiFunction = false;
+
+    if (!LoadFunctionExport("audiofx_abi_version", abiFunction, false, hasAbiFunction))
+    {
+        return false;
+    }
+
+    if (!hasAbiFunction)
+    {
+        SetError(std::string("WASM module does not export audiofx_abi_version, so it was written for Custom Effect "
+                             "ABI 1.") +
+                 kAbiMigrationHint);
+        return false;
+    }
+
+    const auto version = CallGuestI32(abiFunction, "audiofx_abi_version");
+
+    if (!version)
+    {
+        return false;
+    }
+
+    if (*version != kAbiVersion)
+    {
+        SetError("WASM module declares Custom Effect ABI " + std::to_string(*version) + "; this host runs ABI " +
+                 std::to_string(kAbiVersion) + ".");
+        return false;
+    }
+
+    return true;
+}
+
+std::optional<std::int32_t> WasmEffect::CallGuestI32(wasmtime_func_t& function, const char* functionName)
+{
+    std::array<wasmtime_val_t, 1> results{};
+    wasm_trap_t* trap = nullptr;
+    ArmGuestDeadline(kSetupBudgetSeconds);
+
+    if (wasmtime_error_t* error =
+            wasmtime_func_call(mContext, &function, nullptr, 0, results.data(), results.size(), &trap))
+    {
+        SetError(std::string("WASM call to '") + functionName + "' failed: " + TakeErrorMessage(error));
+        return std::nullopt;
+    }
+
+    if (trap)
+    {
+        SetError(std::string("WASM call to '") + functionName + "' trapped: " + TakeTrapMessage(trap));
+        return std::nullopt;
+    }
+
+    if (results[0].kind != WASMTIME_I32)
+    {
+        SetError(std::string("WASM function '") + functionName + "' returned a non-i32 result.");
+        return std::nullopt;
+    }
+
+    return results[0].of.i32;
 }
 
 bool WasmEffect::LoadFunctionExport(const char* exportName, wasmtime_func_t& outFunction, bool required, bool& found)
@@ -1691,96 +1866,20 @@ bool WasmEffect::LoadGuestDescriptor()
 {
     ResetGuestDescriptor();
 
+    // Every module describes itself: the descriptor is the only place its param ids come from.
     wasmtime_func_t descriptorPtrFunction{};
     wasmtime_func_t descriptorLenFunction{};
     bool hasDescriptorPtr = false;
     bool hasDescriptorLen = false;
-    const char* descriptorPtrName = "audiofx_descriptor_ptr";
-    const char* descriptorLenName = "audiofx_descriptor_len";
 
-    bool hasAudioDescriptorPtr = false;
-    bool hasAudioDescriptorLen = false;
-
-    if (!LoadFunctionExport("audiofx_descriptor_ptr", descriptorPtrFunction, false, hasAudioDescriptorPtr) ||
-        !LoadFunctionExport("audiofx_descriptor_len", descriptorLenFunction, false, hasAudioDescriptorLen))
+    if (!LoadFunctionExport("audiofx_descriptor_ptr", descriptorPtrFunction, true, hasDescriptorPtr) ||
+        !LoadFunctionExport("audiofx_descriptor_len", descriptorLenFunction, true, hasDescriptorLen))
     {
         return false;
     }
 
-    if (hasAudioDescriptorPtr != hasAudioDescriptorLen)
-    {
-        SetError("WASM descriptor exports must provide both 'audiofx_descriptor_ptr' and 'audiofx_descriptor_len'.");
-        return false;
-    }
-
-    if (hasAudioDescriptorPtr)
-    {
-        hasDescriptorPtr = true;
-        hasDescriptorLen = true;
-    }
-    else
-    {
-        if (!LoadFunctionExport("guitarfx_descriptor_ptr", descriptorPtrFunction, false, hasDescriptorPtr) ||
-            !LoadFunctionExport("guitarfx_descriptor_len", descriptorLenFunction, false, hasDescriptorLen))
-        {
-            return false;
-        }
-
-        if (hasDescriptorPtr != hasDescriptorLen)
-        {
-            SetError(
-                "WASM descriptor exports must provide both 'guitarfx_descriptor_ptr' and 'guitarfx_descriptor_len'.");
-            return false;
-        }
-
-        if (hasDescriptorPtr)
-        {
-            descriptorPtrName = "guitarfx_descriptor_ptr";
-            descriptorLenName = "guitarfx_descriptor_len";
-        }
-    }
-
-    if (!hasDescriptorPtr)
-    {
-        ApplyPendingGuestParamValues();
-        return true;
-    }
-
-    if (!mContext || !mHasInstance)
-    {
-        SetError("WASM runtime is not ready for descriptor lookup.");
-        return false;
-    }
-
-    auto callI32Function = [&](wasmtime_func_t& function, const char* functionName) -> std::optional<int32_t> {
-        std::array<wasmtime_val_t, 1> results{};
-        wasm_trap_t* trap = nullptr;
-        ArmGuestDeadline(kSetupBudgetSeconds);
-
-        if (wasmtime_error_t* error =
-                wasmtime_func_call(mContext, &function, nullptr, 0, results.data(), results.size(), &trap))
-        {
-            SetError(std::string("WASM descriptor call failed for '") + functionName + "': " + TakeErrorMessage(error));
-            return std::nullopt;
-        }
-
-        if (trap)
-        {
-            SetError(std::string("WASM descriptor call trapped for '") + functionName + "': " + TakeTrapMessage(trap));
-            return std::nullopt;
-        }
-
-        if (results[0].kind != WASMTIME_I32)
-        {
-            SetError(std::string("WASM descriptor function '") + functionName + "' returned a non-i32 result.");
-            return std::nullopt;
-        }
-
-        return results[0].of.i32;
-    };
-
-    const auto descriptorPtr = callI32Function(descriptorPtrFunction, descriptorPtrName);
-    const auto descriptorLen = callI32Function(descriptorLenFunction, descriptorLenName);
+    const auto descriptorPtr = CallGuestI32(descriptorPtrFunction, "audiofx_descriptor_ptr");
+    const auto descriptorLen = CallGuestI32(descriptorLenFunction, "audiofx_descriptor_len");
 
     if (!descriptorPtr || !descriptorLen)
     {
@@ -1795,7 +1894,7 @@ bool WasmEffect::LoadGuestDescriptor()
 
     if (*descriptorLen == 0)
     {
-        ApplyPendingGuestParamValues();
+        ApplyGuestDescriptor({});
         return true;
     }
 
@@ -1849,66 +1948,43 @@ bool WasmEffect::LoadGuestDescriptor()
     return true;
 }
 
+// Runs only off the audio thread (construction, LoadResources, rebuilding the runtime). The
+// values set so far are kept by id, so a rebuild, or a new version of the module that keeps an
+// id, picks them up again in ApplyGuestDescriptor.
 void WasmEffect::ResetGuestDescriptor()
 {
+    for (std::size_t index = 0; mHasGuestDescriptor && index < mGuestParamCount; ++index)
+    {
+        mPendingGuestParamValues[mGuestDescriptor.parameters[index].definition.id] = mGuestValues[index];
+    }
+
     mGuestDescriptor = {};
-    mGuestParamSlots.clear();
-    mGuestMacroDefaults.fill(0.0);
-    mGuestMacroDefaults[0] = 1.0;
-    ResetGuestMacrosToDefaults();
+    mGuestParamIndex.clear();
+    mGuestParamCount = 0;
+    mHasGuestDescriptor = false;
+    mGuestValues.fill(0.0);
 }
 
 void WasmEffect::ApplyGuestDescriptor(const WasmModuleDescriptor& descriptor)
 {
+    ResetGuestDescriptor();
     mGuestDescriptor = descriptor;
-    mGuestParamSlots.clear();
-    mGuestMacroDefaults.fill(0.0);
+    mGuestParamCount = std::min(descriptor.parameters.size(), kMaxGuestParams);
 
-    for (const auto& guestParam : descriptor.parameters)
+    for (std::size_t index = 0; index < mGuestParamCount; ++index)
     {
-        if (guestParam.slot >= mGuestMacroDefaults.size())
-        {
-            continue;
-        }
-
-        mGuestParamSlots[guestParam.definition.id] = guestParam.slot;
-        mGuestMacroDefaults[guestParam.slot] = guestParam.definition.defaultValue;
+        const auto& definition = descriptor.parameters[index].definition;
+        const auto pendingIt = mPendingGuestParamValues.find(definition.id);
+        mGuestValues[index] = pendingIt != mPendingGuestParamValues.end() ? pendingIt->second : definition.defaultValue;
+        mGuestParamIndex[definition.id] = index;
     }
 
-    ResetGuestMacrosToDefaults();
-    ApplyPendingGuestParamValues();
-}
+    mPendingGuestParamValues.clear();
 
-void WasmEffect::ResetGuestMacrosToDefaults()
-{
-    mGuestMacros = mGuestMacroDefaults;
-}
-
-void WasmEffect::ApplyPendingGuestParamValues()
-{
-    for (std::size_t slot = 0; slot < kGuestMacroCount; ++slot)
-    {
-        const std::string genericKey = "param" + std::to_string(slot + 1);
-
-        if (const auto genericIt = mPendingGuestParamValues.find(genericKey);
-            genericIt != mPendingGuestParamValues.end())
-        {
-            mGuestMacros[slot] = genericIt->second;
-        }
-    }
-
-    for (const auto& [key, value] : mPendingGuestParamValues)
-    {
-        if (ParseGuestMacroIndex(key).has_value())
-        {
-            continue;
-        }
-
-        if (const auto slotIt = mGuestParamSlots.find(key); slotIt != mGuestParamSlots.end())
-        {
-            mGuestMacros[slotIt->second] = value;
-        }
-    }
+    // A fresh base for every instance; ids are what stay the same.
+    std::random_device device;
+    mGuestHandleBase = std::uniform_int_distribution<std::int32_t>(1 << 16, 1 << 30)(device);
+    mHasGuestDescriptor = true;
 }
 
 void WasmEffect::TeardownRuntime()
