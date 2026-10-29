@@ -1,10 +1,39 @@
 # Nano Q against the web UI: what is still unfinished
 
-Status: **review, 2026-10-29**, at `835b1d88`. Follows [nano-q-parity.md](nano-q-parity.md), whose
+Status: **done, 2026-10-29** (see Outcome). Reviewed at `835b1d88`. Follows [nano-q-parity.md](nano-q-parity.md), whose
 phases are all marked done or mostly done. This is a visual pass: each surface opened in both
 UIs at the same size and compared side by side, looking for places where Nano Q still differs
 from the web UI enough to read as unfinished. Small differences, and places where Nano Q's
 version is as good or clearer, are left out or listed under "Acceptable".
+
+## Outcome, 2026-10-29
+
+Every item below has been done, each in its own commit on main (15 and 20 share one, as do 1, 9
+and 19, and 17 and 18):
+
+| Item | Commit | What changed, and what was left out |
+| --- | --- | --- |
+| 1, 9, 19 | `694e966c` | Effect editor: artwork panel, stacked model slot, tabs under it, raised groups with larger knobs, two-line header, CALIBRATED chip, the right category label, the gate's NOISE FLOOR box |
+| 2 | `f88c74c4` | Performance pads under the chain (Setlist page at the compact size); the old Presets page is gone. Left out: the experimental Effects pads, and press-and-hold on a pad's save button (a tap that asks before replacing) |
+| 3 | `f2b26034` | Preset chooser as a popover: + Mixer, folder paths, export, folder tools, Setlists folded at the foot |
+| 4 | `caaa1b77` | Settings in sections and cards, drop-downs and switches; the theme only in the footer. Left out: the DSP diagnostics card (Nano Q has the DSP flyout) and the Tone3000 API health check |
+| 5 | `12f573a6` | Tuner rewritten, with Cents / Hz |
+| 6 | `f1c0c0fd` | The + menu and the FX Library over the editor, with drag onto the chain. "Supercharged..." is a composite (`composite:supercharged-neural-amp`), now offered. Nano Q keeps click-to-add beside the drag |
+| 7 | `809d25ac` | One dialog chrome (`ShowDialog`, `ui/DialogChrome.h`) for every dialog |
+| 8 | `934c429a` | Chain cards: A2 badge, equipment art, remove and bypass corners |
+| 10 | `2da69663` | Save dialog: Details / Advanced, the input peak |
+| 11 | `d1321548` | Global EQ as a dialog |
+| 12 | `e9a914e2` | Gate flyout as labelled rows, switches, Advanced, Reset |
+| 13 | `726d2a64` | Model browser rows, row actions, All / Favourites, previous / next, footer hint. The hashed file names show in the web UI too: they are the library's data. Also fixed: the list had collapsed to one row since item 7, and Esc now cancels a dialog as its cross does |
+| 14 | `a6dcd08b` | Export, Import and Delete preset (engine: `importPresetArchiveFile`) |
+| 15, 20 | `b45e439c` | Tones and Jam side lists; My Content, Create Pack, Cards / List; Publish says that publishing is Soundshed Guitar's |
+| 16 | `258745d1` | Input mode menu with icons and descriptions |
+| 17, 18 | `d6ba766a` | EQ tile and CONTROLS light up; Edit and Save follow whether the preset can be modified |
+| 21 | `b4e530ee` | Meter list in two columns |
+
+Also on the way: `d4d9411f` (the factory archive re-import kept dropping stored metadata, which hid
+the A2 and CALIBRATED badges). Not yet tried live: export and the native file pickers, the Practice
+EQ's Reset, and the hosted-plugin and other effect editors.
 
 ## How it was compared
 
