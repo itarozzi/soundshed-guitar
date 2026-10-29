@@ -259,8 +259,13 @@ Ptr Shell::BuildHeader()
     more->Size(30, 28).IconSize(14).Caret(true);
     more->onClick = [this, b = more.get()] { OpenPresetMenu(b->Bounds()); };
 
-    auto toolbar = Tight(
-        {create, HGap(6), edit, HGap(6), save, divider(), random, divider(), back, HGap(2), forward, divider(), more});
+    // Publish (#preset-publish): publishing is Soundshed Guitar's, and this says so.
+    auto publish = std::make_shared<IconButton>(mTheme, mIcons, "ui-share", IconButton::Look::Accent);
+    publish->Size(84, 28).IconSize(13).Label("PUBLISH", 10.5f);
+    publish->onClick = [this] { OpenPublishInfo(); };
+
+    auto toolbar = Tight({create, HGap(6), edit, HGap(6), save, divider(), random, divider(), back, HGap(2), forward,
+                          divider(), publish, divider(), more});
 
     // ── The preset selector ──
     auto prev = std::make_shared<IconButton>(mTheme, mIcons, "ui-prev", IconButton::Look::Soft);

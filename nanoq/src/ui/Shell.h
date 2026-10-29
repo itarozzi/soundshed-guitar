@@ -93,6 +93,25 @@ struct DialogParts
     std::function<void()> onClose;
 };
 
+/// The Tones and Jam pages' sections (Shell::WithSectionNav): a side list in the full layout, chips
+/// across the top at the compact size.
+struct SectionNav
+{
+    struct Item
+    {
+        std::string label;
+        bool active = false;
+        std::function<void()> onClick;
+    };
+
+    std::string account; // the account pill's label; empty for none
+    std::function<void(el::rect anchor)> onAccount;
+    std::vector<Item> items;
+    std::vector<Ptr> tools;        // under the sections, in the side list
+    std::vector<Ptr> compactTools; // at the right of the chips, at the compact size
+    std::string help;              // a help card under the side list
+};
+
 class WebViewSlot; // JamPage.cpp
 class NodeCard;    // ChainWidgets.h
 class Connector;   // ChainWidgets.h
@@ -508,9 +527,14 @@ class Shell
     {
         Presets,
         Packs,
-        Installed
+        Installed,
+        Mine // My Content: the account's own presets and packs
     };
     Ptr BuildTonesPage();
+    // SectionNav.cpp
+    [[nodiscard]] Ptr WithSectionNav(SectionNav nav, Ptr content);
+    /// Says where publishing is (Soundshed Guitar), with a way to My Content.
+    void OpenPublishInfo(bool pack = false);
     [[nodiscard]] std::string TonesPageSignature() const;
     /// Asks the service for the open tab's tones: page 1 afresh, or with `more` the next page.
     void LoadTones(bool more);
@@ -716,6 +740,8 @@ class Shell
     int mTonesGeneration = 0;  // answers to an older request are dropped
     std::string mTonesError;
     std::vector<guitarfx::uiclient::tones::Tone> mToneItems, mTonePacks, mToneHomePacks;
+    std::vector<guitarfx::uiclient::tones::Tone> mToneMine, mToneMinePacks; // My Content
+    bool mTonesList = false;                                                // List rather than Cards
     std::shared_ptr<el::basic_input_box> mTonesSearchBox;
     Ptr mTonesSearchElement;
     int mToneListener = 0;

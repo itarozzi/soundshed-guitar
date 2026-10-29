@@ -290,7 +290,9 @@ void Shell::Rebuild()
     else if ((mDirty & kPage) && mPage == Page::Tones)
     {
         // The Tones page scrolls; it is rebuilt (back to the top) only when what it lists changed.
+        // The Jam page is forgotten, so coming back to it builds it again.
         mEffectSignature.clear();
+        mJamSignature.clear();
         const auto signature = TonesPageSignature();
 
         if (signature == mTonesSignature)

@@ -128,6 +128,9 @@ struct Response
 
 [[nodiscard]] std::string ItemsPath(int page, const std::string& query, const std::string& tag);
 [[nodiscard]] std::string PacksPath(int page);
+/// The signed-in account's own presets and packs (the web UI's My Content, browse.ts loadMine).
+inline constexpr const char* kMyItemsPath = "/items/me/list";
+inline constexpr const char* kMyPacksPath = "/packs/me/list";
 [[nodiscard]] std::string ItemPath(const std::string& itemId);
 [[nodiscard]] std::string ItemDownloadPath(const std::string& itemId);
 [[nodiscard]] std::string PackPath(const std::string& packId);

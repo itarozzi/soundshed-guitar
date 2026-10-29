@@ -806,11 +806,12 @@ Ptr Shell::BuildJamPage()
         mJamSection = sections.front();
     }
 
-    const float stageWidth = StageWidth();
+    // The side list takes 245 px in the full layout.
+    const float stageWidth = StageWidth() - (mWide ? 245.0f : 0.0f);
     const float contentWidth = stageWidth - 2.0f * 12.0f - 14.0f; // margins, scroll bar
 
-    // ── The sections, as chips along the top (the web UI's sidebar, at the compact size) ──
-    std::vector<Ptr> chips{HGap(10)};
+    // ── The sections: the web UI's side list, chips along the top at the compact size ──
+    SectionNav nav;
     const auto label = [](JamSection section) {
         switch (section)
         {
@@ -831,35 +832,20 @@ Ptr Shell::BuildJamPage()
 
     for (const auto section : sections)
     {
-        auto t = std::make_shared<IconButton>(mTheme, mIcons, "", IconButton::Look::Ghost);
-        t->Size(60, 28).Label(label(section), 12.0f);
+        nav.items.push_back({label(section), mJamSection == section, [this, section] {
+                                 if (mJamSection == section)
+                                 {
+                                     return;
+                                 }
 
-        if (mJamSection == section)
-        {
-            t->Lit(true).Ink(mTheme.Ink());
-        }
-        else
-        {
-            t->Ink(mTheme.TextSecondary());
-        }
-
-        t->onClick = [this, section] {
-            if (mJamSection == section)
-            {
-                return;
-            }
-
-            mJamSection = section;
-            mJamScroll.reset(); // a section opens at its top
-            Mark(kPage);
-        };
-        chips.push_back(t);
-        chips.push_back(HGap(6));
+                                 mJamSection = section;
+                                 mJamScroll.reset(); // a section opens at its top
+                                 Mark(kPage);
+                             }});
     }
 
-    chips.push_back(Stretch());
-    auto top = FixedHeight(46, Pad(0, 9, 0, 9, Row(chips)));
-    auto rule = FixedHeight(1, Fill(mTheme.Text().opacity(0.06f), std::make_shared<el::element>()));
+    nav.help = "Find a backing track, pin favourites, and keep the YouTube player playing while you use the rest "
+               "of the app.";
 
     Ptr content;
 
@@ -910,7 +896,7 @@ Ptr Shell::BuildJamPage()
         break;
     }
 
-    return Over(Col({top, rule, content}), std::make_shared<StageBackdrop>(mTheme));
+    return Over(WithSectionNav(std::move(nav), content), std::make_shared<StageBackdrop>(mTheme));
 }
 
 void Shell::SyncJam()

@@ -261,6 +261,10 @@ Ptr Shell::BuildTopBar()
     }
 
     auto random = ToolButton(mTheme, mIcons, "ui-random", [this] { LoadRandomPreset(); });
+    // Share (#preset-publish at the compact size): publishing is Soundshed Guitar's, and this says so.
+    auto publish = std::make_shared<IconButton>(mTheme, mIcons, "ui-share", IconButton::Look::Accent);
+    publish->Size(28, 28).IconSize(14);
+    publish->onClick = [this] { OpenPublishInfo(); };
 
     auto more = std::make_shared<IconButton>(mTheme, mIcons, "ui-more");
     more->Size(28, 28).IconSize(14).Caret(true);
@@ -272,8 +276,8 @@ Ptr Shell::BuildTopBar()
     controls->onClick = [this] { OpenControls(); };
     mLive.Bind(controls, [this] { return mControlsOpen; }, [](IconButton& b, bool open) { b.Lit(open); });
 
-    std::vector<Ptr> items{HGap(15), prev,    HGap(6), pill,    HGap(6), next,    HGap(10), create,  HGap(4),
-                           edit,     HGap(4), save,    HGap(8), random,  HGap(8), more,     HGap(19)};
+    std::vector<Ptr> items{HGap(15), prev, HGap(6), pill,   HGap(6), next,    HGap(10), create, HGap(4), edit,
+                           HGap(4),  save, HGap(8), random, HGap(8), publish, HGap(4),  more,   HGap(19)};
 
     if (auto update = BuildUpdateButton())
     {
