@@ -129,6 +129,13 @@ struct LayoutImageSource
     const FileSystem& fileSystem, const std::filesystem::path& factoryLayoutsDir, bool includeUnindexed = false,
     const std::filesystem::path& excludeImagesDir = {});
 
+/// The library image (CollectLayoutImageSources, unindexed folders included) whose file holds exactly
+/// the bytes of `file`, so picking a picture the library already has reuses it instead of adding a
+/// copy under a new id. One in `preferredImagesDir` (the layout's own folder) wins over the rest.
+[[nodiscard]] std::optional<LayoutImageSource> FindIdenticalLayoutImage(
+    const FileSystem& fileSystem, const std::filesystem::path& factoryLayoutsDir, const std::filesystem::path& file,
+    const std::filesystem::path& preferredImagesDir);
+
 /// The image ids a layout document draws on, each once, in the order they appear: image background
 /// layers, custom knob faces, image knobs (face, base, glare), image toggles and sliders, and image
 /// overlays. The UI's layoutImageIds (layoutTypes.ts) lists the same places.

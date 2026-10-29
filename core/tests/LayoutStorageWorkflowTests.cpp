@@ -59,7 +59,13 @@ class TestHost final : public guitarfx::IPluginHost
     void BrowseFileAsync(guitarfx::BrowseFileType, const std::string&,
                          std::function<void(const guitarfx::BrowseFileResult&)> callback) override
     {
-        callback(guitarfx::BrowseFileResult{});
+        callback(mBrowsePath.empty() ? guitarfx::BrowseFileResult{} : guitarfx::BrowseFileResult{true, mBrowsePath});
+    }
+
+    /// The file the next Browse picks; empty cancels it.
+    void SetBrowsePath(fs::path path)
+    {
+        mBrowsePath = std::move(path);
     }
 
     void SaveFileAsync(guitarfx::BrowseFileType, const std::string&, const std::string&,
@@ -136,6 +142,7 @@ class TestHost final : public guitarfx::IPluginHost
 
   private:
     fs::path mRoot;
+    fs::path mBrowsePath;
     std::vector<std::string> mMessages;
     std::condition_variable mMessageCv;
     std::mutex mMessageMutex;
@@ -816,6 +823,67 @@ bool TestRenditionsAreStoredListedAndServed()
     return true;
 }
 
+/// Browsing for a picture the library already holds answers with that image rather than copying the
+/// file again under a new id, from any layout's folder; a different picture is still added.
+bool TestPickingTheSameImageAgainReusesIt()
+{
+    const fs::path sandbox = FreshSandbox("same-image-again");
+    const ScopedPlatformRoot root(sandbox);
+    const fs::path content = ContentDir(sandbox);
+
+    TestHost host(sandbox);
+    guitarfx::PluginController controller(host);
+
+    const auto browse = [&](const fs::path& file, const std::string& layoutId) -> std::string {
+        const auto before = host.CountMessages("layoutImageSelected");
+        host.SetBrowsePath(file);
+        controller.HandleUIMessage(
+            nlohmann::json{{"type", "browseLayoutImage"}, {"purpose", "knob"}, {"layoutId", layoutId}}.dump());
+        const auto selected = host.WaitForMessage("layoutImageSelected");
+        return selected && host.CountMessages("layoutImageSelected") == before + 1 ? selected->value("imageId", "")
+                                                                                   : std::string();
+    };
+    const auto imageCount = [&](const std::string& layoutId) {
+        std::error_code ec;
+        const auto dir = content / layoutId / "images";
+        return fs::is_directory(dir, ec)
+                   ? std::distance(fs::directory_iterator(dir, ec), fs::directory_iterator())
+                   : std::ptrdiff_t{0};
+    };
+
+    const fs::path face = sandbox / "picked" / "face.png";
+    const fs::path sameFace = sandbox / "elsewhere" / "face copy.png";
+    const fs::path otherFace = sandbox / "picked" / "other.png";
+    WriteBytes(face, PngOfSize(64, 64, 80));
+    WriteBytes(sameFace, PngOfSize(64, 64, 80));
+    WriteBytes(otherFace, PngOfSize(64, 32, 80));
+
+    const std::string first = browse(face, "A");
+    const std::string again = browse(sameFace, "A");
+
+    if (first.empty() || again != first || imageCount("A") != 1)
+    {
+        std::cerr << "Picking the same picture again added a copy: " << first << " then " << again << ", "
+                  << imageCount("A") << " files\n";
+        return false;
+    }
+
+    // Another layout reuses it too; saving that layout is what copies it into its own folder.
+    if (const std::string fromB = browse(sameFace, "B"); fromB != first || imageCount("B") != 0)
+    {
+        std::cerr << "Another layout copied a picture the library holds: " << fromB << "\n";
+        return false;
+    }
+
+    if (const std::string other = browse(otherFace, "A"); other.empty() || other == first || imageCount("A") != 2)
+    {
+        std::cerr << "A different picture was not added: " << other << "\n";
+        return false;
+    }
+
+    return true;
+}
+
 /// Images an image knob, toggle, slider or overlay draws on, and the layout's own knob image, are
 /// the layout's like any other: a save copies each into its own folder, so they survive the layout
 /// they came from.
@@ -970,6 +1038,7 @@ int main()
         {"Image sizes are read from headers", TestImageSizesAreReadFromHeaders},
         {"Large imported images are stored", TestLargeImportedImagesAreStored},
         {"Renditions are stored, listed and served", TestRenditionsAreStoredListedAndServed},
+        {"Picking the same image again reuses it", TestPickingTheSameImageAgainReusesIt},
         {"Image control references are copied on save", TestImageControlReferencesAreCopiedOnSave},
         {"A failed save is reported", TestFailedSaveIsReported},
         {"Delete removes the layout from every key", TestDeleteRemovesTheLayoutFromEveryKey},

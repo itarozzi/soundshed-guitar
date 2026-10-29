@@ -323,6 +323,58 @@ std::vector<LayoutImageSource> CollectLayoutImageSources(const FileSystem& fileS
     return sources;
 }
 
+std::optional<LayoutImageSource> FindIdenticalLayoutImage(const FileSystem& fileSystem,
+                                                          const std::filesystem::path& factoryLayoutsDir,
+                                                          const std::filesystem::path& file,
+                                                          const std::filesystem::path& preferredImagesDir)
+{
+    std::error_code ec;
+    const auto size = std::filesystem::file_size(file, ec);
+
+    if (ec || size == 0)
+    {
+        return std::nullopt;
+    }
+
+    std::optional<std::vector<std::uint8_t>> bytes;
+    std::optional<LayoutImageSource> found;
+
+    for (auto& source : CollectLayoutImageSources(fileSystem, factoryLayoutsDir, true))
+    {
+        std::error_code sizeEc;
+
+        // Sizes first: only a file of the same size is read and compared.
+        if (std::filesystem::file_size(source.path, sizeEc) != size || sizeEc)
+        {
+            continue;
+        }
+
+        if (!bytes)
+        {
+            bytes = util::ReadFileBytes(file);
+        }
+
+        if (bytes->size() != size || util::ReadFileBytes(source.path) != *bytes)
+        {
+            continue;
+        }
+
+        const bool preferred = source.path.parent_path() == preferredImagesDir;
+
+        if (!found || preferred)
+        {
+            found = std::move(source);
+        }
+
+        if (preferred)
+        {
+            break;
+        }
+    }
+
+    return found;
+}
+
 std::string LayoutImageMimeType(const std::filesystem::path& extension)
 {
     const std::string ext = LowerExtension(extension);

@@ -548,6 +548,145 @@
   flex: 1;
 }
 
+/* Image pickers (imagePicker.ts): a thumbnail dropdown in place of each image <select>. The list
+   drops over the rows below, as wide as the property row. */
+.layout-property-row.has-image-picker {
+  position: relative;
+}
+
+.layout-image-picker {
+  flex: 1;
+  min-width: 0;
+}
+
+.layout-image-picker-trigger {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 6px 3px 3px;
+  background: var(--ld-input-bg);
+  border: 1px solid var(--ld-input-border);
+  border-radius: var(--radius-sm);
+  color: var(--ld-input-text);
+  cursor: pointer;
+  list-style: none;
+}
+
+.layout-image-picker-trigger::-webkit-details-marker {
+  display: none;
+}
+
+.layout-image-picker-trigger:focus-visible,
+.layout-image-picker[open] > .layout-image-picker-trigger {
+  outline: none;
+  border-color: var(--accent-primary);
+}
+
+.layout-image-picker-selected,
+.layout-image-picker-item {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.layout-image-picker-selected .layout-image-picker-thumb {
+  width: 24px;
+  height: 24px;
+}
+
+.layout-image-picker-caret {
+  flex: 0 0 auto;
+  font-size: 9px;
+  opacity: 0.7;
+}
+
+.layout-image-picker[open] .layout-image-picker-caret {
+  transform: rotate(180deg);
+}
+
+.layout-image-picker-list {
+  position: absolute;
+  top: calc(100% + 2px);
+  left: 0;
+  right: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 260px;
+  padding: 4px;
+  overflow-y: auto;
+  background: var(--ld-chrome-bg);
+  border: 1px solid var(--ld-border-strong);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+}
+
+.layout-image-picker-item {
+  padding: 4px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ld-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.layout-image-picker-item:hover,
+.layout-image-picker-item:focus-visible {
+  outline: none;
+  background: color-mix(in srgb, var(--ld-text) 8%, transparent);
+}
+
+.layout-image-picker-item.is-selected {
+  border-color: color-mix(in srgb, var(--accent-primary) 55%, transparent);
+  background: color-mix(in srgb, var(--accent-primary) 12%, transparent);
+}
+
+/* A checkerboard, so transparent knob art shows its edges. */
+.layout-image-picker-thumb {
+  flex: 0 0 auto;
+  width: 40px;
+  height: 40px;
+  object-fit: contain;
+  border-radius: var(--radius-sm);
+  background: repeating-conic-gradient(color-mix(in srgb, var(--ld-text) 10%, transparent) 0 25%, transparent 0 50%) 0 0 / 10px 10px var(--ld-input-bg);
+}
+
+.layout-image-picker-thumb.is-empty {
+  background: var(--ld-input-bg);
+  outline: 1px dashed var(--ld-border);
+  outline-offset: -1px;
+}
+
+.layout-image-picker-text {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  font-size: 11px;
+  line-height: 1.3;
+}
+
+.layout-image-picker-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.layout-image-picker-facts {
+  color: var(--ld-text-muted);
+  font-size: 10px;
+}
+
+.layout-image-picker-empty {
+  padding: 6px;
+  color: var(--ld-text-muted);
+  font-size: 11px;
+}
+
 /* Canvas dimension inputs */
 .layout-dimensions-inputs {
   display: flex;

@@ -43,17 +43,21 @@ export function reusableLayoutImages(purpose: "background" | "knob", selectedIma
   });
 }
 
-/** The <option> list for an image picker, each image with its kind and pixel size where known. */
+/**
+ * The <option> list for an image picker, each image with its kind and pixel size where known.
+ * Its options are marked data-layout-image, which is what enhanceImageSelects (imagePicker.ts) looks
+ * for to show the list as thumbnails, an empty library's list included.
+ */
 export function imageOptionsHtml(purpose: "background" | "knob", selectedImageId?: string): string {
   const options = [
-    `<option value="">Select existing image...</option>`,
+    `<option value="" data-layout-image>Select existing image...</option>`,
     ...reusableLayoutImages(purpose, selectedImageId).map((img) => {
       const selected = selectedImageId && img.imageId === selectedImageId ? "selected" : "";
       const typeLabel = img.type ? ` [${img.type}]` : "";
       const sizeLabel = img.width && img.height ? ` ${img.width}×${img.height}` : "";
       // Both can come from an imported archive's manifest.
       const name = img.fileName || img.imageId;
-      return `<option value="${escapeHtml(img.imageId)}" ${selected}>${escapeHtml(name)}${escapeHtml(typeLabel + sizeLabel)}</option>`;
+      return `<option value="${escapeHtml(img.imageId)}" data-layout-image ${selected}>${escapeHtml(name)}${escapeHtml(typeLabel + sizeLabel)}</option>`;
     }),
   ];
   return options.join("");

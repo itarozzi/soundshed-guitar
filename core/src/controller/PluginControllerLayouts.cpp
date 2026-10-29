@@ -339,6 +339,28 @@ void PluginController::HandleBrowseLayoutImageRequest(const nlohmann::json& payl
             }
 
             const auto imagesDir = ResolveLayoutDir(mFileSystem, layoutId) / "images";
+
+            const auto sendSelected = [&](const std::string& imageId, const std::filesystem::path& path) {
+                // The UI fetches the pixels from the entry's URL; the layout may not be saved yet,
+                // which ResolveLayoutImageFile allows for.
+                auto message = LayoutImageEntry(imageId, path);
+                message["type"] = "layoutImageSelected";
+                message["purpose"] = purpose;
+                message["layerIndex"] = layerIndex;
+                message["paramKey"] = paramKey;
+                SendMessageToUI(message.dump());
+            };
+
+            // A picture the library already has is used as it is, not copied again under a new id.
+            // Saving the layout copies it into this layout's folder if it lives in another's.
+            if (const auto existing = FindIdenticalLayoutImage(
+                    mFileSystem, ResolveFactoryLayoutsDir(mHost.GetBundledAssetsPath()), selectedPath, imagesDir))
+            {
+                AppendSessionLog("Layout image already in the library as " + existing->imageId);
+                sendSelected(existing->imageId, existing->path);
+                return;
+            }
+
             [[maybe_unused]] const auto ensuredImagesDir = mFileSystem.EnsureDirectory(imagesDir);
 
             // The extension in lower case, so "IMG_0042.JPG" is read back like any other JPEG.
@@ -354,15 +376,7 @@ void PluginController::HandleBrowseLayoutImageRequest(const nlohmann::json& payl
             {
                 std::filesystem::copy_file(selectedPath, destPath, std::filesystem::copy_options::overwrite_existing);
                 InvalidateLayoutImageIndex();
-
-                // The UI fetches the pixels from the entry's URL; the layout may not be saved yet,
-                // which ResolveLayoutImageFile allows for.
-                auto message = LayoutImageEntry(imageId, destPath);
-                message["type"] = "layoutImageSelected";
-                message["purpose"] = purpose;
-                message["layerIndex"] = layerIndex;
-                message["paramKey"] = paramKey;
-                SendMessageToUI(message.dump());
+                sendSelected(imageId, destPath);
             }
             catch (const std::exception& e)
             {
