@@ -256,11 +256,6 @@ std::string MuteHint(bool muted, bool risk)
 
     return "Silences the input, to stop feedback when a microphone can hear the speakers.";
 }
-
-Ptr Middle(Ptr content)
-{
-    return el::share(el::align_middle(el::hold_any(std::move(content))));
-}
 } // namespace
 
 void Shell::DeviceRequest(const std::string& action, nlohmann::json args)

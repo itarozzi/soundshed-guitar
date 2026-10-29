@@ -145,11 +145,6 @@ class PackHero final : public el::element
     std::string mTitle, mCount;
     std::function<std::shared_ptr<artist::image>()> mPicture;
 };
-
-Ptr Middle(Ptr content)
-{
-    return el::share(el::align_middle(el::hold_any(std::move(content))));
-}
 } // namespace
 
 std::string Shell::TonePreviewSignature() const
@@ -328,9 +323,6 @@ void Shell::ShowPackDetail(const tones::PackDetail& detail)
         .Label(packInstalled ? "Installed" : (packBusy ? "Installing..." : "Install pack"), 10.5f);
     installPack->Disabled(packInstalled || packBusy);
     installPack->onClick = [this, pack] { mSession.Tones().Install(pack); };
-    auto close = std::make_shared<IconButton>(mTheme, mIcons, "", IconButton::Look::Ghost);
-    close->Size(60, 28).Label("Close", 10.5f);
-    close->onClick = [this] { CloseOverlay(); };
 
     std::vector<Ptr> rows;
 
@@ -427,12 +419,11 @@ void Shell::ShowPackDetail(const tones::PackDetail& detail)
         list.push_back(FixedHeight(30, none));
     }
 
-    auto body = Col({FixedHeight(110, hero), VGap(10), Col(rows), VScroll(Pad(0, 0, 10, 0, Col(list))),
-                     FixedHeight(36, Row({Stretch(), Pad(0, 8, 0, 0, close)}))});
+    auto body = Col({FixedHeight(110, hero), VGap(10), Col(rows), VScroll(Pad(0, 0, 10, 0, Col(list)))});
     mPackDetail = detail;
     mPackDetailSignature =
         TonePreviewSignature() + "|" + mAppliedTheme + "|" + std::to_string(static_cast<int>(ViewSize().x / 40.0f));
-    ShowOverlay(Pad(14, 14, 14, 10, body), width, height);
+    ShowDialog({.title = pack.title, .body = body, .width = width, .height = height, .padX = 14.0f, .padY = 14.0f});
     mPackDetailOverlay = mOverlay;
 }
 } // namespace nanoq::ui

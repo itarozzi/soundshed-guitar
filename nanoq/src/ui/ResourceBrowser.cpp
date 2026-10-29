@@ -12,6 +12,7 @@
 // - Tone 3000: a search by gear, sort and architecture; a tone opens to its models; Select
 //   downloads one, stores it in the library and loads it (ToneService::ImportTone3000).
 
+#include "ui/DialogChrome.h"
 #include "ui/Shell.h"
 
 #include "dsp/EffectGuids.h"
@@ -1664,11 +1665,7 @@ void Shell::OpenResourceBrowser(const std::string& nodeId, const std::string& re
     b->fillList();
     b->fillFooter();
 
-    auto heading = std::make_shared<Text>(mTheme, title.empty() ? b->role.title : title, 13.5f, Weight::SemiBold);
-    heading->Colour(mTheme.Ink());
-    auto close = std::make_shared<IconButton>(mTheme, mIcons, "x", IconButton::Look::Ghost);
-    close->Size(28, 28).IconSize(12);
-    close->onClick = [this, b] {
+    auto cancel = [this, b] {
         // The x is Cancel, as in the web UI.
         if (b->previewed && !b->onPick)
         {
@@ -1691,17 +1688,16 @@ void Shell::OpenResourceBrowser(const std::string& nodeId, const std::string& re
     };
 
     const auto view = ViewSize();
-    const float width = std::min(944.0f, view.x - 16.0f);
-    const float height = std::max(320.0f, view.y - 12.0f);
-    auto rule = FixedHeight(1, Fill(mTheme.Text().opacity(0.07f), std::make_shared<el::element>()));
-    auto panel = Col({FixedHeight(46, Pad(16, 9, 10, 9, Row({heading, close}))), rule,
-                      Pad(16, 10, 16, 0,
-                          Col({FixedHeight(38, b->tabs),
-                               FixedHeight(1, Fill(mTheme.Text().opacity(0.07f), std::make_shared<el::element>())),
-                               VGap(12), b->controls, VGap(10), b->list})),
-                      FixedHeight(1, Fill(mTheme.Text().opacity(0.07f), std::make_shared<el::element>())),
-                      FixedHeight(48, Pad(16, 9, 12, 9, b->footer))});
-    ShowOverlay(panel, width, height);
+    ShowDialog({.title = title.empty() ? b->role.title : title,
+                .body = Col({FixedHeight(38, b->tabs),
+                             FixedHeight(1, Fill(mTheme.ModalRule(), std::make_shared<el::element>())), VGap(12),
+                             b->controls, VGap(10), b->list}),
+                .footerLeft = b->footer,
+                .width = std::min(944.0f, view.x - 16.0f),
+                .height = std::max(320.0f, view.y - 12.0f),
+                .padX = 16.0f,
+                .padY = 10.0f,
+                .onClose = cancel});
     mOnOverlayClosed = [this, state] {
         mSession.Tones().RemoveListener(state->toneListener);
         state->subscriptions.clear();

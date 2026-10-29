@@ -5,6 +5,7 @@
 // (uiclient/Looper.h, Topic::Looper) and sends its commands. The Loop button in the footer shows
 // only while the Looper feature is on and the app is the standalone one.
 
+#include "ui/DialogChrome.h"
 #include "ui/Shell.h"
 
 #include "ui/FrameParts.h"
@@ -509,20 +510,17 @@ void Shell::OpenLooperLayers()
         }
     };
 
-    auto heading = std::make_shared<Text>(mTheme, "Loop Layers", 15.0f, Weight::SemiBold);
     auto all = std::make_shared<Button>(
         mTheme, "Re-amp all with the current rig", [this] { mSession.Commands().RetoneLooperLayers({}); },
         Button::Style::Plain);
     all->MinWidth(220);
-    auto close = std::make_shared<Button>(mTheme, "Close", [this] { CloseOverlay(); }, Button::Style::Plain);
-    close->MinWidth(88);
     const auto view = ViewSize();
-    const float height = std::min(560.0f, std::max(260.0f, view.y - 60.0f));
-    ShowOverlay(Pad(16, 14, 16, 14,
-                    Col({FixedHeight(32, Row({heading, Stretch(), all})), VGap(8),
-                         FixedHeight(height - 28.0f - 32.0f - 8.0f - 12.0f - 44.0f, body), VGap(12),
-                         FixedHeight(44, Row({Stretch(), close}))})),
-                std::min(720.0f, std::max(320.0f, view.x - 48.0f)), height);
+    ShowDialog({.title = "Loop Layers",
+                .body = body,
+                .headerExtras = {all},
+                .width = 720.0f,
+                .height = std::min(560.0f, std::max(260.0f, view.y - 60.0f)),
+                .padY = 12.0f});
     mInstrumentSubs.push_back(mSession.Client().Subscribe(Topic::Looper, rebuild));
     rebuild();
 }
@@ -677,16 +675,12 @@ void Shell::OpenLooperLoops()
         mSession.View().refresh();
     };
 
-    auto heading = std::make_shared<Text>(mTheme, "Loops", 15.0f, Weight::SemiBold);
-    auto close = std::make_shared<Button>(mTheme, "Close", [this] { CloseOverlay(); }, Button::Style::Plain);
-    close->MinWidth(88);
     const auto view = ViewSize();
-    const float height = std::min(520.0f, std::max(260.0f, view.y - 60.0f));
-    ShowOverlay(
-        Pad(16, 14, 16, 14,
-            Col({FixedHeight(30, heading), VGap(6), FixedHeight(height - 28.0f - 30.0f - 6.0f - 12.0f - 44.0f, body),
-                 VGap(12), FixedHeight(44, Row({Stretch(), close}))})),
-        std::min(560.0f, std::max(300.0f, view.x - 48.0f)), height);
+    ShowDialog({.title = "Loops",
+                .body = body,
+                .width = 560.0f,
+                .height = std::min(520.0f, std::max(260.0f, view.y - 60.0f)),
+                .padY = 12.0f});
     mInstrumentSubs.push_back(mSession.Client().Subscribe(Topic::Looper, rebuild));
     mInstrumentSubs.push_back(mSession.Client().Subscribe(Topic::Riffs, rebuild));
     rebuild();
@@ -780,15 +774,7 @@ void Shell::OpenLooperOptions()
         memory->Set(text);
     });
 
-    auto heading = std::make_shared<Text>(mTheme, "Looper Options", 15.0f, Weight::SemiBold);
-    auto close = std::make_shared<Button>(mTheme, "Close", [this] { CloseOverlay(); }, Button::Style::Plain);
-    close->MinWidth(88);
-    std::vector<Ptr> col{FixedHeight(30, heading), VGap(6)};
-    col.insert(col.end(), page.begin(), page.end());
-    col.push_back(VGap(12));
-    col.push_back(FixedHeight(44, Row({Stretch(), close})));
-    const auto view = ViewSize();
-    ShowOverlay(Pad(16, 14, 16, 14, Col(col)), std::min(560.0f, std::max(300.0f, view.x - 48.0f)), 460.0f);
+    ShowDialog({.title = "Looper Options", .body = Col(page), .width = 560.0f, .height = 470.0f});
 
     // Redrawn only when an option or the memory moved: the looper reports several times a
     // second while it plays.

@@ -208,6 +208,19 @@ template <el::concepts::Element Subject> class MinSizeElement : public el::proxy
     return layers;
 }
 
+/// Centred vertically at its own height in whatever height it is given: text in a fixed-height
+/// row (a fixed height is no taller than its content allows).
+[[nodiscard]] inline Ptr Middle(Ptr content)
+{
+    return el::share(el::align_middle(el::hold_any(std::move(content))));
+}
+
+/// Centred both ways at its own size.
+[[nodiscard]] inline Ptr Centred(Ptr content)
+{
+    return el::share(el::align_center(el::align_middle(el::hold_any(std::move(content)))));
+}
+
 [[nodiscard]] inline Ptr Pad(float left, float top, float right, float bottom, Ptr content)
 {
     return el::share(el::margin({left, top, right, bottom}, el::hold_any(std::move(content))));

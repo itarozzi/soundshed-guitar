@@ -1,11 +1,11 @@
 #pragma once
 
 // The metronome card's own controls, drawn as the web UI draws them (css/modals/metronome.css):
-// the card with its header band, the close cross, the pickers' triggers, the tempo's arrows and
-// readout, the round TAP and transport buttons, and the beat strip. Metronome.cpp lays them out.
+// the tempo's arrows and readout, the round TAP and transport buttons, and the beat strip.
+// Metronome.cpp lays them out in the shared dialog frame (ui/DialogChrome.h).
 
+#include "ui/DialogChrome.h"
 #include "ui/Drawn.h"
-#include "ui/ShellWidgets.h"
 #include "ui/Widgets.h"
 
 #include <algorithm>
@@ -16,120 +16,6 @@
 namespace nanoq::ui::metronome
 {
 using cycfi::artist::canvas;
-
-inline constexpr float kHeaderHeight = 56.0f;
-inline constexpr float kCardRadius = 12.0f;
-
-/// The card (.metronome-card): the page colour, with the header band (.metronome-card-header)
-/// across its top and a rule under the band.
-class CardFace final : public el::element
-{
-  public:
-    explicit CardFace(const Theme& theme) : mTheme(theme)
-    {
-    }
-
-    void draw(const el::context& ctx) override
-    {
-        auto& cnv = ctx.canvas;
-        const auto b = ctx.bounds;
-        cnv.fill_style(mTheme.Background());
-        cnv.fill_round_rect(b, kCardRadius);
-        {
-            auto state = cnv.new_state();
-            cnv.add_round_rect(b, kCardRadius);
-            cnv.clip();
-            cnv.fill_style(mTheme.Bar());
-            cnv.fill_rect(el::rect{b.left, b.top, b.right, b.top + kHeaderHeight});
-        }
-        cnv.fill_style(mTheme.BorderStrong());
-        cnv.fill_rect(el::rect{b.left, b.top + kHeaderHeight - 1.0f, b.right, b.top + kHeaderHeight});
-        cnv.stroke_style(mTheme.Border());
-        cnv.line_width(1.0f);
-        cnv.stroke_round_rect(b.inset(0.5f, 0.5f), kCardRadius);
-    }
-
-  private:
-    const Theme& mTheme;
-};
-
-/// The header's close cross (.metronome-close-btn): muted, brighter under the pointer.
-class CloseCross final : public Pressable
-{
-  public:
-    explicit CloseCross(const Theme& theme) : mTheme(theme)
-    {
-    }
-
-    el::view_limits limits(const el::basic_context&) const override
-    {
-        return {{24.0f, 24.0f}, {24.0f, 24.0f}};
-    }
-
-    void draw(const el::context& ctx) override
-    {
-        NoteDrawn(ctx);
-        auto& cnv = ctx.canvas;
-        const auto c = cycfi::artist::center_point(ctx.bounds);
-        constexpr float kArm = 4.5f;
-        cnv.stroke_style(mHover ? mTheme.Text() : mTheme.TextMuted());
-        cnv.line_width(2.0f);
-        cnv.line_cap(canvas::round);
-        cnv.begin_path();
-        cnv.move_to(c.x - kArm, c.y - kArm);
-        cnv.line_to(c.x + kArm, c.y + kArm);
-        cnv.move_to(c.x + kArm, c.y - kArm);
-        cnv.line_to(c.x - kArm, c.y + kArm);
-        cnv.stroke();
-    }
-
-  private:
-    const Theme& mTheme;
-};
-
-/// A picker's trigger (.metro-select-trigger): the choice in a filled box with a chevron at the
-/// right, its border lit under the pointer. A tap opens the list under it.
-class PickerField final : public Pressable
-{
-  public:
-    PickerField(const Theme& theme, Icons& icons) : mTheme(theme), mIcons(icons)
-    {
-    }
-
-    void Set(std::string text)
-    {
-        mText = std::move(text);
-    }
-
-    el::view_limits limits(const el::basic_context&) const override
-    {
-        return {{60.0f, 32.0f}, {el::full_extent, 32.0f}};
-    }
-
-    void draw(const el::context& ctx) override
-    {
-        NoteDrawn(ctx);
-        auto& cnv = ctx.canvas;
-        const auto b = ctx.bounds;
-        const float fade = mEnabled ? 1.0f : 0.6f;
-        cnv.fill_style(mTheme.Tertiary().opacity(fade));
-        cnv.fill_round_rect(b, 8.0f);
-        cnv.stroke_style((mHover && mEnabled ? mTheme.Accent() : mTheme.BorderStrong()).opacity(fade));
-        cnv.line_width(1.0f);
-        cnv.stroke_round_rect(b.inset(0.5f, 0.5f), 8.0f);
-        const auto font = Font(Weight::Regular).size(metrics::kSmallText);
-        const el::rect text{b.left + 10.0f, b.top, b.right - 30.0f, b.bottom};
-        FillText(cnv, Ellipsize(cnv, mText, font, text.width()), font, mTheme.Text().opacity(fade), text, HAlign::Left);
-        const float cy = b.top + b.height() * 0.5f;
-        mIcons.Draw(cnv, "ui-caret", el::rect{b.right - 24.0f, cy - 7.0f, b.right - 10.0f, cy + 7.0f},
-                    mTheme.TextMuted().opacity(fade));
-    }
-
-  private:
-    const Theme& mTheme;
-    Icons& mIcons;
-    std::string mText;
-};
 
 /// One of the tempo's arrows (.metronome-bpm-btn), up or down. Shift steps by a tenth.
 class TempoArrow final : public Pressable

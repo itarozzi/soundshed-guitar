@@ -1,6 +1,7 @@
 // What floats over the page: a pop-up list, a text prompt, a confirmation and the effect picker.
 // One at a time, over a dimmed view; a tap outside, or a choice, closes it.
 
+#include "ui/DialogChrome.h"
 #include "ui/Shell.h"
 
 #include "dsp/EffectGuids.h"
@@ -66,6 +67,64 @@ void Shell::ShowOverlay(Ptr panel, float width, float height)
     mOverlay = KeyLayer(Over(centred, el::share(Backdrop([this] { CloseOverlay(); }))));
 
     mSession.View().add(mOverlay);
+}
+
+void Shell::ShowDialog(DialogParts parts)
+{
+    // The header: the title, anything the dialog adds there, and the close cross.
+    auto title = std::make_shared<Text>(mTheme, parts.title, 16.0f, Weight::SemiBold);
+    title->Colour(mTheme.ModalText());
+    auto close = std::make_shared<CloseCross>(mTheme);
+    close->onClick = parts.onClose ? std::move(parts.onClose) : std::function<void()>([this] { CloseOverlay(); });
+    std::vector<Ptr> header{Stretch(title)};
+
+    for (auto& extra : parts.headerExtras)
+    {
+        header.push_back(HGap(12));
+        header.push_back(Middle(std::move(extra)));
+    }
+
+    header.push_back(HGap(10));
+    header.push_back(close);
+    // Middle: a fixed height is no taller than what it holds allows, and a row of text is short.
+    std::vector<Ptr> column{FixedHeight(kDialogHeaderHeight, Pad(20, 0, 12, 0, Middle(Row(header))))};
+
+    const auto view = ViewSize();
+    const float footer = parts.actions.empty() && !parts.footerLeft ? 0.0f : kDialogFooterHeight;
+    const float height = std::min(parts.height, std::max(200.0f, view.y - 40.0f));
+    const float width = std::min(parts.width, std::max(280.0f, view.x - 32.0f));
+    Ptr body = Pad(parts.padX, parts.padY, parts.padX, parts.padY, std::move(parts.body));
+
+    // A window too short for the dialog scrolls its body under the header.
+    if (height < parts.height)
+    {
+        body = VScroll(body);
+    }
+
+    column.push_back(body);
+
+    if (footer > 0.0f)
+    {
+        std::vector<Ptr> row{parts.footerLeft ? Stretch(Middle(std::move(parts.footerLeft))) : Stretch()};
+
+        for (auto& action : parts.actions)
+        {
+            row.push_back(HGap(12));
+            row.push_back(Middle(std::move(action)));
+        }
+
+        column.push_back(FixedHeight(footer, Pad(20, 0, 20, 0, Row(row))));
+    }
+
+    ShowOverlay(Over(Col(column), std::make_shared<DialogFace>(mTheme, footer)), width, height);
+}
+
+std::shared_ptr<Button> Shell::DialogButton(const std::string& label, std::function<void()> onClick, bool primary)
+{
+    auto button = std::make_shared<Button>(mTheme, label, std::move(onClick),
+                                           primary ? Button::Style::Primary : Button::Style::Plain);
+    button->MinWidth(88);
+    return button;
 }
 
 void Shell::CloseOverlay()
@@ -146,8 +205,6 @@ float DialogWidth(const el::extent& view, float wanted)
 
 void Shell::OpenMenu(const std::string& title, std::vector<MenuItem> items)
 {
-    auto heading = std::make_shared<Text>(mTheme, title, 15.0f, Weight::SemiBold);
-
     std::vector<Ptr> rows;
 
     for (auto& item : items)
@@ -173,18 +230,19 @@ void Shell::OpenMenu(const std::string& title, std::vector<MenuItem> items)
     }
 
     const auto view = ViewSize();
-    const float wanted = 64.0f + static_cast<float>(items.size()) * metrics::kRowHeight;
-    const float height = std::clamp(wanted, 120.0f, std::max(120.0f, view.y - 80.0f));
-
-    ShowOverlay(Pad(16, 14, 16, 12, Col({FixedHeight(30, heading), VScroll(Col(rows))})), DialogWidth(view, 420.0f),
-                height);
+    const float wanted = kDialogHeaderHeight + 20.0f + static_cast<float>(items.size()) * metrics::kRowHeight;
+    const float height = std::clamp(wanted, 140.0f, std::max(140.0f, view.y - 80.0f));
+    ShowDialog({.title = title,
+                .body = VScroll(Col(rows)),
+                .width = DialogWidth(view, 420.0f),
+                .height = height,
+                .padX = 10.0f,
+                .padY = 10.0f});
 }
 
 void Shell::OpenPrompt(const std::string& title, const std::string& initial, const std::string& confirmLabel,
                        std::function<void(const std::string&)> onSubmit)
 {
-    auto heading = std::make_shared<Text>(mTheme, title, 15.0f, Weight::SemiBold);
-
     auto [boxElement, box] = el::input_box("Name", Font(Weight::Regular), 1.0f);
     box->set_text(initial);
 
@@ -210,41 +268,32 @@ void Shell::OpenPrompt(const std::string& title, const std::string& initial, con
     };
     box->on_escape = [this] { CloseOverlay(); };
 
-    auto cancel = std::make_shared<Button>(mTheme, "Cancel", [this] { CloseOverlay(); }, Button::Style::Plain);
-    auto ok = std::make_shared<Button>(mTheme, confirmLabel, submit, Button::Style::Primary);
-    cancel->MinWidth(88);
-    ok->MinWidth(88);
-
-    const auto view = ViewSize();
-    ShowOverlay(Pad(16, 14, 16, 14,
-                    Col({FixedHeight(30, heading), FixedHeight(44, PadXY(0, 4, el::share(std::move(boxElement)))),
-                         VGap(12), FixedHeight(44, Row({Stretch(), cancel, HGap(8), ok}))})),
-                DialogWidth(view, 420.0f), 178.0f);
+    ShowDialog({.title = title,
+                .body = Col({FixedHeight(40, el::share(std::move(boxElement))), Stretch()}),
+                .actions = {DialogButton(
+                                "Cancel", [this] { CloseOverlay(); }, false),
+                            DialogButton(confirmLabel, submit, true)},
+                .width = DialogWidth(ViewSize(), 420.0f),
+                .height = kDialogHeaderHeight + kDialogFooterHeight + 76.0f});
 }
 
 void Shell::OpenConfirm(const std::string& title, const std::string& detail, const std::string& confirmLabel,
                         std::function<void()> onYes)
 {
-    auto heading = std::make_shared<Text>(mTheme, title, 15.0f, Weight::SemiBold);
-    auto body = std::make_shared<Text>(mTheme, detail, metrics::kTextSize);
-    body->Colour(mTheme.TextSecondary());
-
-    auto cancel = std::make_shared<Button>(mTheme, "Cancel", [this] { CloseOverlay(); }, Button::Style::Plain);
-    auto yes = std::make_shared<Button>(
-        mTheme, confirmLabel,
-        [this, onYes] {
-            CloseOverlay();
-            onYes();
-        },
-        Button::Style::Primary);
-    cancel->MinWidth(88);
-    yes->MinWidth(88);
-
-    const auto view = ViewSize();
-    ShowOverlay(Pad(16, 14, 16, 14,
-                    Col({FixedHeight(30, heading), FixedHeight(26, body), VGap(14),
-                         FixedHeight(44, Row({Stretch(), cancel, HGap(8), yes}))})),
-                DialogWidth(view, 460.0f), 170.0f);
+    auto body =
+        std::make_shared<Paragraph>(mTheme, detail, DialogWidth(ViewSize(), 460.0f) - 40.0f, metrics::kTextSize);
+    body->Colour(mTheme.ModalTextSecondary());
+    auto yes = [this, onYes] {
+        CloseOverlay();
+        onYes();
+    };
+    ShowDialog({.title = title,
+                .body = Col({body, Stretch()}),
+                .actions = {DialogButton(
+                                "Cancel", [this] { CloseOverlay(); }, false),
+                            DialogButton(confirmLabel, yes, true)},
+                .width = DialogWidth(ViewSize(), 460.0f),
+                .height = kDialogHeaderHeight + kDialogFooterHeight + 86.0f});
 }
 
 void Shell::ShowToast(const std::string& title, const std::string& detail, bool isError)

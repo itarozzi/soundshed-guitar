@@ -49,6 +49,13 @@ struct ThemeTokens
     std::uint32_t eqCurveSpectrumFillTop;    // --eq-curve-spectrum-fill-top
     std::uint32_t eqCurveSpectrumFillBottom; // --eq-curve-spectrum-fill-bottom
     std::uint32_t eqCurveSpectrumLine;       // --eq-curve-spectrum-line
+    std::uint32_t modalBg;                   // --modal-bg
+    std::uint32_t modalBgRaised;             // --modal-bg-raised
+    std::uint32_t modalBorder;               // --modal-border
+    std::uint32_t modalBorderMedium;         // --modal-border-medium
+    std::uint32_t modalText;                 // --modal-text
+    std::uint32_t modalTextSecondary;        // --modal-text-secondary
+    std::uint32_t modalTextMuted;            // --modal-text-muted
 };
 
 inline constexpr ThemeTokens kLight{
@@ -91,6 +98,13 @@ inline constexpr ThemeTokens kLight{
     0x333a4a60, // eqCurveSpectrumFillTop
     0x083a4a60, // eqCurveSpectrumFillBottom
     0x573a4a60, // eqCurveSpectrumLine
+    0xffe2e6f0, // modalBg
+    0xffebeef5, // modalBgRaised
+    0xffc3cad8, // modalBorder
+    0xffb6bdcd, // modalBorderMedium
+    0xff12171f, // modalText
+    0xff3c434e, // modalTextSecondary
+    0xff4f5662, // modalTextMuted
 };
 
 inline constexpr ThemeTokens kDark{
@@ -133,6 +147,13 @@ inline constexpr ThemeTokens kDark{
     0x38aac8e8, // eqCurveSpectrumFillTop
     0x08aac8e8, // eqCurveSpectrumFillBottom
     0x5cbed6f0, // eqCurveSpectrumLine
+    0xff18181e, // modalBg
+    0xff28282f, // modalBgRaised
+    0xff4a4a58, // modalBorder
+    0xff3a3a48, // modalBorderMedium
+    0xfff0f0f8, // modalText
+    0xffd0d0e0, // modalTextSecondary
+    0xffb0b0c0, // modalTextMuted
 };
 
 inline constexpr ThemeTokens kClassic{
@@ -175,5 +196,12 @@ inline constexpr ThemeTokens kClassic{
     0x38f5e2c0, // eqCurveSpectrumFillTop
     0x08f5e2c0, // eqCurveSpectrumFillBottom
     0x5cf5e2c0, // eqCurveSpectrumLine
+    0xff2a1f15, // modalBg
+    0xff3d2f25, // modalBgRaised
+    0xff6b5f4f, // modalBorder
+    0xff5a5048, // modalBorderMedium
+    0xfff5f1e8, // modalText
+    0xffe0dcd2, // modalTextSecondary
+    0xffb8ad9f, // modalTextMuted
 };
 } // namespace guitarfx::uiclient::theme

@@ -6,6 +6,7 @@
 // The engine owns all of it (PluginControllerInputLevelling.cpp): the profiles, the peak hold on
 // the raw input and the trim maths. This only draws what it reports and sends commands.
 
+#include "ui/DialogChrome.h"
 #include "ui/Shell.h"
 
 #include "uiclient/InputLevelling.h"
@@ -227,21 +228,20 @@ void Shell::OpenInputLevellingTraining()
     name->on_escape = [this] { CloseOverlay(); };
     description->on_escape = [this] { CloseOverlay(); };
 
-    auto heading = std::make_shared<Text>(mTheme, "Train Input Level", 15.0f, Weight::SemiBold);
     auto intro = std::make_shared<Text>(
         mTheme, "Play your loudest picking or strumming. The active profile is bypassed while you train.", 11.0f);
-    intro->Colour(mTheme.TextSecondary());
+    intro->Colour(mTheme.ModalTextSecondary());
 
-    const auto view = ViewSize();
-    ShowOverlay(Pad(16, 14, 16, 14,
-                    Col({FixedHeight(30, heading), FixedHeight(18, intro), VGap(10), FixedHeight(38, metrics), VGap(8),
-                         FixedHeight(18, status1), FixedHeight(18, status2), VGap(6),
-                         FixedHeight(32, Row({reset, Stretch()})), VGap(10), FixedHeight(18, label("PROFILE NAME")),
-                         FixedHeight(40, PadXY(0, 2, el::share(std::move(nameElement)))), VGap(4),
-                         FixedHeight(18, label("DESCRIPTION")),
-                         FixedHeight(40, PadXY(0, 2, el::share(std::move(descriptionElement)))), VGap(12),
-                         FixedHeight(44, Row({Stretch(), cancel, HGap(8), save}))})),
-                std::min(520.0f, std::max(240.0f, view.x - 48.0f)), 350.0f);
+    ShowDialog({.title = "Train Input Level",
+                .body = Col({FixedHeight(18, intro), VGap(10), FixedHeight(38, metrics), VGap(8),
+                             FixedHeight(18, status1), FixedHeight(18, status2), VGap(6),
+                             FixedHeight(32, Row({reset, Stretch()})), VGap(10), FixedHeight(18, label("PROFILE NAME")),
+                             FixedHeight(40, PadXY(0, 2, el::share(std::move(nameElement)))), VGap(4),
+                             FixedHeight(18, label("DESCRIPTION")),
+                             FixedHeight(40, PadXY(0, 2, el::share(std::move(descriptionElement))))}),
+                .actions = {cancel, save},
+                .width = 520.0f,
+                .height = kDialogHeaderHeight + kDialogFooterHeight + 36.0f + 278.0f});
 
     mInstrumentSubs.push_back(mSession.Client().Subscribe(Topic::InputLevelling, sync));
     // Closed by Cancel, a save or a tap outside: training stops (after a save it already has).

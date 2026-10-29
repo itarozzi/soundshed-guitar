@@ -82,16 +82,6 @@ std::shared_ptr<Text> Label(const Theme& theme, const std::string& text)
     label->Colour(theme.TextMuted());
     return label;
 }
-
-Ptr Middle(Ptr content)
-{
-    return el::share(el::align_middle(el::hold_any(std::move(content))));
-}
-
-Ptr Centred(Ptr content)
-{
-    return el::share(el::align_center(el::align_middle(el::hold_any(std::move(content)))));
-}
 } // namespace
 
 void Shell::OpenMetronome()
@@ -105,14 +95,9 @@ void Shell::OpenMetronome()
 
     auto setBpm = [&commands](double bpm) { commands.SetMetronomeBpm(ClampBpm(bpm)); };
 
-    // ── The header ──
-    auto title = std::make_shared<Text>(mTheme, "Metronome", 16.0f, Weight::SemiBold);
+    // ── The header: the tempo's source, beside the shared title and close cross ──
     auto source = std::make_shared<Text>(mTheme, "STANDALONE", 11.0f, Weight::Medium);
-    source->Colour(mTheme.TextMuted()).Fixed(true);
-    auto close = std::make_shared<CloseCross>(mTheme);
-    close->onClick = [this] { CloseOverlay(); };
-    // Middle: a fixed height is no taller than what it holds allows, and a row of text is short.
-    auto header = FixedHeight(kHeaderHeight, Pad(22, 0, 16, 0, Middle(Row({Stretch(title), source, HGap(12), close}))));
+    source->Colour(mTheme.ModalTextMuted()).Fixed(true);
 
     // ── Volume, time signature, sound and pan ──
     auto volume = std::make_shared<ParamKnob>(mTheme, "Volume");
@@ -284,21 +269,9 @@ void Shell::OpenMetronome()
     }
 
     const float topHeight = compact ? kTopRow * 2.0f + gap : kTopRow;
-    const float bodyHeight = 20.0f + topHeight + gap + 1.0f + gap + kBottomRow + gap + 46.0f + gap + 16.0f + 24.0f;
-    Ptr body = Pad(22, 20, 22, 24,
-                   Col({top, VGap(gap), divider, VGap(gap), bottom, VGap(gap), FixedHeight(46, beats), VGap(gap),
-                        FixedHeight(16, Middle(Row(footer)))}));
-
-    // A short window scrolls the body under the header.
-    const float wanted = kHeaderHeight + bodyHeight;
-    const float height = std::min(wanted, std::max(240.0f, view.y - 40.0f));
-
-    if (height < wanted)
-    {
-        body = VScroll(body);
-    }
-
-    auto card = Over(Col({header, body}), std::make_shared<CardFace>(mTheme));
+    const float bodyHeight = topHeight + gap + 1.0f + gap + kBottomRow + gap + 46.0f + gap + 16.0f;
+    auto body = Col({top, VGap(gap), divider, VGap(gap), bottom, VGap(gap), FixedHeight(46, beats), VGap(gap),
+                     FixedHeight(16, Middle(Row(footer)))});
 
     // ── Keeping it current ──
     auto sync = [this, source, volume, pan, meter, sound, readout, up, down, tap, rhythm, play, beats, status] {
@@ -373,7 +346,13 @@ void Shell::OpenMetronome()
             });
     };
 
-    ShowOverlay(card, width, height);
+    ShowDialog({.title = "Metronome",
+                .body = body,
+                .headerExtras = {source},
+                .width = width,
+                .height = kDialogHeaderHeight + 40.0f + bodyHeight,
+                .padX = 22.0f,
+                .padY = 20.0f});
 
     mInstrumentSubs.push_back(mSession.Client().Subscribe(Topic::Metronome, sync));
     mInstrumentSubs.push_back(mSession.Client().Subscribe(Topic::MetronomeBeat, pulse));

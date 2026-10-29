@@ -71,6 +71,27 @@ struct MenuItem
     std::uint32_t tint = 0;
 };
 
+/// What a dialog holds, for Shell::ShowDialog: the web UI's modal, with its title and a close
+/// cross in the header band, the body, and the action buttons in a footer band.
+struct DialogParts
+{
+    std::string title;
+    Ptr body;
+    /// The footer's buttons, left to right at the right edge. None: no footer band.
+    std::vector<Ptr> actions;
+    /// At the footer's left, before the buttons (a status, a secondary action).
+    Ptr footerLeft;
+    /// In the header, between the title and the close cross (a source label, an Enabled switch).
+    std::vector<Ptr> headerExtras;
+    float width = 460.0f;
+    float height = 300.0f;
+    /// The body's padding inside the card; 0 for a body that lays out its own edges.
+    float padX = 20.0f;
+    float padY = 18.0f;
+    /// What the close cross does, when it is more than closing (Cancel undoing a preview).
+    std::function<void()> onClose;
+};
+
 class WebViewSlot; // JamPage.cpp
 class NodeCard;    // ChainWidgets.h
 class Connector;   // ChainWidgets.h
@@ -520,6 +541,12 @@ class Shell
     // Dialogs.cpp
     void ApplyElementsTheme();
     void ShowOverlay(Ptr panel, float width, float height);
+    /// A dialog in the shared frame (ui/DialogChrome.h), shown as the overlay. The height is
+    /// clamped to the window, and the body scrolls when it is cut short.
+    void ShowDialog(DialogParts parts);
+    /// A footer button for ShowDialog: Primary for the action that confirms, Plain for Cancel.
+    [[nodiscard]] std::shared_ptr<Button> DialogButton(const std::string& label, std::function<void()> onClick,
+                                                       bool primary);
     void CloseOverlay();
     /// Takes a layer (dialog, dropdown, toast, bar) out of the view once the current event is done,
     /// keeping the keyboard focus on the layer that has it.

@@ -8,6 +8,7 @@
 // web UI's midiMapping.ts is the twin of. Keys are run by the engine (automationKey): this file
 // only passes on the ones a slot maps, or every one while a key learn waits.
 
+#include "ui/DialogChrome.h"
 #include "ui/Shell.h"
 
 #include "uiclient/Automation.h"
@@ -326,15 +327,14 @@ void Shell::OpenMidiAutomation()
     commands.SetMidiLogEnabled(mState.automation.midiLogEnabled);
     commands.GetAutomation();
 
-    auto heading = std::make_shared<Text>(mTheme, "MIDI & Automation", 15.0f, Weight::SemiBold);
-    auto close = std::make_shared<Button>(mTheme, "Done", [this] { CloseOverlay(); }, Button::Style::Primary);
-    close->MinWidth(88);
     Fill(*mMidiDialogBody, BuildMidiAutomationBody());
 
     const auto view = ViewSize();
-    ShowOverlay(Pad(16, 14, 16, 14,
-                    Col({FixedHeight(32, Row({heading, Stretch(nullptr, 0.001), close})), VGap(4), mMidiDialogBody})),
-                DialogWidthFor(view, 820.0f), std::max(320.0f, view.y - 60.0f));
+    ShowDialog({.title = "MIDI & Automation",
+                .body = mMidiDialogBody,
+                .width = DialogWidthFor(view, 860.0f),
+                .height = std::max(320.0f, view.y - 60.0f),
+                .padY = 12.0f});
 
     mOnOverlayClosed = [this] {
         // Nothing listens or logs once the dialog has gone.
@@ -400,17 +400,16 @@ Ptr Shell::BuildMidiAutomationBody()
         // ── The MIDI device options ──
         const auto& settings = mState.appSettings;
         const bool showName = BoolSettingOr(settings, kControllerDisplaySetting, true);
-        auto nameToggle = std::make_shared<Button>(
-            mTheme, "Show the preset name on the MIDI controller's display",
-            [&commands, showName] { commands.SetSetting(kControllerDisplaySetting, !showName); });
-        nameToggle->Dot(true).On(showName);
+        auto nameToggle = std::make_shared<CheckBox>(mTheme, "Show the preset name on the MIDI controller's display");
+        nameToggle->Set(showName);
+        nameToggle->onClick = [&commands, showName] { commands.SetSetting(kControllerDisplaySetting, !showName); };
         rows.push_back(FixedHeight(28, Row({nameToggle, Stretch()})));
 
         const bool outOn = BoolSettingOr(settings, kSetlistOutEnabledSetting, false);
-        auto outToggle = std::make_shared<Button>(
-            mTheme, "Send a program change to the MIDI device when a bank or setlist slot is picked here",
-            [&commands, outOn] { commands.SetSetting(kSetlistOutEnabledSetting, !outOn); });
-        outToggle->Dot(true).On(outOn);
+        auto outToggle = std::make_shared<CheckBox>(
+            mTheme, "Send a program change to the MIDI device when a bank or setlist slot is picked here");
+        outToggle->Set(outOn);
+        outToggle->onClick = [&commands, outOn] { commands.SetSetting(kSetlistOutEnabledSetting, !outOn); };
         rows.push_back(VGap(4));
         rows.push_back(FixedHeight(28, Row({outToggle, Stretch()})));
 
@@ -568,7 +567,7 @@ Ptr Shell::BuildMidiAutomationBody()
             rows.push_back(FixedHeight(20, t));
         };
 
-        section("Default Slots");
+        section("DEFAULT SLOTS");
 
         for (const auto& slot : automation.slots)
         {
@@ -579,7 +578,7 @@ Ptr Shell::BuildMidiAutomationBody()
         }
 
         const int customCount = CountCustomSlots(automation.slots);
-        section("Custom Slots (" + std::to_string(customCount) + "/" + std::to_string(automation.maxCustomSlots) + ")");
+        section("CUSTOM SLOTS (" + std::to_string(customCount) + "/" + std::to_string(automation.maxCustomSlots) + ")");
 
         for (const auto& slot : automation.slots)
         {
@@ -668,9 +667,9 @@ Ptr Shell::BuildMidiAutomationBody()
     else
     {
         const bool logging = automation.midiLogEnabled;
-        auto enable = std::make_shared<Button>(mTheme, "Enable MIDI logging",
-                                               [&commands, logging] { commands.SetMidiLogEnabled(!logging); });
-        enable->Dot(true).On(logging);
+        auto enable = std::make_shared<CheckBox>(mTheme, "Enable MIDI logging");
+        enable->Set(logging);
+        enable->onClick = [&commands, logging] { commands.SetMidiLogEnabled(!logging); };
         auto clear = button(
             "Clear",
             [this, rebuild] {

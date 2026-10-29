@@ -188,6 +188,43 @@ class Theme
         return Argb(T().toggleBg);
     }
 
+    // A dialog's colours (the web UI's --modal-*): its body, the raised header and footer bands,
+    // the outline and the rules, and its three weights of text.
+    [[nodiscard]] el::color ModalBg() const noexcept
+    {
+        return Argb(T().modalBg);
+    }
+
+    [[nodiscard]] el::color ModalRaised() const noexcept
+    {
+        return Argb(T().modalBgRaised);
+    }
+
+    [[nodiscard]] el::color ModalBorder() const noexcept
+    {
+        return Argb(T().modalBorder);
+    }
+
+    [[nodiscard]] el::color ModalRule() const noexcept
+    {
+        return Argb(T().modalBorderMedium);
+    }
+
+    [[nodiscard]] el::color ModalText() const noexcept
+    {
+        return Argb(T().modalText);
+    }
+
+    [[nodiscard]] el::color ModalTextSecondary() const noexcept
+    {
+        return Argb(T().modalTextSecondary);
+    }
+
+    [[nodiscard]] el::color ModalTextMuted() const noexcept
+    {
+        return Argb(T().modalTextMuted);
+    }
+
     /// The accent as a fill. On the dark themes the token is a bright orange that glares as a
     /// block of colour, so fills take it a fifth of the way into the panel colour.
     [[nodiscard]] el::color AccentFill() const noexcept;

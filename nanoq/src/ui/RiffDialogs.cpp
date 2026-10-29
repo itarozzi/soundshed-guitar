@@ -7,6 +7,7 @@
 // take. The take is then trimmed with the markers on its waveform, previewed, and saved as a
 // new riff (or as another take of the riff being edited).
 
+#include "ui/DialogChrome.h"
 #include "ui/Shell.h"
 
 #include "ui/Waveform.h"
@@ -89,8 +90,7 @@ void Shell::OpenRiffCapture(bool arm, const std::string& appendRiffId)
         countIn.push_back(small(text));
     }
 
-    auto click = std::make_shared<Button>(mTheme, "Click", std::function<void()>{}, Button::Style::Plain);
-    click->Dot(true).MinWidth(80).TextSize(11.0f);
+    auto click = std::make_shared<CheckBox>(mTheme, "Click");
 
     auto record = std::make_shared<Button>(mTheme, "Record", std::function<void()>{}, Button::Style::Primary);
     record->MinWidth(110);
@@ -105,8 +105,7 @@ void Shell::OpenRiffCapture(bool arm, const std::string& appendRiffId)
     endText->Colour(mTheme.TextSecondary());
     auto preview = std::make_shared<Button>(mTheme, "Play", std::function<void()>{}, Button::Style::Plain);
     preview->MinWidth(80);
-    auto repeatButton = std::make_shared<Button>(mTheme, "Repeat", std::function<void()>{}, Button::Style::Plain);
-    repeatButton->Dot(true).MinWidth(90);
+    auto repeatButton = std::make_shared<CheckBox>(mTheme, "Repeat");
     auto crop = std::make_shared<Button>(mTheme, "Crop to Markers", std::function<void()>{}, Button::Style::Plain);
     crop->MinWidth(130);
 
@@ -114,8 +113,7 @@ void Shell::OpenRiffCapture(bool arm, const std::string& appendRiffId)
     auto [titleElement, titleBox] = el::input_box("Title", Font(Weight::Regular), 1.0f);
     auto [tagsElement, tagsBox] = el::input_box("Tags, comma separated", Font(Weight::Regular), 1.0f);
     std::shared_ptr<el::basic_input_box> title = titleBox, tags = tagsBox;
-    auto favourite = std::make_shared<Button>(mTheme, "Favourite", std::function<void()>{}, Button::Style::Plain);
-    favourite->Dot(true).MinWidth(100);
+    auto favourite = std::make_shared<CheckBox>(mTheme, "Favourite");
     auto favouriteOn = std::make_shared<bool>(editing != nullptr && editing->favorite);
 
     if (editing != nullptr)
@@ -173,7 +171,7 @@ void Shell::OpenRiffCapture(bool arm, const std::string& appendRiffId)
             countIn[i]->Selected(static_cast<int>(i) == mRiffCountIn);
         }
 
-        click->On(mRiffClick);
+        click->Set(mRiffClick);
 
         const bool complete = c.phase == RiffCapture::Phase::Complete;
         const bool taking = c.phase == RiffCapture::Phase::Armed || c.phase == RiffCapture::Phase::Recording;
@@ -220,9 +218,9 @@ void Shell::OpenRiffCapture(bool arm, const std::string& appendRiffId)
         endText->Set(complete ? "End " + guitarfx::uiclient::FormatRiffSeconds(seconds * marks->second)
                               : std::string());
         preview->Set(previewing() ? "Stop" : "Play").Enabled(complete && c.hasAudio && !taking);
-        repeatButton->On(*repeat);
+        repeatButton->Set(*repeat);
         crop->Enabled(complete && c.hasAudio && (marks->first > 0.0f || marks->second < 1.0f));
-        favourite->On(*favouriteOn);
+        favourite->Set(*favouriteOn);
         save->Enabled(complete && c.hasAudio && !TrimText(title->get_utf8()).empty());
 
         // Each control by where it was drawn: the waveform moves four times a second while a take
@@ -261,10 +259,10 @@ void Shell::OpenRiffCapture(bool arm, const std::string& appendRiffId)
         });
     }
 
-    click->OnClick([this, sync] {
+    click->onClick = [this, sync] {
         mRiffClick = !mRiffClick;
         sync();
-    });
+    };
 
     record->OnClick([this] {
         auto& cmd = mSession.Commands();
@@ -307,7 +305,7 @@ void Shell::OpenRiffCapture(bool arm, const std::string& appendRiffId)
             mSession.Commands().PreviewCapturedRiff(marks->first, marks->second, *repeat);
         }
     });
-    repeatButton->OnClick([this, marks, repeat, sync, previewing] {
+    repeatButton->onClick = [this, marks, repeat, sync, previewing] {
         *repeat = !*repeat;
 
         if (previewing())
@@ -316,12 +314,12 @@ void Shell::OpenRiffCapture(bool arm, const std::string& appendRiffId)
         }
 
         sync();
-    });
+    };
     crop->OnClick([this, marks] { mSession.Commands().TrimCapturedRiff(marks->first, marks->second); });
-    favourite->OnClick([favouriteOn, sync] {
+    favourite->onClick = [favouriteOn, sync] {
         *favouriteOn = !*favouriteOn;
         sync();
-    });
+    };
 
     save->OnClick([this, title, tags, favouriteOn, marks, appendRiffId, sampleRate] {
         const auto& c = mState.riffs.capture;
@@ -352,8 +350,6 @@ void Shell::OpenRiffCapture(bool arm, const std::string& appendRiffId)
     title->on_escape = [this] { CloseOverlay(); };
     tags->on_escape = [this] { CloseOverlay(); };
 
-    auto heading =
-        std::make_shared<Text>(mTheme, editing != nullptr ? "Edit Riff Take" : "New Riff", 15.0f, Weight::SemiBold);
     auto hint = std::make_shared<Text>(
         mTheme, "Counts in, then records from the first note you play. Crop to Markers keeps only the marked part.",
         10.5f);
@@ -368,33 +364,25 @@ void Shell::OpenRiffCapture(bool arm, const std::string& appendRiffId)
     }
 
     countRow.push_back(HGap(12));
-    countRow.push_back(click);
+    countRow.push_back(Middle(click));
     countRow.push_back(Stretch());
 
-    const auto view = ViewSize();
-    ShowOverlay(Pad(16, 14, 16, 14,
-                    Col({FixedHeight(30, heading),
-                         FixedHeight(18, hint),
-                         VGap(10),
-                         FixedHeight(34, Row({FixedWidth(80, label("TEMPO")), slower, HGap(4), FixedWidth(80, tempo),
-                                              HGap(4), faster, HGap(8), fromMetronome, Stretch()})),
-                         VGap(4),
-                         FixedHeight(34, Row(countRow)),
-                         VGap(10),
-                         FixedHeight(36, Row({record, HGap(12), status})),
-                         VGap(8),
-                         wave,
-                         VGap(4),
-                         FixedHeight(18, Row({startText, Stretch(), endText})),
-                         VGap(6),
-                         FixedHeight(34, Row({preview, HGap(6), repeatButton, HGap(6), crop, Stretch()})),
-                         VGap(12),
-                         FixedHeight(18, label("SAVE")),
-                         FixedHeight(40, Row({PadXY(0, 2, el::share(std::move(titleElement))), HGap(8), favourite})),
-                         FixedHeight(40, PadXY(0, 2, el::share(std::move(tagsElement)))),
-                         VGap(12),
-                         FixedHeight(44, Row({Stretch(), close, HGap(8), save}))})),
-                std::min(640.0f, std::max(300.0f, view.x - 48.0f)), 560.0f);
+    ShowDialog(
+        {.title = editing != nullptr ? "Edit Riff Take" : "New Riff",
+         .body =
+             Col({FixedHeight(18, hint), VGap(10),
+                  FixedHeight(34, Row({FixedWidth(80, label("TEMPO")), slower, HGap(4), FixedWidth(80, tempo), HGap(4),
+                                       faster, HGap(8), fromMetronome, Stretch()})),
+                  VGap(4), FixedHeight(34, Row(countRow)), VGap(10), FixedHeight(36, Row({record, HGap(12), status})),
+                  VGap(8), wave, VGap(4), FixedHeight(18, Row({startText, Stretch(), endText})), VGap(6),
+                  FixedHeight(34, Row({preview, HGap(6), Middle(repeatButton), HGap(6), crop, Stretch()})), VGap(12),
+                  FixedHeight(18, label("SAVE")),
+                  FixedHeight(40, Row({PadXY(0, 2, el::share(std::move(titleElement))), HGap(8), Middle(favourite)})),
+                  FixedHeight(40, PadXY(0, 2, el::share(std::move(tagsElement))))}),
+         .actions = {close, save},
+         .width = 640.0f,
+         .height = 570.0f,
+         .padY = 14.0f});
 
     mInstrumentSubs.push_back(mSession.Client().Subscribe(Topic::Riffs, sync));
     mInstrumentSubs.push_back(mSession.Client().Subscribe(Topic::Demo, sync));
@@ -539,23 +527,19 @@ void Shell::OpenRiffLibrary()
         mSession.View().refresh();
     };
 
-    auto heading = std::make_shared<Text>(mTheme, "Riff Library", 15.0f, Weight::SemiBold);
     auto path = std::make_shared<Text>(
         mTheme, mState.riffs.path.empty() ? std::string() : "Kept in " + mState.riffs.path, 10.5f);
     path->Colour(mTheme.TextMuted());
     auto newRiff =
         std::make_shared<Button>(mTheme, "New Riff", [this] { OpenRiffCapture(false); }, Button::Style::Primary);
     newRiff->MinWidth(100);
-    auto close = std::make_shared<Button>(mTheme, "Close", [this] { CloseOverlay(); }, Button::Style::Plain);
-    close->MinWidth(88);
-
     const auto view = ViewSize();
-    const float height = std::min(560.0f, std::max(260.0f, view.y - 60.0f));
-    ShowOverlay(Pad(16, 14, 16, 14,
-                    Col({FixedHeight(30, Row({heading, Stretch(), newRiff})), FixedHeight(18, path), VGap(10),
-                         FixedHeight(height - 28.0f - 30.0f - 18.0f - 10.0f - 12.0f - 44.0f, body), VGap(12),
-                         FixedHeight(44, Row({Stretch(), close}))})),
-                std::min(640.0f, std::max(300.0f, view.x - 48.0f)), height);
+    ShowDialog({.title = "Riff Library",
+                .body = Col({FixedHeight(18, path), VGap(10), body}),
+                .headerExtras = {newRiff},
+                .width = 640.0f,
+                .height = std::min(560.0f, std::max(260.0f, view.y - 60.0f)),
+                .padY = 12.0f});
 
     mInstrumentSubs.push_back(mSession.Client().Subscribe(Topic::Riffs, rebuild));
     mInstrumentSubs.push_back(mSession.Client().Subscribe(Topic::Demo, rebuild));
