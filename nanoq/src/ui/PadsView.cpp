@@ -388,7 +388,6 @@ class BankCurrent final : public el::element, public Drawn
 
 Ptr Shell::BuildPadsView()
 {
-    auto& commands = mSession.Commands();
     const Setlist* setlist = ActiveSetlist(mState);
     const int padCount = PerformancePadCount(mState);
     int activeIndex = -1;
@@ -606,7 +605,7 @@ Ptr Shell::BuildPadsView()
 
                 if (!presetId.empty())
                 {
-                    pad->onClick = [&commands, index] { commands.SetSetlistCursor(index); };
+                    pad->onClick = [this, index] { SelectSetlistSlot(index); };
                 }
 
                 pad->onAssign = [this, index] { AssignSetlistPad(index); };

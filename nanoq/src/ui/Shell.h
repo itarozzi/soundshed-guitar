@@ -523,6 +523,14 @@ class Shell
     Ptr BuildPresetListContent();
     void RebuildPresetList();
     void LoadWithConfirm(const std::string& presetId);
+    /// Runs `proceed` (a switch to another preset), asking first when the one playing has unsaved
+    /// changes, as the web UI does for every switch it makes: `what` names it ("Load Clean Amp").
+    void ConfirmDiscardThen(const std::string& what, std::function<void()> proceed);
+    /// The preset selector's previous and next, asking first about unsaved changes.
+    void StepPresetWithConfirm(int direction);
+    /// Plays a slot of the active setlist (a pad, a setlist row), asking first about unsaved
+    /// changes when that loads another preset.
+    void SelectSetlistSlot(int index);
     void DeleteWithConfirm(const std::string& presetId);
     void OpenPresetRowMenu(const guitarfx::uiclient::PresetSummary& preset);
     void OpenFolderMenu(const std::string& folderId);

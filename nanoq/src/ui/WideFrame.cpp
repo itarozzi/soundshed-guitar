@@ -279,10 +279,10 @@ Ptr Shell::BuildHeader()
     // ── The preset selector ──
     auto prev = std::make_shared<IconButton>(mTheme, mIcons, "ui-prev", IconButton::Look::Soft);
     prev->Size(30, 30).IconSize(16);
-    prev->onClick = [&commands] { commands.StepPreset(-1); };
+    prev->onClick = [this] { StepPresetWithConfirm(-1); };
     auto next = std::make_shared<IconButton>(mTheme, mIcons, "ui-next", IconButton::Look::Soft);
     next->Size(30, 30).IconSize(16);
-    next->onClick = [&commands] { commands.StepPreset(1); };
+    next->onClick = [this] { StepPresetWithConfirm(1); };
 
     auto pill = std::make_shared<PresetPill>(mTheme, mIcons, PresetTitle(mState), favourite, dirty);
     pill->Height(36).Badge(summary != nullptr ? SourceLabel(summary->source) : std::string());
