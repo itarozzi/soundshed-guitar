@@ -71,9 +71,15 @@ FetchContent_Declare(q
 # uses. When Q's pin moves, move this with it. Every build takes patches/elements-input-redraws.patch:
 # a click no longer redraws the whole window, nor a press or a pointer move over a scroller's
 # content the whole scrolled area (on iOS, where Quartz draws on the CPU, each tap cost two
-# whole-window draws and each touch move one of the editor). An iOS build takes Artist's patch too.
+# whole-window draws and each touch move one of the editor). And patches/elements-quill-idle-sleep.patch:
+# Elements started its logging backend with quill's 500 ns idle sleep, which macOS honours, so the
+# thread woke ~100,000 times a second and took ~60% of a core with nothing to log. An iOS build
+# takes Artist's patch too.
 set(_nanoq_elements_patch PATCH_COMMAND ${CMAKE_COMMAND}
     -DPATCH=${CMAKE_CURRENT_SOURCE_DIR}/patches/elements-input-redraws.patch
+    -P ${CMAKE_CURRENT_SOURCE_DIR}/ios/cmake/ApplyPatch.cmake
+    COMMAND ${CMAKE_COMMAND}
+    -DPATCH=${CMAKE_CURRENT_SOURCE_DIR}/patches/elements-quill-idle-sleep.patch
     -P ${CMAKE_CURRENT_SOURCE_DIR}/ios/cmake/ApplyPatch.cmake)
 if(NANOQ_IOS)
     list(APPEND _nanoq_elements_patch COMMAND ${CMAKE_COMMAND}
