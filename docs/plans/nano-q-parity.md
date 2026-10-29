@@ -2,6 +2,8 @@
 
 Status: **plan, 2026-10-27.** Audit taken at `b47bca5c` (Nano Q resizable, with the web UI's
 full layout). Follows [nano-q.md](nano-q.md), whose Progress table records what is done.
+A visual review on 2026-10-29 lists what still looks unfinished beside the web UI:
+[nano-q-ui-review-2026-10-29.md](nano-q-ui-review-2026-10-29.md).
 
 Nano Q now draws both of the web UI's layouts (compact and full), so the question is no longer
 "what does a small-screen player need" (the scope [native-ui.md](native-ui.md) set for Nano) but
