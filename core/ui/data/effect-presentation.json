@@ -165,6 +165,10 @@
       "guid": "686773c9-30ac-4f33-b0f8-9222146d45b1",
       "icon": "flame"
     },
+    "kMultibandDistortion": {
+      "guid": "86222aa0-53a4-4768-a05a-c68ef29a2bf4",
+      "icon": "flame"
+    },
     "kFuzz": {
       "guid": "3a38b19c-1d97-4989-b5bb-12bcc59d1e6b",
       "icon": "flame"

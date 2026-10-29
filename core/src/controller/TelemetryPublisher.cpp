@@ -305,7 +305,7 @@ void TelemetryPublisher::SendSpectrum()
     msg["s"] = wholeDb(spectrum.input);
 
     // A multi-band effect's output, on the same range, and its bands: [lowHz, highHz,
-    // gainReductionDb, levelDb] each, low band first, a range end of 0 meaning open.
+    // gainReductionDb, levelDb, thresholdDb] each, low band first, a range end of 0 meaning open.
     if (spectrum.hasOutput)
     {
         msg["o"] = wholeDb(spectrum.output);
@@ -315,9 +315,9 @@ void TelemetryPublisher::SendSpectrum()
         for (int band = 0; band < spectrum.bandCount; ++band)
         {
             const BandMeter& meter = spectrum.bands[static_cast<std::size_t>(band)];
-            bands.push_back(
-                nlohmann::json::array({std::round(meter.lowHz), std::round(meter.highHz), tenth(meter.gainReductionDb),
-                                       tenth(std::max(meter.levelDb, -120.0f))}));
+            bands.push_back(nlohmann::json::array(
+                {std::round(meter.lowHz), std::round(meter.highHz), tenth(meter.gainReductionDb),
+                 tenth(std::max(meter.levelDb, -120.0f)), tenth(std::clamp(meter.thresholdDb, -120.0f, 60.0f))}));
         }
 
         msg["b"] = std::move(bands);

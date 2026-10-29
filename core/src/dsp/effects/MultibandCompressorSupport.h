@@ -20,9 +20,7 @@ inline constexpr int kSplits = kBands - 1;
 using CrossoverDesign = lr_crossover::Design<kBands>;
 using Crossover = lr_crossover::Crossover<kBands>;
 
-/// A crossover is kept at least this ratio above the one below it (a third of an octave), so a
-/// band never closes up whatever order the knobs are in.
-inline constexpr double kMinSplitRatio = 1.2599210498948732;
+using lr_crossover::kMinSplitRatio;
 
 /// How long each band's detector averages over, low band first: long enough that a low note's
 /// ripple does not read as level, short enough that the pick attack in the top bands is seen.
@@ -96,24 +94,11 @@ inline constexpr std::array<EffectParamSpec, kParamCount> kParams = {{
 }};
 // clang-format on
 
-/// The crossovers as the engine uses them: each at least kMinSplitRatio above the one below,
-/// pushed up from the lowest, and the top one pulled back under `nyquistGuardHz` (pulling the
-/// ones below with it) so no split lands past what the sample rate can hold.
-[[nodiscard]] inline std::array<double, kSplits> OrderedSplits(std::array<double, kSplits> hz, double nyquistGuardHz)
+/// The crossovers as the engine uses them (lr_crossover::OrderedSplits).
+[[nodiscard]] inline std::array<double, kSplits> OrderedSplits(const std::array<double, kSplits>& hz,
+                                                               double nyquistGuardHz)
 {
-    for (std::size_t split = 1; split < kSplits; ++split)
-    {
-        hz[split] = std::max(hz[split], hz[split - 1] * kMinSplitRatio);
-    }
-
-    hz[kSplits - 1] = std::min(hz[kSplits - 1], nyquistGuardHz);
-
-    for (std::size_t split = kSplits - 1; split > 0; --split)
-    {
-        hz[split - 1] = std::min(hz[split - 1], hz[split] / kMinSplitRatio);
-    }
-
-    return hz;
+    return lr_crossover::OrderedSplits(hz, nyquistGuardHz);
 }
 
 /**

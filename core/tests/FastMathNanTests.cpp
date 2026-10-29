@@ -785,6 +785,10 @@ bool TestRecursiveEffectsRecoverFromNonFiniteInput()
         multibandCompressor.SetParam("threshold" + std::to_string(band), -30.0);
     }
 
+    // The Multi-band Distortion's oversampler, crossover and antialiased clippers all remember.
+    MultibandDistortionEffect multibandDistortion;
+    multibandDistortion.Prepare(kSampleRate, kBlock);
+
     // The built-in amp's stages are recursive filters with a sag envelope. One bad sample
     // from upstream (a hosted plugin on a bad day) held them until the node was rebuilt.
     BuiltinAmpEffect builtinAmp;
@@ -839,6 +843,7 @@ bool TestRecursiveEffectsRecoverFromNonFiniteInput()
     passed = ExpectRecoversFromNonFiniteInput("noise reduction", noiseReduction) && passed;
     passed = ExpectRecoversFromNonFiniteInput("multi-band gate", multibandGate) && passed;
     passed = ExpectRecoversFromNonFiniteInput("multi-band compressor", multibandCompressor) && passed;
+    passed = ExpectRecoversFromNonFiniteInput("multi-band distortion", multibandDistortion) && passed;
     passed = ExpectRecoversFromNonFiniteInput("VCA compressor", vcaCompressor) && passed;
     passed = ExpectRecoversFromNonFiniteInput("Opto compressor", optoCompressor) && passed;
     return passed;

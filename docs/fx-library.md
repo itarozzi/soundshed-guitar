@@ -64,8 +64,10 @@ All UUID constants are defined in `core/src/dsp/EffectGuids.h`. The table below 
 | `kLimiterBrickwall` | `f4094126-b5de-4c5d-8d05-d56bd8c312d1` | `limiter_brickwall` |
 | `kNoiseReduction` | `b29b11b4-79ee-4e90-84f0-8a8ae5c6350b` | `noise_reduction` |
 | `kMultibandGate` | `51e2f89c-c174-4c1b-aa40-2e5a08dc745c` | `dynamics_multiband_gate` |
+| `kMultibandCompressor` | `2bdf5236-8d4a-485c-9302-3a0479c3614d` | `dynamics_multiband_compressor` |
 | `kOverdrive` | `fa9e05a8-168a-4293-aa91-6b770de3da1d` | `overdrive` |
 | `kDistortion` | `686773c9-30ac-4f33-b0f8-9222146d45b1` | `distortion` |
+| `kMultibandDistortion` | `86222aa0-53a4-4768-a05a-c68ef29a2bf4` | `multiband_distortion` |
 | `kFuzz` | `3a38b19c-1d97-4989-b5bb-12bcc59d1e6b` | `fuzz` |
 | `kEqParametric` | `4b4025ca-64cd-4180-be79-81873b618dba` | `eq_parametric` |
 | `kEqGraphic` | `ef8240ba-c973-4e09-ab65-4faf56a8ecbf` | `eq_graphic` |
@@ -1846,6 +1848,63 @@ model the next time its preset is, and is not migrated again.
 (`trimDb`, nine drive points) and its `clipLevelExponent`. `DrivePedalTests` holds every model
 to within 1 dB of bypass on a plucked-string guitar phrase; `DrivePedalTests --calibrate` prints
 the correction to add to each trim entry and the refitted exponent.
+
+### Multi-band Distortion (`multiband_distortion`)
+A distortion in four frequency bands, each driven into a clipper of its own with its own Drive,
+Character and Level. One clipper fed a whole chord intermodulates every note with every other,
+and the low strings push it hardest, so chords smear and the lows flub; split first and each
+band only intermodulates with itself, so the lows can stay tight while the mids scream.
+Engine: `MultibandDistortionEffect.h`, with the parameter table, curves and level-match table in
+`MultibandDistortionSupport.h`. Plan: docs/plans/multiband-distortion.md. Category `drive`.
+
+- **Bands** are the Multi-band Compressor's: the same three movable crossovers, ranges and
+  defaults (200, 800, 3000 Hz), the same LR4 split with all-pass compensation
+  (`dsp/LinkwitzRileyCrossover.h`, which also holds the ordering both use). With every band
+  clean they add up to a flat all-pass.
+- **Oversampled once, as a whole.** The input goes up through the drive pedals' minimum-phase
+  half-bands (`dsp/HalfBandIir.h`), is split, clipped and summed near 192 kHz (4× at
+  44.1/48 kHz, 2× at 88.2/96, 1× above) and comes down once, so every band and its clean copy
+  share one phase. Each clipper is antialiased (`drive::ClipCurve::Antialiased`). A 5 kHz tone
+  hard-clipped at full drive leaves its fold-backs 65 dB under it. The antialiasing averages
+  successive oversampled samples, which takes 0.3 dB off 16 kHz even when clean.
+- **Drive** is 0..48 dB into a knee 12 dB over the nominal operating level (`LevelTargets.h`),
+  so at 0 a normal note passes all but clean. It is **level-matched**: a table per Character,
+  built once, of how much RMS the curve loses on a nominal sine at each dB of Drive, relative
+  to Drive 0, scales the clipper's output back up. Turning Drive up changes how dirty a band
+  is, not how loud a nominal note is; quieter playing comes up relative to it, as through any
+  clipper. At high Drive whatever leaks into a band from its neighbours is driven up too, so
+  the bands tend to even out: that is what a multi-band clipper does.
+- **Character** per band: Tape (atan, the softest), Tube (soft knee, negative side at 0.7: even
+  harmonics), Diode (soft knee), Hard (flat limit) and Fuzz (flat limit, negative side at 0.5).
+  A change crossfades the band from the old curve to the new over 10 ms.
+- **Mix** blends each band's driven signal with the same band clean, in phase; **Level** trims
+  the band after it; **Output** the sum. Drive, Level, Mix and Output glide over 20 ms, worked
+  out every 16 samples and ramped per sample. A 2 Hz DC blocker follows the sum (the lopsided
+  curves make DC), then the drive pedals' soft ceiling near 0 dBFS.
+- **No latency** reported, as for the drive pedals. About 24 µs per stereo 64-sample block in
+  Release (1.8% of the 48 kHz deadline), a little under the 8× Distortion pedal.
+
+| Param | Range | Default | Notes |
+|---|---|---|---|
+| `crossover1`..`crossover3` | 40..1000, 150..5000, 600..12000 Hz | 200, 800, 3000 Hz | Group Crossovers, log taper |
+| `drive1`..`drive4` | 0..48 dB | 18, 28, 36, 30 dB | Groups Low, Low Mid, High Mid, High |
+| `character1`..`character4` | Tape, Tube, Diode, Hard, Fuzz | Tube | Enum |
+| `level1`..`level4` | -24..+12 dB | 0 | After the mix |
+| `mix` | 0..1 | 1 | Per band, in phase |
+| `output` | -18..+18 dB | 0 | |
+
+**The node panel** is the Multi-band Compressor's (`multibandPlot.ts`,
+`signalPath/paramsPanel/multibandPanel.ts`): input spectrum shaded, output as a line (the gap
+up top is the harmonics each band adds), the crossovers draggable. What hangs from the top of
+each band, in red, is how far its peaks were driven past the knee since the last frame; the
+strip under the plot is each band's peak level against the input level where its clipper
+starts to bend. The engine sends that level as each band meter's `thresholdDb`, since it
+depends on the nominal level the UI does not know.
+
+**Factory presets:** Standard (default), Tight Crunch (low band near clean from 160 Hz), Chord
+Clarity (every band alike, Tape at the ends), Fat Lows (Tape low band at 24 dB from 250 Hz),
+Mid Scream (High Mid Diode at 34 dB), Fizz-free Lead (top band nearly clean, -6 dB), Parallel
+Grit (Hard at Mix 0.4) and Splatter (Fuzz up top).
 
 ### VCA Compressor (`compressor_vca`)
 Clean, precise VCA-style compressor.

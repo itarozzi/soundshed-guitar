@@ -230,6 +230,7 @@ class MultibandCompressorEffect : public EffectProcessor
             meter.highHz = band < kSplits ? mMeterSplitHz[index].load(std::memory_order_relaxed) : 0.0;
             meter.gainReductionDb = mMeterReductionDb[index].exchange(0.0f, std::memory_order_relaxed);
             meter.levelDb = mMeterLevelDb[index].load(std::memory_order_relaxed);
+            meter.thresholdDb = Value(multiband_compressor::BandParam(band, 0));
         }
 
         return count;

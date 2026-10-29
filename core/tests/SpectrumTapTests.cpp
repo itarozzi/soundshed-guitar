@@ -393,6 +393,43 @@ bool TestBandMeteredNodeShowsItsOutput()
     return ok;
 }
 
+bool TestMultibandDistortionShowsItsHarmonics()
+{
+    std::cout << "\nA Multi-band Distortion node shows the harmonics it adds\n";
+    bool ok = true;
+
+    SignalGraph graph;
+    graph.nodes.push_back({"in", kNodeTypeInput, "", "Input", true});
+    graph.nodes.push_back({"mbd", EffectGuids::kMultibandDistortion, "mbd", "Multi-band Distortion", true});
+    graph.nodes.back().params["drive1"] = 40.0;
+    graph.nodes.back().params["character1"] = 3.0; // Hard
+    graph.nodes.push_back({"out", kNodeTypeOutput, "", "Output", true});
+    graph.edges.push_back({"in", "mbd", 0, 0, 1.0});
+    graph.edges.push_back({"mbd", "out", 0, 0, 1.0});
+
+    SignalGraphExecutor executor;
+    executor.SetInputLayout(ChannelLayout::Mono);
+    executor.SetGraph(graph);
+    executor.Prepare(kSampleRate, 128);
+    SineSource sine(80.0, 0.1); // -20 dBFS peak, in the low band
+
+    ok &= Report("The distortion node can be watched", executor.WatchNodeSpectrum("mbd"));
+    RunExecutor(executor, sine, 1.0);
+
+    static auto now = Clock::now();
+    now += std::chrono::seconds(1);
+    WatchedSpectrum spectrum;
+    ok &= Report("It reads, with its output and four bands",
+                 executor.ReadWatchedSpectrum(spectrum, now) && spectrum.hasOutput && spectrum.bandCount == 4);
+
+    const auto third = static_cast<std::size_t>(NearestBin(240.0));
+    const double added = spectrum.output[third] - spectrum.input[third];
+    ok &= Report("The output shows the low band's third harmonic", added > 20.0, Db(added));
+    ok &= Report("The low band's meter shows it driven past the knee", spectrum.bands[0].gainReductionDb > 10.0,
+                 Db(spectrum.bands[0].gainReductionDb));
+    return ok;
+}
+
 bool TestMixerFindsTheNodeByScope()
 {
     std::cout << "\nThe mixer finds the node by scope\n";
@@ -455,9 +492,9 @@ int main()
 
     bool allPassed = true;
 
-    for (const auto& test :
-         {TestWindowSizing, TestSineLandsInItsBinAtItsLevel, TestLowFrequenciesResolveAtTinyBlocks, TestSilenceAndGaps,
-          TestExecutorTapsTheNodeInput, TestBandMeteredNodeShowsItsOutput, TestMixerFindsTheNodeByScope})
+    for (const auto& test : {TestWindowSizing, TestSineLandsInItsBinAtItsLevel, TestLowFrequenciesResolveAtTinyBlocks,
+                             TestSilenceAndGaps, TestExecutorTapsTheNodeInput, TestBandMeteredNodeShowsItsOutput,
+                             TestMultibandDistortionShowsItsHarmonics, TestMixerFindsTheNodeByScope})
     {
         if (!test())
         {

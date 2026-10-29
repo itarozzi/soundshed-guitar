@@ -116,6 +116,18 @@ describe("the spectrum watch", () => {
     ]);
   });
 
+  it("reads each band's threshold when the engine sends one", () => {
+    const listener = vi.fn();
+    spectrum.subscribeEqSpectrum({ scope: "preset", nodeId: "mbd" }, listener);
+    const bands = [[0, 200, 12, -15, -12], [200, 800, 0, -30, -24], [800, 3000, 0, -40, -30], [3000, 0, 0, -55, "x"]];
+    spectrum.applyEqSpectrumFrame(frame("mbd", "preset", -30, { o: new Array(BIN_COUNT).fill(-36), b: bands }));
+    const delivered = (listener.mock.calls[0][0] as EqSpectrum).bands;
+    expect(delivered?.[0]).toEqual({ lowHz: null, highHz: 200, gainReductionDb: 12, levelDb: -15, thresholdDb: -12 });
+    expect(delivered?.[2]?.thresholdDb).toBe(-30);
+    // One that is not a number is left out rather than spoiling the band.
+    expect(delivered?.[3]).toEqual({ lowHz: 3000, highHz: null, gainReductionDb: 0, levelDb: -55 });
+  });
+
   it("keeps the input spectrum when the band meters are malformed", () => {
     const listener = vi.fn();
     spectrum.subscribeEqSpectrum({ scope: "preset", nodeId: "mbc" }, listener);

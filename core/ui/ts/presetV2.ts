@@ -377,6 +377,7 @@ const EFFECT_STUBS: EffectStub[] = [
   // Drive
   { type: EffectGuids.kOverdrive },
   { type: EffectGuids.kDistortion },
+  { type: EffectGuids.kMultibandDistortion },
   { type: EffectGuids.kFuzz },
   // Amp
   { type: EffectGuids.kAmpBuiltin },

@@ -10,5 +10,6 @@ struct BandMeter
     double highHz = 0.0;          ///< where it ends; 0 for the highest
     float gainReductionDb = 0.0f; ///< the deepest cut since the last read, 0 or more
     float levelDb = -120.0f;      ///< the band detector's level, dBFS
+    float thresholdDb = 0.0f;     ///< the input level, dBFS, where the band's curve starts to act
 };
 } // namespace guitarfx

@@ -87,14 +87,17 @@ The node panel opens with a plot on the EQ's log-frequency axis:
 - `SignalGraphExecutor::ReadWatchedSpectrum` fills a `WatchedSpectrum` (input bins, optional
   output bins, band meters). `sldS` gains `o` (output bins, same range as `s`) and `b`:
   `[[lowHz, highHz, gainReductionDb, levelDb], …]`, both only for such a node. Older readers
-  ignore them; the EQ's frames are unchanged.
+  ignore them; the EQ's frames are unchanged. Each band also carries its threshold
+  (`BandMeter::thresholdDb`, a fifth element), added for the Distortion; this panel still
+  draws the mark from the knobs so it follows a turn at once.
 
 ### Web UI
 
 - `eqSpectrum.ts` parses `o` and `b` into `EqSpectrum.outputBinsDb` and `.bands`.
-- `signalPath/paramsPanel/multibandCompressorPanel.ts` builds the section, draws on the shared
-  `eqPlot.ts` axis and spectrum, and handles crossover drags. CSS in
-  `css/multiband-compressor.css`.
+- `signalPath/paramsPanel/multibandPanel.ts` builds the section, draws on the shared
+  `eqPlot.ts` axis and spectrum, and handles crossover drags; `multibandPlot.ts` draws. Both
+  are shared with the Multi-band Distortion (docs/plans/multiband-distortion.md). CSS in
+  `css/multiband.css`.
 - Nano Q gets the knobs from the catalogue like any effect. A native band view is a follow-up.
 
 ## Tests (`core/tests/MultibandCompressorEffectTests.cpp`)

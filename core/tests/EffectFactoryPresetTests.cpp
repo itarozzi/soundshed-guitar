@@ -36,6 +36,7 @@
 #include "dsp/effects/FlangerEffect.h"
 #include "dsp/effects/HarmonizerEffect.h"
 #include "dsp/effects/MultibandCompressorEffect.h"
+#include "dsp/effects/MultibandDistortionEffect.h"
 #include "dsp/effects/MultibandGateEffect.h"
 #include "dsp/effects/NoiseGateEffect.h"
 #include "dsp/effects/NoiseReductionEffect.h"
@@ -111,6 +112,7 @@ const std::vector<Effect>& Effects()
          {"threshold1", "threshold2", "threshold3", "threshold4", "threshold5", "threshold6", "offset"},
          {}},
         {"Multi-band Compressor", EffectGuids::kMultibandCompressor, {}, {}},
+        {"Multi-band Distortion", EffectGuids::kMultibandDistortion, {}, {}},
         {"Parametric EQ", EffectGuids::kEqParametric, {}, {}},
         {"Pitch Tracking EQ", EffectGuids::kEqPitchTracking, {"level", "lowestNote"}, {}},
         {"Digital Delay", EffectGuids::kDelayDigital, {"syncDivision"}, {kDivisionWhenSynced}},
@@ -368,6 +370,7 @@ int main()
     guitarfx::RegisterNoiseReductionEffect();
     guitarfx::RegisterMultibandGateEffect();
     guitarfx::RegisterMultibandCompressorEffect();
+    guitarfx::RegisterMultibandDistortionEffect();
     guitarfx::RegisterParametricEQEffect();
     guitarfx::RegisterPitchTrackingEqEffect();
     guitarfx::RegisterDelayEffect();
