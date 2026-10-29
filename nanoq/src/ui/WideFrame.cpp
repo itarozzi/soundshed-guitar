@@ -329,7 +329,7 @@ Ptr Shell::BuildPlayStage()
     // The chain, as tall as its lines (BuildChain), with the scene chips over it and the add
     // button at its right; the selected effect's editor takes the rest.
     auto add = std::make_shared<RoundAdd>(mTheme, 24.0f);
-    add->onClick = [this] { OpenEffectPicker(LastNodeBeforeOutput()); };
+    add->onClick = [this, a = add.get()] { OpenAddMenu(a->Bounds()); };
     auto chain = Over(Col({mSceneSlot, mChainSlot, FixedHeight(30, Pad(0, 0, 0, 6, Row({Stretch(), add, HGap(14)})))}),
                       std::make_shared<StageBackdrop>(mTheme));
     // The bar between them is dragged to give the chain more room or less (kept in Nano Q's
@@ -372,7 +372,9 @@ Ptr Shell::BuildPlayStage()
             mSession.Commands().PatchNativeUiSettings(patch);
         }
     };
-    return Col({chain, FixedHeight(10, handle), mEffectSlot});
+    // Where the editor is, for the FX Library to open over.
+    return Col({chain, FixedHeight(10, handle),
+                std::make_shared<BoundsProbe>(mEffectSlot, [this](el::rect r) { mEditorArea = r; })});
 }
 
 // ── The footers' shared pieces ──────────────────────────────────────────────────

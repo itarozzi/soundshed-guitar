@@ -14,6 +14,7 @@
 
 #include "uiclient/ChainDropRules.h"
 #include "uiclient/ChainLayout.h"
+#include "uiclient/FxMarks.h"
 #include "uiclient/NodeLabels.h"
 #include "util/PathEncoding.h"
 
@@ -608,26 +609,25 @@ Ptr Shell::BuildChain()
     return Col({std::make_shared<el::element>(), FixedHeight(total, Col(rows)), std::make_shared<el::element>()});
 }
 
-void Shell::DragCard(const std::string& nodeId, el::point from, el::point to, bool done)
+guitarfx::uiclient::NodeDropTarget Shell::DropTargetAt(el::point to, const std::string& except)
 {
     using namespace guitarfx::uiclient;
+    NodeDropTarget target;
 
     if (!mHitMap || !mState.activePreset)
     {
-        return;
+        return target;
     }
 
     auto& hits = *mHitMap;
     const auto& graph = mState.activePreset->graph;
-    const auto* dragged = hits.FindCard(nodeId);
+    const auto* dragged = except.empty() ? nullptr : hits.FindCard(except);
 
     // What is under the pointer: another card, else a cable (a band round its line, as it is
     // thin). The output takes the card before it (its cable in), never a place after it.
-    NodeDropTarget target;
-
     for (const auto& card : hits.cards)
     {
-        if (card.nodeId == nodeId || !card.bounds.includes(to))
+        if (card.nodeId == except || !card.bounds.includes(to))
         {
             continue;
         }
@@ -666,6 +666,23 @@ void Shell::DragCard(const std::string& nodeId, el::point from, el::point to, bo
             }
         }
     }
+
+    return target;
+}
+
+void Shell::DragCard(const std::string& nodeId, el::point from, el::point to, bool done)
+{
+    using namespace guitarfx::uiclient;
+
+    if (!mHitMap || !mState.activePreset)
+    {
+        return;
+    }
+
+    auto& hits = *mHitMap;
+    const auto& graph = mState.activePreset->graph;
+    const auto* dragged = hits.FindCard(nodeId);
+    const auto target = DropTargetAt(to, nodeId);
 
     // Let go over another line of a wrapped chain: a card there spans the pointer's height but
     // not the dragged card's.
@@ -729,6 +746,65 @@ void Shell::DragCard(const std::string& nodeId, el::point from, el::point to, bo
     if (action.kind != NodeDropAction::Kind::None)
     {
         NoteChainEdit();
+    }
+
+    mSession.View().refresh();
+}
+
+void Shell::DragLibraryEffect(const std::string& type, const std::string& name, el::point to, bool done)
+{
+    using namespace guitarfx::uiclient;
+
+    // Its name follows the pointer until it is let go.
+    if (!done)
+    {
+        if (!mDragGhost)
+        {
+            mDragGhost = std::make_shared<DragGhost>(mTheme, name);
+            mSession.View().add(mDragGhost);
+        }
+
+        std::static_pointer_cast<DragGhost>(mDragGhost)->MoveTo(to);
+    }
+    else if (mDragGhost)
+    {
+        RemoveLayer(std::move(mDragGhost));
+        mDragGhost.reset();
+    }
+
+    // Over a card it goes after that card; over a cable, onto it (the output's card means its
+    // cable in).
+    const auto target = DropTargetAt(to, {});
+
+    if (mHitMap)
+    {
+        mHitMap->hoverNode.clear();
+        mHitMap->hoverEdge.reset();
+
+        if (!done && target.kind == NodeDropTarget::Kind::Node)
+        {
+            mHitMap->hoverNode = target.nodeId;
+        }
+        else if (!done && target.kind == NodeDropTarget::Kind::Edge)
+        {
+            mHitMap->hoverEdge = target.edge;
+        }
+    }
+
+    if (done && target.kind != NodeDropTarget::Kind::None)
+    {
+        CloseOverlay();
+        RecordFxRecent(mSession.Commands(), mState, FxItemKey(type));
+        ExpectAddedNode();
+
+        if (target.kind == NodeDropTarget::Kind::Node)
+        {
+            mSession.Commands().AddNode(type, target.nodeId);
+        }
+        else
+        {
+            mSession.Commands().AddNodeOnEdge(type, target.edge);
+        }
     }
 
     mSession.View().refresh();

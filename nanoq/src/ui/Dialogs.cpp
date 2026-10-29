@@ -347,11 +347,11 @@ std::vector<const EffectTypeInfo*> Shell::OfferedEffects() const
 
     for (const auto& info : mState.catalog)
     {
-        // As core/ui/ts/fxSelector.ts's getCatalogEffects. Composites need a picker of their own,
-        // which lives in Soundshed Guitar. The plugin host (and Guitar to MIDI, which only plays a
-        // plugin host's instrument) is offered where the engine can host plugins: the catalog
-        // lists it only there.
-        if (info.type == guids::kMixer || info.type == guids::kAmpNamBlend || info.type.rfind("composite:", 0) == 0)
+        // As core/ui/ts/fxLibrary/catalog.ts: the catalog's effects and its composites (a
+        // composite channel strip is added as any effect). The plugin host (and Guitar to MIDI,
+        // which only plays a plugin host's instrument) is offered where the engine can host
+        // plugins: the catalog lists it only there.
+        if (info.type == guids::kMixer || info.type == guids::kAmpNamBlend)
         {
             continue;
         }
@@ -509,7 +509,23 @@ void Shell::OpenEffectPicker(const std::string& afterNodeId, const std::string& 
         }
     };
 
-    s->fill = [this, s, offered, categories, currentType, choose] {
+    // The panel's size: over the full layout's editor (the web UI's FX Library), else under the
+    // preset bar, filling the stage.
+    const auto view = ViewSize();
+    const float stageWidth = view.x - StageLeft();
+    const bool overEditor = mWide && mEditorArea.height() > 200.0f;
+    const float width =
+        overEditor ? std::min(860.0f, mEditorArea.width() - 24.0f) : std::min(860.0f, stageWidth - 24.0f);
+    const float top = overEditor ? mEditorArea.top + 8.0f : metrics::kTopBarHeight + 8.0f;
+    const float height =
+        overEditor ? std::clamp(mEditorArea.height() - 24.0f, 300.0f, 400.0f) : std::min(460.0f, view.y - top - 48.0f);
+    const float x = overEditor ? mEditorArea.left + (mEditorArea.width() - width) * 0.5f
+                               : StageLeft() + (stageWidth - width) * 0.5f;
+    // The effects in columns of cards (.fx-items grid), as many as fit beside the categories.
+    const int columns = std::max(1, static_cast<int>((width - 196.0f) / 200.0f));
+    const bool replacing = !replaceNodeId.empty();
+
+    s->fill = [this, s, offered, categories, currentType, choose, columns, replacing] {
         const auto lower = [](std::string text) {
             std::transform(text.begin(), text.end(), text.begin(),
                            [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
@@ -609,6 +625,24 @@ void Shell::OpenEffectPicker(const std::string& afterNodeId, const std::string& 
                 look != nullptr ? look->name : effect->category,
                 Theme::Argb(mPresentation.CategoryColour(effect->category)), effect->type == currentType);
             row->onClick = [choose, type = effect->type] { choose(type); };
+
+            // Dragged onto the chain, it goes where it is let go.
+            if (!replacing)
+            {
+                row->onDrag = [this, type = effect->type, name = effect->name](el::point, el::point to, bool done) {
+                    DragLibraryEffect(type, name, to, done);
+                };
+            }
+
+            if (effect->type.rfind("composite:", 0) == 0)
+            {
+                row->SetBadge(EffectRow::Badge::Composite);
+            }
+            else if (effect->requiresResource)
+            {
+                row->SetBadge(EffectRow::Badge::Resource);
+            }
+
             const auto key = guitarfx::uiclient::FxItemKey(effect->type);
             row->Star(guitarfx::uiclient::IsFxFavorite(mState, key), [this, s, key] {
                 guitarfx::uiclient::ToggleFxFavorite(mSession.Commands(), mState, key);
@@ -623,8 +657,30 @@ void Shell::OpenEffectPicker(const std::string& afterNodeId, const std::string& 
                 });
             });
             right.push_back(row);
-            right.push_back(VGap(4));
         }
+
+        // In rows of `columns` cards.
+        std::vector<Ptr> grid;
+
+        for (std::size_t i = 0; i < right.size(); i += static_cast<std::size_t>(columns))
+        {
+            std::vector<Ptr> cells;
+
+            for (std::size_t j = i; j < i + static_cast<std::size_t>(columns); ++j)
+            {
+                if (!cells.empty())
+                {
+                    cells.push_back(HGap(8));
+                }
+
+                cells.push_back(j < right.size() ? right[j] : Ptr(std::make_shared<el::element>()));
+            }
+
+            grid.push_back(Row(cells));
+            grid.push_back(VGap(8));
+        }
+
+        right = std::move(grid);
 
         if (right.empty())
         {
@@ -645,7 +701,7 @@ void Shell::OpenEffectPicker(const std::string& afterNodeId, const std::string& 
     };
     s->fill();
 
-    std::string title = "ADD EFFECT";
+    std::string title = "FX LIBRARY";
 
     if (!replaceNodeId.empty() && mState.activePreset)
     {
@@ -655,8 +711,16 @@ void Shell::OpenEffectPicker(const std::string& afterNodeId, const std::string& 
         }
     }
 
-    auto heading = std::make_shared<Text>(mTheme, title, 12.0f, Weight::SemiBold);
+    // The header (.fx-library-header): the title, what to do, and Close.
+    auto heading = std::make_shared<Text>(mTheme, title, 13.0f, Weight::SemiBold);
     heading->Colour(mTheme.Ink());
+    auto hint = std::make_shared<Text>(mTheme,
+                                       replacing ? "Click an effect to put it in its place."
+                                                 : "Drag an effect into the signal chain, or click one to add it.",
+                                       11.5f);
+    hint->Colour(mTheme.TextSecondary());
+    auto close = std::make_shared<Button>(mTheme, "\xC3\x97  Close", [this] { CloseOverlay(); }, Button::Style::Plain);
+    close->MinWidth(80).TextSize(12.0f);
 
     auto [searchElement, searchBox] = el::input_box("Search effects...", Font(Weight::Regular), 1.0f);
     searchBox->on_text = [s](std::string_view text) {
@@ -664,19 +728,15 @@ void Shell::OpenEffectPicker(const std::string& afterNodeId, const std::string& 
         s->fill();
     };
 
-    const auto view = ViewSize();
-    const float stageWidth = view.x - StageLeft();
-    const float width = std::min(560.0f, stageWidth - 24.0f);
-    const float height = std::min(438.0f, view.y - 60.0f);
-    const float x = StageLeft() + (stageWidth - width) * 0.5f;
-    const float titleWidth =
-        std::min(width * 0.45f, MeasureTextWidth(title, Font(Weight::SemiBold).size(12.0f)) + 4.0f);
-
-    auto panel = Pad(10, 8, 6, 10,
-                     Col({FixedHeight(30, Row({HGap(4), FixedWidth(titleWidth, heading), HGap(14),
-                                               el::share(std::move(searchElement)), HGap(4)})),
-                          VGap(10), Row({FixedWidth(156, s->left), HGap(10), s->right})}));
-    ShowPopover(panel, el::rect{x, 2.0f, x + width, 2.0f}, width, height);
+    auto header =
+        Row({Col({FixedHeight(18, heading), FixedHeight(18, hint)}), Stretch(), Middle(FixedHeight(32, close))});
+    auto search = Over(PadXY(10, 0, Middle(el::share(std::move(searchElement)))),
+                       el::share(Surface(mTheme.Input(), mTheme.Border(), 6.0f)));
+    auto panel =
+        Pad(14, 10, 12, 12,
+            Col({FixedHeight(40, header), VGap(10),
+                 Row({FixedWidth(176, s->left), HGap(12), Col({FixedHeight(34, search), VGap(10), s->right})})}));
+    ShowPopover(panel, el::rect{x, top, x + width, top}, width, height);
     // The state lives as long as the chooser.
     mOnOverlayClosed = [state] { state->fill = nullptr; };
 }

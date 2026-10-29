@@ -11,6 +11,7 @@
 #include "ui/Layout.h"
 #include "ui/Widgets.h"
 
+#include <cmath>
 #include <functional>
 #include <memory>
 #include <string>
@@ -951,11 +952,44 @@ class EffectRow final : public Pressable
             mIcons.Draw(cnv, mIcon, el::rect{c.x - 9.0f, c.y - 9.0f, c.x + 9.0f, c.y + 9.0f}, mTint);
         }
 
-        FillText(cnv, mName, Font(Weight::SemiBold).size(12.0f), mTheme.Ink(),
-                 el::rect{b.left + 56.0f, b.top + 6.0f, b.right - 70.0f, b.top + 22.0f}, HAlign::Left);
+        // The name stops short of the badge and the star.
+        const float nameRight = b.right - (mBadge != Badge::None ? 54.0f : 38.0f) - (mCurrent ? 40.0f : 0.0f);
+        const auto nameFont = Font(Weight::SemiBold).size(12.0f);
+        FillText(cnv, Ellipsize(cnv, mName, nameFont, nameRight - b.left - 56.0f), nameFont, mTheme.Ink(),
+                 el::rect{b.left + 56.0f, b.top + 6.0f, nameRight, b.top + 22.0f}, HAlign::Left);
         FillText(cnv, mCategory, Font(Weight::Regular).size(9.5f), mTheme.TextMuted(),
                  el::rect{b.left + 56.0f, b.top + 22.0f, b.right - 70.0f, b.bottom - 5.0f}, HAlign::Left);
         const float labelRight = onStar ? b.right - 34.0f : b.right - 12.0f;
+
+        // Being dragged out: outlined in the accent, where it was.
+        if (mDragging)
+        {
+            cnv.stroke_style(mTheme.Accent());
+            cnv.stroke_round_rect(b.inset(0.5f, 0.5f), 6.0f);
+        }
+
+        // What it carries (.fx-item-badge): a folder for a model or IR, a box for a composite.
+        if (mBadge != Badge::None && !mCurrent)
+        {
+            const float cy = b.top + b.height() * 0.5f;
+            const el::rect r{labelRight - 16.0f, cy - 7.0f, labelRight - 2.0f, cy + 7.0f};
+
+            if (mBadge == Badge::Resource)
+            {
+                mIcons.Draw(cnv, "ui-folder", r, mTheme.TextSecondary());
+            }
+            else
+            {
+                cnv.fill_style(mTheme.Accent().opacity(0.85f));
+                cnv.fill_round_rect(r.inset(2.5f, 2.5f), 2.0f);
+                cnv.stroke_style(mTheme.Ink().opacity(0.5f));
+                cnv.line_width(1.0f);
+                cnv.begin_path();
+                cnv.move_to(r.left + 2.5f, r.top + 6.0f);
+                cnv.line_to(r.right - 2.5f, r.top + 6.0f);
+                cnv.stroke();
+            }
+        }
 
         if (mCurrent)
         {
@@ -984,7 +1018,51 @@ class EffectRow final : public Pressable
             return true;
         }
 
+        if (btn.state == el::mouse_button::left)
+        {
+            if (btn.down)
+            {
+                mDownAt = btn.pos;
+                mDragging = false;
+            }
+            else if (mDragging)
+            {
+                // A drag ends where it is let go, not in a click.
+                mDragging = false;
+                mDown = false;
+                ctx.view.refresh(ctx);
+
+                if (onDrag)
+                {
+                    onDrag(mDownAt, btn.pos, true);
+                }
+
+                return true;
+            }
+        }
+
         return Pressable::click(ctx, btn);
+    }
+
+    void drag(const el::context& ctx, el::mouse_button btn) override
+    {
+        if (!mDown || !onDrag)
+        {
+            return;
+        }
+
+        if (!mDragging)
+        {
+            if (std::hypot(btn.pos.x - mDownAt.x, btn.pos.y - mDownAt.y) < 5.0f)
+            {
+                return;
+            }
+
+            mDragging = true;
+            ctx.view.refresh(ctx);
+        }
+
+        onDrag(mDownAt, btn.pos, false);
     }
 
     /// Shows the star, filled in when `favourite`; a click on it calls `onStar`.
@@ -993,6 +1071,22 @@ class EffectRow final : public Pressable
         mFavourite = favourite;
         onStar = std::move(toggle);
     }
+
+    enum class Badge
+    {
+        None,
+        Resource,  // it needs a model or an IR
+        Composite, // a composite channel strip
+    };
+
+    void SetBadge(Badge badge)
+    {
+        mBadge = badge;
+    }
+
+    /// Dragged out (onto the chain): `onDrag(from, to, done)` in view coordinates. A drag is not
+    /// a click.
+    std::function<void(el::point from, el::point to, bool done)> onDrag;
 
   private:
     static el::rect StarRect(const el::rect& b)
@@ -1010,6 +1104,52 @@ class EffectRow final : public Pressable
     bool mCurrent;
     bool mFavourite = false;
     std::function<void()> onStar;
+    Badge mBadge = Badge::None;
+    el::point mDownAt;
+    bool mDragging = false;
+};
+
+/// What is being dragged, named in a chip by the pointer over everything: a layer of the view that
+/// no click reaches (an effect dragged out of the FX Library onto the chain).
+class DragGhost final : public el::element
+{
+  public:
+    DragGhost(const Theme& theme, std::string label) : mTheme(theme), mLabel(std::move(label))
+    {
+    }
+
+    void MoveTo(el::point at)
+    {
+        mAt = at;
+    }
+
+    void draw(const el::context& ctx) override
+    {
+        auto& cnv = ctx.canvas;
+        const auto font = Font(Weight::SemiBold).size(12.0f);
+        const float w = MeasureTextWidth(mLabel, font) + 24.0f;
+        const el::rect chip{mAt.x + 14.0f, mAt.y + 10.0f, mAt.x + 14.0f + w, mAt.y + 38.0f};
+        {
+            auto state = cnv.new_state();
+            cnv.shadow_style(el::point{0.0f, 4.0f}, 12.0f, el::rgba(0, 0, 0, 120));
+            cnv.fill_style(mTheme.Elevated());
+            cnv.fill_round_rect(chip, 8.0f);
+        }
+        cnv.stroke_style(mTheme.Accent());
+        cnv.line_width(1.0f);
+        cnv.stroke_round_rect(chip.inset(0.5f, 0.5f), 8.0f);
+        FillText(cnv, mLabel, font, mTheme.Ink(), chip, HAlign::Centre);
+    }
+
+    el::element* hit_test(const el::context&, el::point, bool, bool) override
+    {
+        return nullptr;
+    }
+
+  private:
+    const Theme& mTheme;
+    std::string mLabel;
+    el::point mAt;
 };
 
 /// One preset in the preset browser (the web UI's preset row): its name, a line under it with its

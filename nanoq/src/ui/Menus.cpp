@@ -254,6 +254,17 @@ void Shell::SaveActivePreset(bool asNew)
     OpenPresetDetails(true);
 }
 
+void Shell::OpenAddMenu(el::rect anchor)
+{
+    // As the web UI's .signal-path-add-menu: the FX Library, or a new scene.
+    std::vector<MenuItem> items{
+        {"Add FX...", false, false, [this] { OpenEffectPicker(LastNodeBeforeOutput()); }},
+        {"Add Scene", false, false, [this] { mSession.Commands().AddScene(); }},
+    };
+    const el::rect left{anchor.right - 150.0f, anchor.top, anchor.right, anchor.bottom};
+    OpenDropdown(left, std::move(items), 150.0f);
+}
+
 void Shell::OpenPresetMenu(std::optional<el::rect> anchor)
 {
     auto& commands = mSession.Commands();

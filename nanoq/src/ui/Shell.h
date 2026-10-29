@@ -29,6 +29,7 @@
 #include "ui/ShellWidgets.h"
 #include "ui/UiSession.h"
 #include "ui/Widgets.h"
+#include "uiclient/ChainDropRules.h"
 #include "uiclient/ChainHistory.h"
 #include "uiclient/ChainLayout.h"
 #include "uiclient/DspStatus.h"
@@ -291,6 +292,13 @@ class Shell
     /// A card being dragged: the drop target under `to` is lit, and on `done` the card moves
     /// there by the web UI's rules (ChainDropRules).
     void DragCard(const std::string& nodeId, el::point from, el::point to, bool done);
+    /// What lies under `to` in the chain for a drop: a card (not `except`'s), else a cable.
+    [[nodiscard]] guitarfx::uiclient::NodeDropTarget DropTargetAt(el::point to, const std::string& except);
+    /// An effect dragged out of the FX Library: lights where it would land, and adds it there when
+    /// let go.
+    void DragLibraryEffect(const std::string& type, const std::string& name, el::point to, bool done);
+    /// The round + over the chain: Add FX... (the FX Library) or Add Scene.
+    void OpenAddMenu(el::rect anchor);
 
     [[nodiscard]] std::string SceneSignature() const;
     /// What the preset bar (or the full control bar) shows that a rebuild would change.
@@ -803,6 +811,8 @@ class Shell
     guitarfx::uiclient::Subscription mImportWatch;                 // a preset archive import, until it answers
     std::string mPickerCategory;
     std::optional<guitarfx::GraphEdge> mPickerEdge; // the open picker adds on this edge, not after a node
+    el::rect mEditorArea;                           // where the full layout's editor is: the FX Library opens over it
+    Ptr mDragGhost;                                 // the FX Library's effect being dragged, by the pointer
     guitarfx::uiclient::EffectPresentation mPresentation;
 
     // After adding an effect, the node that appears next is selected and shown.

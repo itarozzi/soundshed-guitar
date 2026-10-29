@@ -425,7 +425,7 @@ Ptr Shell::BuildChainStage()
     // The add button floats at the bottom right (.signal-path-add-menu-trigger): it adds at the
     // end of the chain, before the output.
     auto add = std::make_shared<RoundAdd>(mTheme, 24.0f);
-    add->onClick = [this] { OpenEffectPicker(LastNodeBeforeOutput()); };
+    add->onClick = [this, a = add.get()] { OpenAddMenu(a->Bounds()); };
 
     auto body = Col({mSceneSlot, mChainSlot, FixedHeight(24, Row({Stretch(), add, HGap(12)})), VGap(20)});
     return Over(body, std::make_shared<StageBackdrop>(mTheme));
