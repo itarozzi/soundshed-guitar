@@ -337,4 +337,256 @@ class CodeBlock final : public el::element
     const Theme& mTheme;
     std::vector<std::string> mLines;
 };
+
+/// Two or more choices joined into one control (the tuner's Cents | Hz, a Cards | List view
+/// switch): the chosen one filled with the accent. `onSelect` hears the index tapped.
+class Segmented final : public el::element, public Drawn
+{
+  public:
+    Segmented(const Theme& theme, std::vector<std::string> options, float segmentWidth = 0.0f)
+        : mTheme(theme), mOptions(std::move(options)), mSegmentWidth(segmentWidth)
+    {
+    }
+
+    std::function<void(int index)> onSelect;
+
+    void Select(int index)
+    {
+        mSelected = index;
+    }
+
+    el::view_limits limits(const el::basic_context& ctx) const override
+    {
+        float w = 0.0f;
+
+        for (const auto& option : mOptions)
+        {
+            w += mSegmentWidth > 0.0f
+                     ? mSegmentWidth
+                     : el::measure_text(ctx.canvas, option, Font(Weight::Medium).size(13.0f)).x + 32.0f;
+        }
+
+        return {{w, 34.0f}, {w, 34.0f}};
+    }
+
+    void draw(const el::context& ctx) override
+    {
+        NoteDrawn(ctx);
+        auto& cnv = ctx.canvas;
+        const auto b = ctx.bounds;
+        const auto font = Font(Weight::Medium).size(13.0f);
+        cnv.fill_style(mTheme.Bar());
+        cnv.fill_round_rect(b, 6.0f);
+        float x = b.left;
+        mEdges.clear();
+
+        for (std::size_t i = 0; i < mOptions.size(); ++i)
+        {
+            const float w = mSegmentWidth > 0.0f ? mSegmentWidth : el::measure_text(cnv, mOptions[i], font).x + 32.0f;
+            const el::rect segment{x, b.top, x + w, b.bottom};
+            const bool chosen = static_cast<int>(i) == mSelected;
+
+            if (chosen)
+            {
+                cnv.fill_style(mTheme.Accent());
+                cnv.fill_round_rect(segment, 6.0f);
+            }
+            else if (static_cast<int>(i) == mHover)
+            {
+                cnv.fill_style(mTheme.ModalText().opacity(0.06f));
+                cnv.fill_round_rect(segment, 6.0f);
+            }
+
+            FillText(cnv, mOptions[i], font, chosen ? mTheme.OnAccent() : mTheme.ModalText(), segment, HAlign::Centre);
+            mEdges.push_back(x + w);
+            x += w;
+        }
+
+        cnv.stroke_style(mTheme.ModalRule());
+        cnv.line_width(1.0f);
+        cnv.stroke_round_rect(b.inset(0.5f, 0.5f), 6.0f);
+    }
+
+    bool click(const el::context& ctx, el::mouse_button btn) override
+    {
+        if (!btn.down || btn.state != el::mouse_button::left)
+        {
+            return true;
+        }
+
+        if (const int i = Hit(ctx.bounds, btn.pos); i >= 0 && onSelect)
+        {
+            onSelect(i);
+        }
+
+        return true;
+    }
+
+    bool cursor(const el::context& ctx, el::point p, el::cursor_tracking status) override
+    {
+        const int hover = status == el::cursor_tracking::leaving ? -1 : Hit(ctx.bounds, p);
+
+        if (hover != mHover)
+        {
+            mHover = hover;
+            ctx.view.refresh(ctx);
+        }
+
+        return false;
+    }
+
+    bool wants_control() const override
+    {
+        return true;
+    }
+
+  private:
+    [[nodiscard]] int Hit(el::rect bounds, el::point p) const
+    {
+        for (std::size_t i = 0; i < mEdges.size(); ++i)
+        {
+            if (p.x >= bounds.left && p.x < mEdges[i])
+            {
+                return static_cast<int>(i);
+            }
+        }
+
+        return -1;
+    }
+
+    const Theme& mTheme;
+    std::vector<std::string> mOptions;
+    float mSegmentWidth;
+    int mSelected = 0;
+    int mHover = -1;
+    mutable std::vector<float> mEdges; // each segment's right edge, as last drawn
+};
+
+/// A number in a field with ▲ and ▼ beside it (the tuner's reference pitch, the web UI's
+/// number inputs with their step buttons): the arrows and the wheel step it, Shift for a finer
+/// step, and a double click on the number asks for one to type.
+class Stepper final : public el::element, public Drawn
+{
+  public:
+    Stepper(const Theme& theme, float width) : mTheme(theme), mWidth(width)
+    {
+    }
+
+    /// +1 or -1, and whether Shift was held.
+    std::function<void(int direction, bool fine)> onStep;
+    /// A double click on the number, with where it is in view coordinates.
+    std::function<void(el::rect at)> onEdit;
+
+    void Set(std::string text)
+    {
+        mText = std::move(text);
+    }
+
+    el::view_limits limits(const el::basic_context&) const override
+    {
+        return {{mWidth, 32.0f}, {mWidth, 32.0f}};
+    }
+
+    void draw(const el::context& ctx) override
+    {
+        NoteDrawn(ctx);
+        auto& cnv = ctx.canvas;
+        const auto b = ctx.bounds;
+        const auto field = el::rect{b.left, b.top, b.right - kArrows, b.bottom};
+        cnv.fill_style(mTheme.Bar());
+        cnv.fill_round_rect(b, 6.0f);
+        cnv.stroke_style(mTheme.ModalRule());
+        cnv.line_width(1.0f);
+        cnv.stroke_round_rect(b.inset(0.5f, 0.5f), 6.0f);
+        cnv.fill_style(mTheme.ModalRule());
+        cnv.fill_rect(el::rect{field.right, b.top, field.right + 1.0f, b.bottom});
+        cnv.fill_rect(el::rect{field.right, b.top + b.height() * 0.5f, b.right, b.top + b.height() * 0.5f + 1.0f});
+        FillText(cnv, mText, Font(Weight::Medium).size(14.0f), mTheme.ModalText(), field, HAlign::Centre);
+
+        for (int dir : {1, -1})
+        {
+            const float cy = dir > 0 ? b.top + b.height() * 0.25f : b.top + b.height() * 0.75f;
+            const float cx = field.right + kArrows * 0.5f;
+            const float tip = dir > 0 ? -2.5f : 2.5f;
+            cnv.fill_style(mHoverArrow == dir ? mTheme.ModalText() : mTheme.ModalTextSecondary());
+            cnv.begin_path();
+            cnv.move_to(cx, cy + tip);
+            cnv.line_to(cx + 3.5f, cy - tip);
+            cnv.line_to(cx - 3.5f, cy - tip);
+            cnv.close_path();
+            cnv.fill();
+        }
+    }
+
+    bool click(const el::context& ctx, el::mouse_button btn) override
+    {
+        if (!btn.down || btn.state != el::mouse_button::left)
+        {
+            return true;
+        }
+
+        const bool fine = (btn.modifiers & el::mod_shift) != 0;
+
+        if (const int dir = Arrow(ctx.bounds, btn.pos); dir != 0)
+        {
+            if (onStep)
+            {
+                onStep(dir, fine);
+            }
+        }
+        else if (btn.num_clicks == 2 && onEdit)
+        {
+            onEdit(ctx.bounds);
+        }
+
+        return true;
+    }
+
+    bool scroll(const el::context&, el::point dir, el::point) override
+    {
+        if (dir.y == 0.0f || !ParamKnob::sWheelAdjusts || !onStep)
+        {
+            return false;
+        }
+
+        onStep(dir.y > 0.0f ? 1 : -1, false);
+        return true;
+    }
+
+    bool cursor(const el::context& ctx, el::point p, el::cursor_tracking status) override
+    {
+        const int hover = status == el::cursor_tracking::leaving ? 0 : Arrow(ctx.bounds, p);
+
+        if (hover != mHoverArrow)
+        {
+            mHoverArrow = hover;
+            ctx.view.refresh(ctx);
+        }
+
+        return false;
+    }
+
+    bool wants_control() const override
+    {
+        return true;
+    }
+
+  private:
+    static constexpr float kArrows = 20.0f;
+
+    [[nodiscard]] static int Arrow(el::rect b, el::point p)
+    {
+        if (p.x < b.right - kArrows)
+        {
+            return 0;
+        }
+
+        return p.y < b.top + b.height() * 0.5f ? 1 : -1;
+    }
+
+    const Theme& mTheme;
+    float mWidth;
+    std::string mText;
+    int mHoverArrow = 0;
+};
 } // namespace nanoq::ui
