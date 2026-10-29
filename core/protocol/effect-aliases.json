@@ -56,6 +56,10 @@
       "guid": "b29b11b4-79ee-4e90-84f0-8a8ae5c6350b",
       "aliases": ["noise_reduction"]
     },
+    "kMultibandGate": {
+      "guid": "51e2f89c-c174-4c1b-aa40-2e5a08dc745c",
+      "aliases": ["dynamics_multiband_gate"]
+    },
     "kOverdrive": {
       "guid": "fa9e05a8-168a-4293-aa91-6b770de3da1d",
       "aliases": ["overdrive"]

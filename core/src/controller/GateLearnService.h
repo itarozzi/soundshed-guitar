@@ -5,8 +5,10 @@
 // The measuring happens on the audio thread, inside the gate (GateNoiseLearner). This starts a
 // listen on one gate — the global gate or a node in a preset — then polls it from the idle loop
 // and reports progress, and finally the noise floor and the threshold it suggests, as
-// "gateLearnStatus". It never sets the threshold itself: the UI applies it as it would a turned
-// knob, so the change reaches the preset, undo and the host like any other edit.
+// "gateLearnStatus". A gate is any effect that is a NoiseLearnHost: the noise gate, with one
+// detector, or the Multi-band Gate, with one per band, whose status carries a `bands` array. It never sets the
+// threshold itself: the UI applies it as it would a turned knob, so the change reaches the preset, undo and the host
+// like any other edit.
 //
 // The live gate is looked up afresh under the DSP lock on every poll and never held between
 // them, since an edit elsewhere in the chain can rebuild it. A rebuilt gate has forgotten the
@@ -24,7 +26,8 @@ namespace guitarfx
 {
 class MessageHandlerRegistry;
 class MultiPresetMixer;
-class NoiseGateEffect;
+class EffectProcessor;
+class NoiseLearnHost;
 
 class GateLearnService
 {
@@ -62,7 +65,9 @@ class GateLearnService
     void Start(Target target);
     void Cancel();
     /// The gate the target names, in the running chain. Call with the DSP lock held.
-    [[nodiscard]] NoiseGateEffect* FindGate() const;
+    [[nodiscard]] NoiseLearnHost* FindGate() const;
+    /// Starts every band of `gate` listening under the current session.
+    void StartListening(NoiseLearnHost& gate) const;
     void Finish();
     void Send(const std::string& state, const nlohmann::json& extra = nlohmann::json::object()) const;
 

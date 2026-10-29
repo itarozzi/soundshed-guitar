@@ -45,7 +45,7 @@ namespace guitarfx
  * Learn listens to the detector with the strings muted and reports where Threshold belongs
  * (GateNoiseLearner). It only measures: the UI applies the threshold it suggests.
  */
-class NoiseGateEffect : public EffectProcessor
+class NoiseGateEffect : public EffectProcessor, public NoiseLearnHost
 {
   public:
     /// Keeps its channels apart once dual mono switches off the stereo link (EffectProcessor::KeepsChannelsSeparate).
@@ -389,6 +389,21 @@ class NoiseGateEffect : public EffectProcessor
     {
         return GateNoiseLearner::ThresholdFor(noiseFloorDb, mHysteresisDb.load(std::memory_order_relaxed),
                                               kMinThresholdDb, kMaxThresholdDb);
+    }
+
+    [[nodiscard]] int NoiseLearnBandCount() const override
+    {
+        return 1;
+    }
+
+    [[nodiscard]] GateNoiseLearner& NoiseLearner(int /*band*/) override
+    {
+        return mLearner;
+    }
+
+    [[nodiscard]] double LearnedThresholdDb(int /*band*/, double noiseFloorDb) const override
+    {
+        return LearnedThresholdDb(noiseFloorDb);
     }
 
   private:

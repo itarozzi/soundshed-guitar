@@ -35,6 +35,7 @@
 #include "dsp/effects/DelayEffect.h"
 #include "dsp/effects/FlangerEffect.h"
 #include "dsp/effects/HarmonizerEffect.h"
+#include "dsp/effects/MultibandGateEffect.h"
 #include "dsp/effects/NoiseGateEffect.h"
 #include "dsp/effects/NoiseReductionEffect.h"
 #include "dsp/effects/ParametricEQEffect.h"
@@ -102,6 +103,11 @@ const std::vector<Effect>& Effects()
         {"Noise Gate", EffectGuids::kDynamicsGate, {"threshold", "stereoLink"}, {}, 12.0},
         // Mains is where the player plugs in, Listen what they are checking.
         {"Noise Reduction", EffectGuids::kNoiseReduction, {"mains", "listen"}, {}},
+        // The thresholds are set to the player's noise, by Learn or by hand.
+        {"Multi-band Gate",
+         EffectGuids::kMultibandGate,
+         {"threshold1", "threshold2", "threshold3", "threshold4", "threshold5", "threshold6", "offset"},
+         {}},
         {"Parametric EQ", EffectGuids::kEqParametric, {}, {}},
         {"Digital Delay", EffectGuids::kDelayDigital, {"syncDivision"}, {kDivisionWhenSynced}},
         {"Chorus", EffectGuids::kChorus, {"syncDivision"}, {kDivisionWhenSynced}},
@@ -356,6 +362,7 @@ int main()
     guitarfx::RegisterCompressorEffects();
     guitarfx::RegisterNoiseGateEffect();
     guitarfx::RegisterNoiseReductionEffect();
+    guitarfx::RegisterMultibandGateEffect();
     guitarfx::RegisterParametricEQEffect();
     guitarfx::RegisterDelayEffect();
     guitarfx::RegisterChorusEffect();

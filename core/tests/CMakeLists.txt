@@ -96,6 +96,7 @@ set(TEST_SOURCES
     NAMPerformanceBenchmark.cpp
     NodeTelemetryHoldTests.cpp
     NoiseGateTests.cpp
+    MultibandGateEffectTests.cpp
     NoiseGateLearnTests.cpp
     NoiseReductionEffectTests.cpp
     NonAsciiPathWorkflowTests.cpp

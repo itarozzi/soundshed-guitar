@@ -364,6 +364,7 @@ const EFFECT_STUBS: EffectStub[] = [
   { type: EffectGuids.kCompressorOpto },
   { type: EffectGuids.kLimiterBrickwall },
   { type: EffectGuids.kNoiseReduction },
+  { type: EffectGuids.kMultibandGate },
   // Drive
   { type: EffectGuids.kOverdrive },
   { type: EffectGuids.kDistortion },

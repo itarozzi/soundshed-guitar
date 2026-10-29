@@ -307,7 +307,11 @@ export function initializeGateControls(): void {
     return;
   }
   controlsInitialized = true;
-  registerGateLearnApplier("global", (_target, thresholdDb) => applyLearnedThreshold(thresholdDb));
+  registerGateLearnApplier("global", (_target, status) => {
+    if (status.thresholdDb !== undefined) {
+      applyLearnedThreshold(status.thresholdDb);
+    }
+  });
 
   const gateToggle = gateToggleEl();
   gateToggle?.addEventListener("change", () => applyGateEnabled(gateToggle.checked));

@@ -145,3 +145,32 @@
 .gate-learn-visualizer .gate-learn {
   margin-top: 2px;
 }
+
+/* The Multi-band Gate: one thinner meter per band, each labelled with its range. Each meter
+   carries its own has-noise-floor, since a band can have none while another has. */
+.gate-learn-band {
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr);
+  align-items: center;
+  gap: 6px;
+}
+
+.gate-learn-band-label {
+  font-size: 9px;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  text-align: right;
+}
+
+.gate-learn.is-multiband .gate-learn-meter {
+  height: 12px;
+}
+
+.gate-learn.is-multiband .gate-learn-meter:not(.has-noise-floor) .gate-learn-noise {
+  display: none;
+}
+
+.gate-learn.is-multiband .gate-learn-scale {
+  margin-left: 62px;
+}

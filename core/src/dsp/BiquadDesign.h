@@ -98,6 +98,17 @@ struct Angle
             (1.0 - alpha) * invA0};
 }
 
+/// Second-order all-pass: unity magnitude, phase turning through -360 degrees around
+/// `frequencyHz`. At the Butterworth Q it is what a fourth-order Linkwitz-Riley low-pass and
+/// high-pass at that frequency add up to, so it brings a band that skipped a crossover into
+/// phase with the bands that went through it.
+[[nodiscard]] inline BiquadCoefficients AllPass(double frequencyHz, double q, double sampleRate) noexcept
+{
+    const auto [cosine, alpha] = detail::DesignAngle(frequencyHz, q, sampleRate);
+    const double invA0 = 1.0 / (1.0 + alpha);
+    return {(1.0 - alpha) * invA0, -2.0 * cosine * invA0, 1.0, -2.0 * cosine * invA0, (1.0 - alpha) * invA0};
+}
+
 // The bell and the shelves return the identity at 0 dB. The cookbook formulas reach it only
 // to within rounding; returning it exactly keeps an idle band bit-transparent.
 

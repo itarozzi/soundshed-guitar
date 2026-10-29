@@ -166,6 +166,7 @@ export const EFFECTS: Readonly<Record<string, EffectPresentation>> = {
   [EffectGuids.kInputAnalyzer]: { icon: "microscope" },
   [EffectGuids.kLimiterBrickwall]: { icon: "bolt" },
   [EffectGuids.kNoiseReduction]: { icon: "guitar" },
+  [EffectGuids.kMultibandGate]: { icon: "sliders" },
   [EffectGuids.kPluginHost]: { equipmentImage: "images/equipment/fx/studio-rack-multifx.png" },
   [EffectGuids.kWasmHost]: { equipmentImage: "images/equipment/pedals/colourful-pedal2.png" },
 };

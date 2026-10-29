@@ -764,6 +764,16 @@ bool TestRecursiveEffectsRecoverFromNonFiniteInput()
     noiseReduction.Prepare(kSampleRate, kBlock);
     noiseReduction.SetParam("hiss", 1.0);
 
+    // The Multi-band Gate's crossover and band detectors are recursive. Thresholds at the top,
+    // so every band is being cut and the gain curve runs on the poisoned levels too.
+    MultibandGateEffect multibandGate;
+    multibandGate.Prepare(kSampleRate, kBlock);
+
+    for (int band = 1; band <= MultibandGateEffect::kBands; ++band)
+    {
+        multibandGate.SetParam("threshold" + std::to_string(band), 0.0);
+    }
+
     // The built-in amp's stages are recursive filters with a sag envelope. One bad sample
     // from upstream (a hosted plugin on a bad day) held them until the node was rebuilt.
     BuiltinAmpEffect builtinAmp;
@@ -816,6 +826,7 @@ bool TestRecursiveEffectsRecoverFromNonFiniteInput()
     passed = ExpectRecoversFromNonFiniteInput("vibe (Vibrato)", vibe) && passed;
     passed = ExpectRecoversFromNonFiniteInput("tremolo (Harmonic)", harmonicTremolo) && passed;
     passed = ExpectRecoversFromNonFiniteInput("noise reduction", noiseReduction) && passed;
+    passed = ExpectRecoversFromNonFiniteInput("multi-band gate", multibandGate) && passed;
     passed = ExpectRecoversFromNonFiniteInput("VCA compressor", vcaCompressor) && passed;
     passed = ExpectRecoversFromNonFiniteInput("Opto compressor", optoCompressor) && passed;
     return passed;

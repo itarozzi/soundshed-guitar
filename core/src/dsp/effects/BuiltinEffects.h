@@ -4,6 +4,7 @@
 #include "dsp/EffectProcessor.h"
 #include "dsp/EffectGuids.h"
 #include "dsp/effects/GainEffect.h"
+#include "dsp/effects/MultibandGateEffect.h"
 #include "dsp/effects/NoiseGateEffect.h"
 #include "dsp/effects/NoiseReductionEffect.h"
 #include "dsp/effects/ParametricEQEffect.h"
@@ -107,6 +108,7 @@ inline void RegisterAllEffects()
     // Dynamics
     RegisterNoiseGateEffect();
     RegisterNoiseReductionEffect();
+    RegisterMultibandGateEffect();
     RegisterCompressorEffects(); // VCA and Opto compressors
     RegisterLimiterEffect();
     RegisterOverdriveEffect();

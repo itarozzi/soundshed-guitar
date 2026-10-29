@@ -330,6 +330,10 @@
       "guid": "b29b11b4-79ee-4e90-84f0-8a8ae5c6350b",
       "icon": "guitar"
     },
+    "kMultibandGate": {
+      "guid": "51e2f89c-c174-4c1b-aa40-2e5a08dc745c",
+      "icon": "sliders"
+    },
     "kPluginHost": {
       "guid": "7ebf3f9a-bf7d-4f1c-b11c-73a4b3c27546",
       "equipmentImage": "images/equipment/fx/studio-rack-multifx.png"
