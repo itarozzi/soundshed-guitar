@@ -33,8 +33,99 @@ function imageRow(id: string, label: string, selected: string | undefined, optio
         </div>`;
 }
 
+/**
+ * The image knob rows for `knobImage`, ids starting `prefix`: the mode, then what that mode
+ * takes. `noneLabel` names the mode that draws no image of its own.
+ */
+export function renderKnobImageRows(knobImage: LayoutKnobImage | undefined, options: ImageOptions, prefix: string, noneLabel = "None"): string {
+  const mode = knobImage?.mode ?? "";
+  let rows = `
+        <div class="layout-property-row">
+          <span class="layout-property-label">Image Knob</span>
+          <div class="layout-property-input">
+            <select id="${escapeHtml(prefix)}-mode" title="Draw the knob from images: a face that turns, or a filmstrip of rendered frames">
+              <option value="" ${mode === "" ? "selected" : ""}>${escapeHtml(noneLabel)}</option>
+              <option value="rotate" ${mode === "rotate" ? "selected" : ""}>Turning face</option>
+              <option value="filmstrip" ${mode === "filmstrip" ? "selected" : ""}>Filmstrip</option>
+            </select>
+          </div>
+        </div>`;
+  if (knobImage) {
+    rows += imageRow(`${prefix}-image`, mode === "filmstrip" ? "Frames Image" : "Face Image", knobImage.imageId, options);
+    if (mode === "filmstrip") {
+      rows += numberRow(`${prefix}-frames`, "Frames", knobImage.frames, "64", 2, 1024);
+      rows += numberRow(`${prefix}-columns`, "Columns", knobImage.columns, "1", 1, 1024, 1, "Frames per row in a sheet; 1 for a vertical strip");
+    } else {
+      rows += numberRow(`${prefix}-min-angle`, "Min Angle", knobImage.minAngle, "-135", -360, 360);
+      rows += numberRow(`${prefix}-max-angle`, "Max Angle", knobImage.maxAngle, "135", -360, 360);
+      rows += `
+        <div class="layout-property-row">
+          <span class="layout-property-label">Clip Circle</span>
+          <div class="layout-property-input">
+            <input type="checkbox" id="${escapeHtml(prefix)}-clip" ${knobImage.clip !== false ? "checked" : ""}>
+          </div>
+        </div>`;
+    }
+    rows += imageRow(`${prefix}-base`, "Base Image", knobImage.baseImageId, options);
+    rows += imageRow(`${prefix}-glare`, "Glare Image", knobImage.glareImageId, options);
+  }
+  return rows;
+}
+
+/** What holds a knob image: a control's style, or the layout for its knobs' default. */
+interface KnobImageOwner {
+  knobImage?: LayoutKnobImage;
+  knobImageId?: string;
+}
+
+/**
+ * Wires renderKnobImageRows' fields. `edit` applies a change to the owner, records undo and
+ * redraws, and redraws the sidebar too when `rerenderSidebar` is set.
+ */
+export function bindKnobImageRows(prefix: string, edit: (change: (owner: KnobImageOwner) => void, rerenderSidebar?: boolean) => void): void {
+  const setOrDelete = <K extends keyof LayoutKnobImage>(knobImage: LayoutKnobImage, key: K, value: LayoutKnobImage[K] | undefined) => {
+    if (value === undefined) delete knobImage[key];
+    else knobImage[key] = value;
+  };
+  const onKnobImage = (suffix: string, apply: (knobImage: LayoutKnobImage, element: HTMLInputElement & HTMLSelectElement) => void) => {
+    const element = document.getElementById(`${prefix}-${suffix}`) as (HTMLInputElement & HTMLSelectElement) | null;
+    element?.addEventListener("change", () => edit((owner) => {
+      if (owner.knobImage) apply(owner.knobImage, element);
+    }));
+  };
+  const onNumber = (suffix: string, key: "frames" | "columns" | "minAngle" | "maxAngle", min: number, max: number) =>
+    onKnobImage(suffix, (knobImage, input) => {
+      const value = parseFloat(input.value);
+      setOrDelete(knobImage, key, input.value.trim() === "" || !Number.isFinite(value) ? undefined : Math.max(min, Math.min(max, Math.round(value))));
+    });
+
+  const modeSelect = document.getElementById(`${prefix}-mode`) as HTMLSelectElement | null;
+  modeSelect?.addEventListener("change", () => edit((owner) => {
+    const mode = modeSelect.value;
+    if (mode !== "rotate" && mode !== "filmstrip") {
+      delete owner.knobImage;
+      return;
+    }
+    // Start from the knob's custom face, if it had one, so switching on keeps the picture.
+    const imageId = owner.knobImage?.imageId ?? owner.knobImageId ?? "";
+    owner.knobImage = { ...(owner.knobImage ?? {}), mode, imageId, ...(mode === "filmstrip" ? { frames: owner.knobImage?.frames ?? 64 } : {}) } as LayoutKnobImage;
+  }, true));
+
+  onKnobImage("image", (knobImage, select) => { knobImage.imageId = select.value; });
+  onKnobImage("base", (knobImage, select) => setOrDelete(knobImage, "baseImageId", select.value || undefined));
+  onKnobImage("glare", (knobImage, select) => setOrDelete(knobImage, "glareImageId", select.value || undefined));
+  onNumber("frames", "frames", 2, 1024);
+  onNumber("columns", "columns", 1, 1024);
+  onNumber("min-angle", "minAngle", -360, 360);
+  onNumber("max-angle", "maxAngle", -360, 360);
+  onKnobImage("clip", (knobImage, input) => {
+    if (input.checked) delete knobImage.clip;
+    else knobImage.clip = false;
+  });
+}
+
 /** The group's markup for `control`, or empty for a resource selector. */
-export function renderControlImageGroup(control: LayoutControl, isResource: boolean, options: ImageOptions): string {
+export function renderControlImageGroup(control: LayoutControl, isResource: boolean, options: ImageOptions, layoutHasKnobImage = false): string {
   if (isResource) return "";
   const style = control.style ?? {};
   let rows = "";
@@ -49,39 +140,8 @@ export function renderControlImageGroup(control: LayoutControl, isResource: bool
     rows += imageRow("prop-ci-slider-track", "Track Image", style.sliderImage?.trackImageId, options);
     rows += imageRow("prop-ci-slider-thumb", "Thumb Image", style.sliderImage?.thumbImageId, options);
   } else {
-    const knobImage = style.knobImage;
-    const mode = knobImage?.mode ?? "";
     rows += numberRow("prop-ci-knob-diameter", "Diameter", style.knobDiameter, "38", 16, 512, 1, "Knob size in px; empty is the standard 38 px");
-    rows += `
-        <div class="layout-property-row">
-          <span class="layout-property-label">Image Knob</span>
-          <div class="layout-property-input">
-            <select id="prop-ci-knob-mode" title="Draw the knob from images: a face that turns, or a filmstrip of rendered frames">
-              <option value="" ${mode === "" ? "selected" : ""}>None</option>
-              <option value="rotate" ${mode === "rotate" ? "selected" : ""}>Turning face</option>
-              <option value="filmstrip" ${mode === "filmstrip" ? "selected" : ""}>Filmstrip</option>
-            </select>
-          </div>
-        </div>`;
-    if (knobImage) {
-      rows += imageRow("prop-ci-knob-image", mode === "filmstrip" ? "Frames Image" : "Face Image", knobImage.imageId, options);
-      if (mode === "filmstrip") {
-        rows += numberRow("prop-ci-knob-frames", "Frames", knobImage.frames, "64", 2, 1024);
-        rows += numberRow("prop-ci-knob-columns", "Columns", knobImage.columns, "1", 1, 1024, 1, "Frames per row in a sheet; 1 for a vertical strip");
-      } else {
-        rows += numberRow("prop-ci-knob-min-angle", "Min Angle", knobImage.minAngle, "-135", -360, 360);
-        rows += numberRow("prop-ci-knob-max-angle", "Max Angle", knobImage.maxAngle, "135", -360, 360);
-        rows += `
-        <div class="layout-property-row">
-          <span class="layout-property-label">Clip Circle</span>
-          <div class="layout-property-input">
-            <input type="checkbox" id="prop-ci-knob-clip" ${knobImage.clip !== false ? "checked" : ""}>
-          </div>
-        </div>`;
-      }
-      rows += imageRow("prop-ci-knob-base", "Base Image", knobImage.baseImageId, options);
-      rows += imageRow("prop-ci-knob-glare", "Glare Image", knobImage.glareImageId, options);
-    }
+    rows += renderKnobImageRows(style.knobImage, options, "prop-ci-knob", layoutHasKnobImage ? "Layout's knob" : "None");
   }
 
   return `
@@ -131,34 +191,7 @@ export function bindControlImageGroup(control: LayoutControl, host: LayoutProper
   onImage("prop-ci-slider-track", (style, id) => pair(style, "sliderImage", "trackImageId", id));
   onImage("prop-ci-slider-thumb", (style, id) => pair(style, "sliderImage", "thumbImageId", id));
 
-  const modeSelect = document.getElementById("prop-ci-knob-mode") as HTMLSelectElement | null;
-  modeSelect?.addEventListener("change", () => edit((style) => {
-    const mode = modeSelect.value;
-    if (mode !== "rotate" && mode !== "filmstrip") {
-      delete style.knobImage;
-      return;
-    }
-    // Start from the knob's custom face, if it had one, so switching on keeps the picture.
-    const imageId = style.knobImage?.imageId ?? style.knobImageId ?? "";
-    style.knobImage = { ...(style.knobImage ?? {}), mode, imageId, ...(mode === "filmstrip" ? { frames: style.knobImage?.frames ?? 64 } : {}) } as LayoutKnobImage;
-  }, true));
-
-  const knobImageEdit = (apply: (knobImage: LayoutKnobImage) => void) => (style: NonNullable<LayoutControl["style"]>) => {
-    if (style.knobImage) apply(style.knobImage);
-  };
-  const knobImageSelect = document.getElementById("prop-ci-knob-image") as HTMLSelectElement | null;
-  knobImageSelect?.addEventListener("change", () => edit(knobImageEdit((knobImage) => { knobImage.imageId = knobImageSelect.value; })));
-  onImage("prop-ci-knob-base", (style, id) => knobImageEdit((knobImage) => setOrDelete(knobImage, "baseImageId", id))(style));
-  onImage("prop-ci-knob-glare", (style, id) => knobImageEdit((knobImage) => setOrDelete(knobImage, "glareImageId", id))(style));
-  onNumber("prop-ci-knob-frames", 2, 1024, (style, value) => knobImageEdit((knobImage) => setOrDelete(knobImage, "frames", value))(style));
-  onNumber("prop-ci-knob-columns", 1, 1024, (style, value) => knobImageEdit((knobImage) => setOrDelete(knobImage, "columns", value))(style));
-  onNumber("prop-ci-knob-min-angle", -360, 360, (style, value) => knobImageEdit((knobImage) => setOrDelete(knobImage, "minAngle", value))(style));
-  onNumber("prop-ci-knob-max-angle", -360, 360, (style, value) => knobImageEdit((knobImage) => setOrDelete(knobImage, "maxAngle", value))(style));
-  const clip = document.getElementById("prop-ci-knob-clip") as HTMLInputElement | null;
-  clip?.addEventListener("change", () => edit(knobImageEdit((knobImage) => {
-    if (clip.checked) delete knobImage.clip;
-    else knobImage.clip = false;
-  })));
+  bindKnobImageRows("prop-ci-knob", (change, rerenderSidebar) => edit((style) => change(style), rerenderSidebar));
 }
 
 /** The rectangle overlay's image rows: the picture drawn in it and how it fills the rectangle. */

@@ -448,6 +448,15 @@ std::vector<std::string> CollectLayoutImageIds(const nlohmann::json& layout)
         }
     }
 
+    // The knob image the layout's knobs draw from when they have none of their own.
+    if (const auto knobImage = layout.find("knobImage"); knobImage != layout.end() && knobImage->is_object())
+    {
+        for (const char* key : {"imageId", "baseImageId", "glareImageId"})
+        {
+            add(StringField(*knobImage, key));
+        }
+    }
+
     if (const auto controls = layout.find("controls"); controls != layout.end() && controls->is_array())
     {
         for (const auto& control : *controls)

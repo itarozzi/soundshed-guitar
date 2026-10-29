@@ -6,6 +6,7 @@
  */
 
 import type { LayoutBackground, LayoutScaling } from "../layoutTypes.js";
+import { bindKnobImageRows, renderKnobImageRows } from "./controlImageProperties.js";
 import { getLayoutImageUrl } from "./images.js";
 import { bindLayoutAssetsGroup, renderLayoutAssetsGroup } from "./layoutAssets.js";
 import type { LayoutPropertiesHost } from "./propertiesHost.js";
@@ -126,6 +127,12 @@ export class CanvasProperties {
         </div>
       </div>
       <div class="layout-property-group">
+        <div class="layout-property-group-title">Knobs</div>
+        <div class="layout-property-hint">
+          The image every knob is drawn from${isBackdrop ? ", the default controls' included" : ""}, unless a knob sets its own image or a knob style other than Default.
+        </div>${renderKnobImageRows(layout.knobImage, (_purpose, selected) => this.host.renderImageOptionsHtml("knob", selected), "prop-layout-knob", "Standard")}
+      </div>
+      <div class="layout-property-group">
         <div class="layout-property-group-title">Fit to Panel</div>
         <div class="layout-property-row">
           <span class="layout-property-label">Mode</span>
@@ -226,6 +233,14 @@ export class CanvasProperties {
     bindOptionalNumber("prop-layout-value-size", setOrDelete("controlValueFontSize"), 6, 96);
     bindOptionalNumber("prop-layout-label-width", setOrDelete("controlLabelMaxWidth"), 16, 2048);
     bindOptionalNumber("prop-grid-size", setOrDelete("gridSize"), 1, 64);
+
+    // The layout's knob image, which knobs without one of their own draw from.
+    bindKnobImageRows("prop-layout-knob", (change, rerenderSidebar) => {
+      this.host.pushSidebarUndoOnce();
+      change(layout);
+      this.host.renderCanvas();
+      if (rerenderSidebar) this.host.renderSidebar();
+    });
 
     const fontInput = document.getElementById("prop-layout-font") as HTMLInputElement | null;
     fontInput?.addEventListener("change", () => {

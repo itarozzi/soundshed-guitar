@@ -483,6 +483,13 @@ not working.
   - Either mode: a still `baseImageId` and `glareImageId`.
   - `knob.ts` moves a filmstrip to the frame for the value, or turns a face
     over its range. A legacy custom face still turns −135° to 135°.
+  - The layout's own `knobImage` (canvas panel, "Knobs") is the default for
+    every knob without one: the default controls of a `useDefaultControls`
+    layout, drawn at 38 px (`applyKnobImageToKnobs` rewrites the params
+    panel's knob markup), and each positioned knob whose `knobStyle` is
+    `"default"` or unset (`withLayoutKnobImage`). Pedal, Amp, Minimal or a
+    custom face keeps the knob's own look. It counts as `knob-image`, and
+    older apps, with no fallback written, draw standard knobs.
 - **Image toggles and sliders.** A toggle gets two pictures swapped by
   `:checked`. A slider's track and thumb come through custom properties
   holding absolute URLs, since a relative `url()` in a custom property

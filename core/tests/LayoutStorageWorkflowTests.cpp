@@ -816,8 +816,9 @@ bool TestRenditionsAreStoredListedAndServed()
     return true;
 }
 
-/// Images an image knob, toggle, slider or overlay draws on are the layout's like any other: a
-/// save copies each into its own folder, so they survive the layout they came from.
+/// Images an image knob, toggle, slider or overlay draws on, and the layout's own knob image, are
+/// the layout's like any other: a save copies each into its own folder, so they survive the layout
+/// they came from.
 bool TestImageControlReferencesAreCopiedOnSave()
 {
     const fs::path sandbox = FreshSandbox("image-controls");
@@ -826,8 +827,8 @@ bool TestImageControlReferencesAreCopiedOnSave()
 
     TestHost host(sandbox);
     guitarfx::PluginController controller(host);
-    const std::vector<std::string> ids = {"strip_1", "skirt_1", "glare_1", "on_1",
-                                          "off_1",   "rail_1",  "cap_1",   "logo_1"};
+    const std::vector<std::string> ids = {"face_1", "face_base_1", "strip_1", "skirt_1", "glare_1",
+                                          "on_1",   "off_1",       "rail_1",  "cap_1",   "logo_1"};
 
     for (const auto& id : ids)
     {
@@ -842,6 +843,7 @@ bool TestImageControlReferencesAreCopiedOnSave()
         {"version", 2},
         {"dimensions", {{"width", 400}, {"height", 280}}},
         {"backgrounds", nlohmann::json::array()},
+        {"knobImage", {{"mode", "rotate"}, {"imageId", "face_1"}, {"baseImageId", "face_base_1"}}},
         {"controls",
          {{{"paramKey", "a"},
            {"type", "knob"},
