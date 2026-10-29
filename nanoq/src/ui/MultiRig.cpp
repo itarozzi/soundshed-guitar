@@ -2,7 +2,7 @@
 // more presets in the mix, a tab per preset over the chain (the editor shows the one in focus;
 // M and S mark a muted or soloed one; x takes it out of the mix) and a Mix tab whose page is
 // the inline mixer: a strip per preset (Mix, Pan, Mute, Solo) and the master (the Multi-Rig's
-// own Out level, Save and Delete). Saved Multi-Rigs are listed on the Presets page.
+// own Out level, Save and Delete). Saved Multi-Rigs are listed in the preset chooser.
 
 #include "ui/Shell.h"
 
@@ -330,11 +330,6 @@ Ptr Shell::BuildMultiRigList()
             13.0f);
         none->Colour(mTheme.TextMuted());
         rows.push_back(FixedHeight(32, PadXY(12, 0, none)));
-    }
-
-    if (mPresetCount)
-    {
-        mPresetCount->Set(std::to_string(mState.mixer.compositePresets.size()) + " Multi-Rigs");
     }
 
     return VScroll(Col(rows));

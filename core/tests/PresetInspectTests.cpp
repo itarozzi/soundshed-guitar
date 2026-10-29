@@ -167,8 +167,36 @@ void TestFolders()
     Expect(uic::PresetFolderPath(folders, "p2").empty(), "none for a preset in no folder");
 }
 
+void TestSetlists()
+{
+    uic::ClientState state;
+    Expect(uic::ActiveSetlist(state) == nullptr, "no setlist without setlists");
+    Expect(uic::NextSetlistBank(state.setlists) == 1, "the first bank is 1");
+    Expect(uic::SetlistBankLabel(nullptr) == "No bank", "no bank without a setlist");
+
+    state.setlists.resize(3);
+    state.setlists[0].id = "a";
+    state.setlists[0].bank = 2;
+    state.setlists[1].id = "b";
+    state.setlists[2].id = "c";
+    state.setlists[2].bank = 5;
+    Expect(uic::ActiveSetlist(state)->id == "a", "the first when none is active");
+    state.activeSetlistId = "c";
+    Expect(uic::ActiveSetlist(state)->id == "c", "the active one");
+    Expect(uic::NextSetlistBank(state.setlists) == 6, "one past the highest bank");
+    Expect(uic::SetlistBankLabel(&state.setlists[0]) == "Bank 2", "a bank's number");
+    Expect(uic::SetlistBankLabel(&state.setlists[1]) == "Unassigned bank", "a setlist without a number");
+
+    Expect(uic::PerformancePadCount(state) == 8, "eight pads by default");
+    state.appSettings[uic::kPerformancePadCountSetting] = 6;
+    Expect(uic::PerformancePadCount(state) == 6, "the setting's count");
+    state.appSettings[uic::kPerformancePadCountSetting] = 5;
+    Expect(uic::PerformancePadCount(state) == 8, "eight for a count it does not offer");
+}
+
 int main()
 {
+    TestSetlists();
     TestUserPresetIds();
     TestFolders();
     TestPeakHold();

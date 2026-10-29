@@ -90,20 +90,13 @@ void Shell::Subscribe()
     on(Topic::ActivePreset, kTopBar | kScenes | kChain | kPage | kValues);
     on(Topic::PresetLibrary, kTopBar | kPage);
     // Choosing a setlist moves only the cursor (nothing loads), so no other topic redraws the
-    // Setlists tab for it.
+    // pads for it.
     on(Topic::Setlists, kPage);
     on(Topic::Catalog, kChain | kPage);
     on(Topic::Resources, kChain | kPage);
     on(Topic::Tones, kPage);
     on(Topic::GlobalChain, kTransport);
     on(Topic::Mixer, kTransport | kScenes | kChain);
-    // The Presets page lists the saved Multi-Rigs.
-    mSubscriptions.push_back(client.Subscribe(Topic::Mixer, [this] {
-        if (mShowMultiRigs && mPage == Page::Presets)
-        {
-            Mark(kPage);
-        }
-    }));
     on(Topic::Demo, kTransport);
     // The layout library and its pictures, and the setting that picks a layout per effect: the
     // effect page is rebuilt only when what it shows changes (EffectPageSignature).
@@ -241,7 +234,7 @@ void Shell::Rebuild()
 
     // The full layout's play page holds the chain and the editor in one stage: it is put back
     // when the page comes back to it, and its regions built afresh with it.
-    const bool playStage = mWide && PlayShown();
+    const bool playStage = PlayStageShown();
 
     if (!playStage)
     {
@@ -390,7 +383,7 @@ void Shell::Rebuild()
             mPlayStageShown = true;
         }
 
-        Fill(*mEffectSlot, BuildEffectPage());
+        Fill(*mEffectSlot, mPage == Page::Pads ? BuildPadsView() : BuildEffectPage());
     }
     else if (mDirty & kPage)
     {
@@ -408,8 +401,8 @@ void Shell::Rebuild()
         case Page::Jam:
             Fill(*mPageSlot, BuildJamPage());
             break;
-        case Page::Presets:
-            Fill(*mPageSlot, BuildPresetsPage());
+        case Page::Pads:
+            Fill(*mPageSlot, BuildPadsView());
             break;
         case Page::Settings:
             Fill(*mPageSlot, BuildSettingsPage());
@@ -589,6 +582,7 @@ void Shell::SelectAddedNode()
         {
             mSelectAddedUntil = 0.0;
             mSelectedNode = node.id;
+            LeavePads();
             mPage = Page::Effect;
             mDirty |= kChain | kPage | kTopBar | kRail;
             mChainSignature.clear();
@@ -600,9 +594,21 @@ void Shell::SelectAddedNode()
 void Shell::SelectNode(const std::string& nodeId)
 {
     mSelectedNode = nodeId;
+    LeavePads();
     mPage = Page::Effect;
     Mark(kChain | kPage | kTopBar | kRail);
     mChainSignature.clear();
+}
+
+void Shell::LeavePads()
+{
+    if (mPage == Page::Pads)
+    {
+        mEffectSignature.clear();
+        mPadsEditingId.clear();
+        mPadsNameBox.reset();
+        mDirty |= kTransport;
+    }
 }
 
 void Shell::ShowPage(Page page)
@@ -612,8 +618,17 @@ void Shell::ShowPage(Page page)
         return;
     }
 
+    // The pads and the editor share the play stage's lower half: going between them refills it
+    // even when the editor's signature has not moved.
+    if (page == Page::Pads)
+    {
+        mEffectSignature.clear();
+    }
+
+    LeavePads();
+
     mPage = page;
-    Mark(kTopBar | kPage | kRail);
+    Mark(kTopBar | kPage | kRail | kTransport);
 }
 
 // ── Starting ────────────────────────────────────────────────────────────────────

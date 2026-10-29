@@ -1,10 +1,10 @@
-// The presets page, as the web UI's preset chooser: at the left Recents, Favourites, All and the
-// user's folders as a tree with their counts (a right click edits a folder); at the right a search,
-// the standard tags as chips, and the presets (filtered and ordered as the web UI's library:
-// uiclient::FilterPresets), each with its rating and favourite. A tap loads a preset, asking first
-// when there are unsaved changes; a right click rates, files, adds to the setlist or deletes it.
-// The Setlists tab chooses, steps and edits setlists, as a list or as pads. Every edit is an
-// engine command (folders, setlists, ratings), answered with the new state.
+// The preset chooser's parts (PresetChooser.cpp puts them together): the folder column, with
+// Recents, Favourites, All and the user's folders as a tree with their counts (a right click edits
+// a folder); the presets, filtered and ordered as the web UI's library (uiclient::FilterPresets),
+// as cards; and the Setlists section, which chooses, steps and edits setlists as a list (the pads
+// are PadsView.cpp). A tap loads a preset, asking first when there are unsaved changes; a right
+// click rates, files, adds to the setlist or deletes it. Every edit is an engine command
+// (folders, setlists, ratings), answered with the new state.
 
 #include "ui/Shell.h"
 #include "uiclient/FeatureFlags.h"
@@ -314,11 +314,6 @@ Ptr Shell::BuildPresetListContent()
         rows.push_back(FixedHeight(32, PadXY(12, 0, none)));
     }
 
-    if (mPresetCount)
-    {
-        mPresetCount->Set(std::to_string(presets.size()) + (presets.size() == 1 ? " preset" : " presets"));
-    }
-
     return VScroll(Col(rows));
 }
 
@@ -448,10 +443,10 @@ Ptr Shell::BuildSetlistsView(Ptr tabs)
     }
 
     auto view = std::make_shared<Button>(
-        mTheme, mSetlistPads ? "List" : "Pads",
+        mTheme, "Pads",
         [this] {
-            mSetlistPads = !mSetlistPads;
-            Mark(kPage);
+            CloseOverlay();
+            ShowPage(Page::Pads);
         },
         Button::Style::Flat);
     toolbar.push_back(HGap(12));
@@ -459,99 +454,6 @@ Ptr Shell::BuildSetlistsView(Ptr tabs)
 
     Ptr body;
 
-    if (active != nullptr && mSetlistPads)
-    {
-        // The pads: eight to a bank, a tap plays the slot, a right click puts the preset playing
-        // there or clears it (the web UI's performance pads).
-        constexpr int kPerBank = 8;
-        const int banks = std::max(1, (count + kPerBank - 1) / kPerBank);
-        mSetlistPadBank = std::clamp(mSetlistPadBank, 0, banks);
-        const std::string id = active->id;
-        std::vector<Ptr> grid;
-
-        for (int row = 0; row < 2; ++row)
-        {
-            std::vector<Ptr> cells;
-
-            for (int col = 0; col < 4; ++col)
-            {
-                const int slot = mSetlistPadBank * kPerBank + row * 4 + col;
-                const std::string presetId =
-                    slot < count ? active->presetIds[static_cast<std::size_t>(slot)] : std::string();
-                const auto* summary = presetId.empty() ? nullptr : mState.FindPresetSummary(presetId);
-                const std::string label = std::to_string(slot + 1) + "  " +
-                                          (summary != nullptr ? summary->name
-                                           : presetId.empty() ? std::string("Empty")
-                                                              : presetId);
-                auto pad = std::make_shared<Button>(
-                    mTheme, label,
-                    [&commands, slot, presetId] {
-                        if (!presetId.empty())
-                        {
-                            commands.SetSetlistCursor(slot);
-                        }
-                    },
-                    slot == cursor && !presetId.empty() ? Button::Style::Primary : Button::Style::Plain);
-                pad->Flexible(true);
-                std::vector<MenuItem> padMenu;
-
-                if (!mState.activePresetId.empty())
-                {
-                    padMenu.push_back({"Put the current preset here", false, false, [this, id, slot] {
-                                           mSession.Commands().SetSetlistSlot(id, slot, mState.activePresetId);
-                                       }});
-                }
-
-                if (!presetId.empty())
-                {
-                    padMenu.push_back({"Clear this pad", false, false,
-                                       [this, id, slot] { mSession.Commands().SetSetlistSlot(id, slot, {}); }});
-                }
-
-                auto withMenu = std::make_shared<MenuArea>(
-                    pad, [this, slot, padMenu] { OpenMenu("Pad " + std::to_string(slot + 1), padMenu); });
-
-                if (col > 0)
-                {
-                    cells.push_back(HGap(8));
-                }
-
-                cells.push_back(withMenu);
-            }
-
-            if (row > 0)
-            {
-                grid.push_back(VGap(8));
-            }
-
-            grid.push_back(FixedHeight(84, Row(cells)));
-        }
-
-        auto bankPrev = std::make_shared<Button>(
-            mTheme, "\xE2\x80\xB9 Bank",
-            [this] {
-                --mSetlistPadBank;
-                Mark(kPage);
-            },
-            Button::Style::Flat);
-        auto bankNext = std::make_shared<Button>(
-            mTheme, "Bank \xE2\x80\xBA",
-            [this] {
-                ++mSetlistPadBank;
-                Mark(kPage);
-            },
-            Button::Style::Flat);
-        bankPrev->Enabled(mSetlistPadBank > 0);
-        bankNext->Enabled(mSetlistPadBank < banks);
-        auto bankText = std::make_shared<Text>(mTheme,
-                                               "Pads " + std::to_string(mSetlistPadBank * kPerBank + 1) + " to " +
-                                                   std::to_string(mSetlistPadBank * kPerBank + kPerBank),
-                                               metrics::kSmallText);
-        bankText->Colour(mTheme.TextMuted());
-        body = Col({FixedHeight(36, Row({bankPrev, HGap(8), bankText, HGap(8), bankNext, Stretch()})), VGap(8),
-                    Col(grid), std::make_shared<el::element>()});
-    }
-    else
     {
         std::vector<Ptr> rows;
 
@@ -617,101 +519,5 @@ Ptr Shell::BuildSetlistsView(Ptr tabs)
     }
 
     return Fill(mTheme.Background(), Pad(16, 8, 16, 8, Col({tabs, FixedHeight(48, PadXY(0, 4, Row(toolbar))), body})));
-}
-
-Ptr Shell::BuildPresetsPage()
-{
-    auto tab = [this](const char* label, bool setlists) {
-        auto b = std::make_shared<Button>(
-            mTheme, label,
-            [this, setlists] {
-                mShowSetlists = setlists;
-                Mark(kPage);
-            },
-            Button::Style::Flat);
-        b->Selected(mShowSetlists == setlists).MinWidth(100);
-        return b;
-    };
-    Ptr tabs = FixedHeight(44, Row({tab("Presets", false), HGap(4), tab("Setlists", true), Stretch()}));
-
-    if (mShowSetlists)
-    {
-        return BuildSetlistsView(tabs);
-    }
-
-    // ── The library ──
-    if (!mSearchBox)
-    {
-        // Made once and kept: the page is rebuilt when the library changes, and a search box
-        // made afresh each time would lose what is typed in it, and its focus.
-        auto [element, box] = el::input_box("Search presets", Font(Weight::Regular), 1.0f);
-        mSearchBox = box;
-        mSearchElement = el::share(std::move(element));
-        mSearchBox->on_text = [this](std::string_view text) {
-            mQuery.text = std::string(text);
-            RebuildPresetList();
-        };
-    }
-
-    // The folder the engine shows: what the page opens on, and a folder just made.
-    if (mState.activePresetFolderId != mSeenPresetFolder)
-    {
-        mSeenPresetFolder = mState.activePresetFolderId;
-        mQuery.folderId = mSeenPresetFolder.empty() ? std::string(kPresetFolderAll) : mSeenPresetFolder;
-    }
-
-    if (mQuery.folderId != kPresetFolderAll && mQuery.folderId != kPresetFolderFavorites &&
-        mQuery.folderId != kPresetFolderRecents && FindPresetFolder(mState.presetFolders, mQuery.folderId) == nullptr)
-    {
-        mQuery.folderId = kPresetFolderAll;
-    }
-
-    // The standard tags (presetTags.ts) as chips: each one on narrows the list to presets that carry it.
-    std::vector<Ptr> chips;
-
-    for (const auto& tag : tones::StandardTags())
-    {
-        const bool on = std::find(mPresetTags.begin(), mPresetTags.end(), tag) != mPresetTags.end();
-        auto chip = std::make_shared<Button>(
-            mTheme, tag,
-            [this, tag, on] {
-                if (on)
-                {
-                    mPresetTags.erase(std::remove(mPresetTags.begin(), mPresetTags.end(), tag), mPresetTags.end());
-                }
-                else
-                {
-                    mPresetTags.push_back(tag);
-                }
-
-                Mark(kPage);
-            },
-            Button::Style::Flat);
-        chip->Selected(on).TextSize(metrics::kSmallText);
-
-        if (!chips.empty())
-        {
-            chips.push_back(HGap(4));
-        }
-
-        chips.push_back(chip);
-    }
-
-    mPresetCount = std::make_shared<Text>(mTheme, "", metrics::kSmallText);
-    mPresetCount->Colour(mTheme.TextMuted()).Alignment(Text::Align::Right);
-
-    auto newPreset =
-        std::make_shared<Button>(mTheme, "New", [this] { mSession.Commands().NewPreset(); }, Button::Style::Plain);
-    newPreset->MinWidth(72);
-
-    mPresetListSlot = MakeSlot();
-    Fill(*mPresetListSlot, BuildPresetListContent());
-
-    auto right =
-        Col({FixedHeight(
-                 44, PadXY(0, 4, Row({mSearchElement, HGap(8), FixedWidth(100, mPresetCount), HGap(8), newPreset}))),
-             FixedHeight(36, HScroll(Row(chips))), VGap(4), mPresetListSlot});
-    auto page = Col({tabs, Row({FixedWidth(230, BuildFolderColumn()), HGap(14), right})});
-    return Fill(mTheme.Background(), Pad(16, 8, 16, 8, page));
 }
 } // namespace nanoq::ui

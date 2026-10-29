@@ -120,4 +120,8 @@ void DrawImageFitted(artist::canvas& cnv, const artist::image& image, el::rect b
 
 /// Draws `image` to fill `bounds` (cover), centred, cropping what overflows.
 void DrawImageCovering(artist::canvas& cnv, const artist::image& image, el::rect bounds);
+
+/// Strokes a rounded rectangle dashed, as CSS's `border-style: dashed`, in the stroke style and
+/// width already set: `dash` drawn and `gap` left out, all the way round.
+void StrokeDashedRoundRect(artist::canvas& cnv, el::rect r, float radius, float dash, float gap);
 } // namespace nanoq::ui

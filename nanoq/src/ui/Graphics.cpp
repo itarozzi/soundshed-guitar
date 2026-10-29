@@ -875,4 +875,74 @@ void DrawImageCovering(artist::canvas& cnv, const artist::image& image, el::rect
     const float x = (size.x - w) * 0.5f, y = (size.y - h) * 0.5f;
     cnv.draw(image, el::rect{x, y, x + w, y + h}, bounds);
 }
+
+void StrokeDashedRoundRect(artist::canvas& cnv, el::rect r, float radius, float dash, float gap)
+{
+    // The outline as points about 2 px apart, then the dashes laid along it by distance.
+    radius = std::max(0.0f, std::min({radius, r.width() * 0.5f, r.height() * 0.5f}));
+    std::vector<el::point> points;
+    const auto line = [&points](el::point a, el::point b) {
+        const int steps = std::max(1, static_cast<int>(std::hypot(b.x - a.x, b.y - a.y) / 2.0f));
+
+        for (int i = 0; i < steps; ++i)
+        {
+            const float t = static_cast<float>(i) / static_cast<float>(steps);
+            points.push_back({a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t});
+        }
+    };
+    const auto arc = [&points, radius](el::point centre, float from) {
+        constexpr int kSteps = 12;
+        constexpr float kQuarter = 1.5707964f;
+
+        for (int i = 0; i < kSteps; ++i)
+        {
+            const float a = from + kQuarter * static_cast<float>(i) / static_cast<float>(kSteps);
+            points.push_back({centre.x + radius * std::cos(a), centre.y + radius * std::sin(a)});
+        }
+    };
+    line({r.left + radius, r.top}, {r.right - radius, r.top});
+    arc({r.right - radius, r.top + radius}, -1.5707964f);
+    line({r.right, r.top + radius}, {r.right, r.bottom - radius});
+    arc({r.right - radius, r.bottom - radius}, 0.0f);
+    line({r.right - radius, r.bottom}, {r.left + radius, r.bottom});
+    arc({r.left + radius, r.bottom - radius}, 1.5707964f);
+    line({r.left, r.bottom - radius}, {r.left, r.top + radius});
+    arc({r.left + radius, r.top + radius}, 3.1415927f);
+    points.push_back(points.front());
+
+    float travelled = 0.0f;
+    bool drawing = false;
+
+    for (std::size_t i = 0; i < points.size(); ++i)
+    {
+        if (i > 0)
+        {
+            travelled += std::hypot(points[i].x - points[i - 1].x, points[i].y - points[i - 1].y);
+        }
+
+        const bool on = std::fmod(travelled, dash + gap) < dash;
+
+        if (on && !drawing)
+        {
+            cnv.begin_path();
+            cnv.move_to(points[i].x, points[i].y);
+            drawing = true;
+        }
+        else if (drawing)
+        {
+            cnv.line_to(points[i].x, points[i].y);
+
+            if (!on)
+            {
+                cnv.stroke();
+                drawing = false;
+            }
+        }
+    }
+
+    if (drawing)
+    {
+        cnv.stroke();
+    }
+}
 } // namespace nanoq::ui

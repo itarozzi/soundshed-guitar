@@ -185,8 +185,10 @@ Ptr Shell::BuildRail()
     settings->Ink(mPage == Page::Settings ? mTheme.Accent() : mTheme.TextSecondary());
     settings->onClick = [this] { ShowPage(mPage == Page::Settings ? Page::Chain : Page::Settings); };
 
-    std::vector<Ptr> items{VGap(6), FixedHeight(46, tab("ui-chain", "Chain", Page::Chain)), VGap(4),
-                           FixedHeight(46, tab("ui-effect", "Effect", Page::Effect)), VGap(4)};
+    std::vector<Ptr> items{VGap(6), FixedHeight(46, tab("ui-chain", "Chain", Page::Chain)),
+                           VGap(4), FixedHeight(46, tab("ui-effect", "Effect", Page::Effect)),
+                           VGap(4), FixedHeight(46, tab("ui-pads", "Setlist", Page::Pads)),
+                           VGap(4)};
 
     // Tone sharing can be switched off in Settings > Features, as in the web UI.
     if (guitarfx::uiclient::IsFeatureEnabled(mState, guitarfx::uiclient::Feature::ToneSharing))
@@ -462,15 +464,14 @@ Ptr Shell::BuildTransport()
     // tempo and the metronome, then Options for the rest. What does not fit a narrow window
     // goes first (the demo clip, then the tempo).
     const float width = StageWidth();
-    auto pads = ToolButton(
-        mTheme, mIcons, "ui-pads",
-        [this] {
-            mShowSetlists = true;
-            ShowPage(Page::Presets);
-            Mark(kPage);
-        },
-        26.0f, 16.0f);
-    pads->Ink(mTheme.TextSecondary());
+    auto pads = ToolButton(mTheme, mIcons, "ui-pads", [this] { TogglePads(); }, 26.0f, 16.0f);
+    pads->Lit(mPage == Page::Pads);
+
+    if (mPage != Page::Pads)
+    {
+        pads->Ink(mTheme.TextSecondary());
+    }
+
     auto tuner = ToolButton(mTheme, mIcons, "ui-tuner", [this] { OpenTuner(); }, 26.0f, 16.0f);
     tuner->Ink(mTheme.TextSecondary());
 
@@ -546,9 +547,7 @@ void Shell::OpenOptions(el::rect anchor)
         mTheme, mIcons, "ui-pads",
         [this] {
             CloseOverlay();
-            mShowSetlists = true;
-            ShowPage(Page::Presets);
-            Mark(kPage);
+            ShowPage(Page::Pads);
         },
         28.0f, 16.0f);
     auto tuner = ToolButton(

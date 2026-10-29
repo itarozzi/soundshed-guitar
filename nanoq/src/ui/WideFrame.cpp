@@ -171,7 +171,7 @@ Ptr Shell::BuildTabBar()
         t->onClick = [this, page] { ShowPage(page); };
         return t;
     };
-    const bool play = mPage == Page::Chain || mPage == Page::Effect;
+    const bool play = mPage == Page::Chain || mPage == Page::Effect || mPage == Page::Pads;
 
     auto settings = std::make_shared<IconButton>(mTheme, mIcons, "ui-gear", IconButton::Look::Boxed);
     settings->Size(28, 28).IconSize(15).Lit(mPage == Page::Settings);
@@ -533,15 +533,14 @@ Ptr Shell::BuildWideFooter()
         return Pad(10, 8, 10, 8, FixedWidth(1, Fill(mTheme.Text().opacity(0.08f), std::make_shared<el::element>())));
     };
 
-    auto pads = ToolButton(
-        mTheme, mIcons, "ui-pads",
-        [this] {
-            mShowSetlists = true;
-            ShowPage(Page::Presets);
-            Mark(kPage);
-        },
-        28.0f, 16.0f);
-    pads->Ink(mTheme.TextSecondary());
+    auto pads = ToolButton(mTheme, mIcons, "ui-pads", [this] { TogglePads(); }, 28.0f, 16.0f);
+    pads->Lit(mPage == Page::Pads);
+
+    if (mPage != Page::Pads)
+    {
+        pads->Ink(mTheme.TextSecondary());
+    }
+
     auto tuner = ToolButton(mTheme, mIcons, "ui-tuner", [this] { OpenTuner(); }, 28.0f, 16.0f);
     tuner->Ink(mTheme.TextSecondary());
     auto midi =

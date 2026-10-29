@@ -172,6 +172,9 @@ void AddShellIcons(Icons& icons)
             R"(<path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v3"/><path d="M14 20h7"/><path d="M16.5 6.5l3 3"/>)"
             R"(<path d="M13 17l6.5-6.5a2.12 2.12 0 0 0-3-3L10 14v3z"/>)"));
 
+    // The performance pads' save button (performancePads.ts).
+    icons.Add("ui-pad-save", Svg("0 0 24 24", 2.0f, R"(<path d="M6 4h9l3 3v13H6zM9 4v5h6M9 16h6"/>)"));
+
     // The chain (signal-path-bar.html).
     icons.Add(
         "ui-wrap",

@@ -50,6 +50,23 @@ struct PresetQuery
 /// ("Preset Pack Vol. 1 > High Gain Rhythm"); empty when it is in none.
 [[nodiscard]] std::string PresetFolderPath(const std::vector<PresetFolder>& folders, const std::string& presetId);
 
+/// The setting that holds how many performance pads show (performancePads.ts).
+inline constexpr const char* kPerformancePadCountSetting = "performancePads.padCount";
+
+/// The setlist the pads and the setlist panel show: the active one, else the first, as the web
+/// UI's getActiveSetlist; null when there are none.
+[[nodiscard]] const Setlist* ActiveSetlist(const ClientState& state);
+
+/// The bank a new setlist takes: one past the highest in use, or 1 (getNextSuggestedBank).
+[[nodiscard]] int NextSetlistBank(const std::vector<Setlist>& setlists);
+
+/// The pads' bank heading: "Bank 2", "Unassigned bank" for a setlist without a number, "No
+/// bank" for none.
+[[nodiscard]] std::string SetlistBankLabel(const Setlist* setlist);
+
+/// How many performance pads show: the setting when it is 4, 6 or 8, else 8.
+[[nodiscard]] int PerformancePadCount(const ClientState& state);
+
 /// A preset's rating, 0 (not rated) to 5.
 [[nodiscard]] int PresetRating(const ClientState& state, const std::string& presetId);
 

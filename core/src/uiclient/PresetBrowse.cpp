@@ -183,6 +183,61 @@ std::string PresetFolderPath(const std::vector<PresetFolder>& folders, const std
     return FolderPath(folders, presetId, {});
 }
 
+const Setlist* ActiveSetlist(const ClientState& state)
+{
+    for (const auto& s : state.setlists)
+    {
+        if (s.id == state.activeSetlistId)
+        {
+            return &s;
+        }
+    }
+
+    return state.setlists.empty() ? nullptr : &state.setlists.front();
+}
+
+int NextSetlistBank(const std::vector<Setlist>& setlists)
+{
+    int highest = 0;
+
+    for (const auto& s : setlists)
+    {
+        if (s.bank)
+        {
+            highest = std::max(highest, *s.bank);
+        }
+    }
+
+    return highest + 1;
+}
+
+std::string SetlistBankLabel(const Setlist* setlist)
+{
+    if (setlist == nullptr)
+    {
+        return "No bank";
+    }
+
+    return setlist->bank ? "Bank " + std::to_string(*setlist->bank) : std::string("Unassigned bank");
+}
+
+int PerformancePadCount(const ClientState& state)
+{
+    const auto it = state.appSettings.find(kPerformancePadCountSetting);
+
+    if (it != state.appSettings.end() && it->is_number())
+    {
+        const int count = it->get<int>();
+
+        if (count == 4 || count == 6 || count == 8)
+        {
+            return count;
+        }
+    }
+
+    return 8;
+}
+
 int PresetRating(const ClientState& state, const std::string& presetId)
 {
     const auto it = state.presetRatings.find(presetId);

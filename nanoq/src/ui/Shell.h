@@ -55,7 +55,7 @@ enum class Page
     Effect,
     Tones,
     Jam,
-    Presets,
+    Pads, // the performance pads: under the chain in the full layout, a page of their own in the compact
     Settings
 };
 
@@ -175,6 +175,18 @@ class Shell
     [[nodiscard]] bool PlayShown() const
     {
         return mPage == Page::Effect || (mWide && mPage == Page::Chain);
+    }
+
+    /// The full layout's play stage is up: the chain over the editor, or over the pads.
+    [[nodiscard]] bool PlayStageShown() const
+    {
+        return mWide && (PlayShown() || mPage == Page::Pads);
+    }
+
+    /// The footer's pads button: the pads, or back from them.
+    void TogglePads()
+    {
+        ShowPage(mPage == Page::Pads ? (mWide ? Page::Effect : Page::Chain) : Page::Pads);
     }
 
     // Shell.cpp
@@ -449,7 +461,7 @@ class Shell
     void RebuildPresetChooser();
     [[nodiscard]] Ptr BuildPresetCard(const guitarfx::uiclient::PresetSummary& preset);
     bool mMixTab = false;        // the Mix tab: the inline mixer in place of the chain
-    bool mShowMultiRigs = false; // the Presets page lists saved Multi-Rigs
+    bool mShowMultiRigs = false; // the preset chooser lists saved Multi-Rigs
 
     // SoftwareUpdate.cpp: the once-a-session update check and its Update button.
     void SyncUpdateCheck();
@@ -467,8 +479,13 @@ class Shell
     std::optional<EqPlotState> mEffectPlot;  // the effect editor's
     std::optional<EqPlotState> mOverlayPlot; // a dialog's (the Global EQ)
 
+    // PadsView.cpp
+    [[nodiscard]] Ptr BuildPadsView();
+    void AssignSetlistPad(int index); // puts the preset playing on a pad of the active setlist
+    void ClearSetlistPad(int index);
+    void LeavePads(); // the pads give way to the editor: refill it, and unlight the footer's pads button
+
     // PresetsPage.cpp
-    Ptr BuildPresetsPage();
     Ptr BuildPresetListContent();
     void RebuildPresetList();
     void LoadWithConfirm(const std::string& presetId);
@@ -718,14 +735,11 @@ class Shell
     guitarfx::uiclient::SignalFlow mSignalFlow; // what lights the cables, updated per tick
     std::shared_ptr<chain::HitMap> mHitMap;     // where the chain's cards and cables are, for drops
     guitarfx::uiclient::PresetQuery mQuery;
-    bool mShowSetlists = false;
     std::vector<std::string> mPresetTags;                // the tag chips that are on
     std::string mSeenPresetFolder;                       // the engine's folder choice last followed
     el::rect mFolderAnchor;                              // the details dialog's folder button, for its drop-down
     std::shared_ptr<std::function<void()>> mDetailsTags; // the details dialog's tag chips, refilled in place
-    bool mSetlistPads = false;                           // the Setlists tab shows pads rather than a list
-    int mSetlistPadBank = 0;
-    std::shared_ptr<el::basic_input_box> mSearchBox; // kept across rebuilds, with what was typed
+    std::shared_ptr<el::basic_input_box> mSearchBox;     // kept across rebuilds, with what was typed
     Ptr mSearchElement;
     SlotPtr mPresetListSlot;
     SlotPtr mChooserSlot; // the preset chooser's content, rebuilt as the library changes
@@ -733,7 +747,10 @@ class Shell
     bool mChooserSetlistsOpen = false;                   // its Setlists section unfolded
     std::shared_ptr<el::basic_input_box> mFolderNameBox; // its New Folder Name, kept across rebuilds
     Ptr mFolderNameElement;
-    std::shared_ptr<Text> mPresetCount;
+    std::string mPadsEditingId;                        // the setlist the pads' bank editor is open on
+    std::optional<std::string> mPadsEditAfterCreate;   // Add bank: edit the new one, not this one, once made
+    std::shared_ptr<el::basic_input_box> mPadsNameBox; // the bank editor's name, kept across rebuilds
+    Ptr mPadsNameElement;
 
     std::string mEffectSignature;
     std::string mSceneSignature;

@@ -178,6 +178,13 @@ bool Shell::HandleKey(const el::key_info& k)
 
     case key_code::_delete:
     case key_code::backspace: {
+        // On the pads, Delete clears the pad playing (asking first), as the web UI's.
+        if (mPage == Page::Pads && k.key == key_code::_delete && !repeat)
+        {
+            ClearSetlistPad(mState.setlistCursor);
+            return true;
+        }
+
         if (node == nullptr || repeat)
         {
             return false;
