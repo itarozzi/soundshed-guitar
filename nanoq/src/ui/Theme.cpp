@@ -56,4 +56,15 @@ el::font_descr Font(Weight weight)
         return el::font_descr{"Inter"};
     }
 }
+
+el::font_descr MonoFont()
+{
+#if defined(_WIN32)
+    return el::font_descr{"Consolas"};
+#elif defined(__APPLE__)
+    return el::font_descr{"Menlo"};
+#else
+    return el::font_descr{"DejaVu Sans Mono"};
+#endif
+}
 } // namespace nanoq::ui

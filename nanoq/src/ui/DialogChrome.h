@@ -9,6 +9,7 @@
 #include "ui/ShellWidgets.h"
 
 #include <string>
+#include <vector>
 #include <utility>
 
 namespace nanoq::ui
@@ -273,5 +274,67 @@ class ToggleSwitch final : public Pressable
   private:
     const Theme& mTheme;
     bool mOn;
+};
+
+/// Lines of code in a fixed-pitch face (the web UI's pre blocks): a preset's JSON, a report.
+/// As tall as its lines; put it in a scroller.
+class CodeBlock final : public el::element
+{
+  public:
+    explicit CodeBlock(const Theme& theme) : mTheme(theme)
+    {
+    }
+
+    void Set(const std::string& text)
+    {
+        mLines.clear();
+        std::size_t start = 0;
+
+        while (start <= text.size())
+        {
+            const auto end = text.find('\n', start);
+            mLines.push_back(text.substr(start, end == std::string::npos ? std::string::npos : end - start));
+
+            if (end == std::string::npos)
+            {
+                break;
+            }
+
+            start = end + 1;
+        }
+    }
+
+    el::view_limits limits(const el::basic_context&) const override
+    {
+        const float h = kLine * static_cast<float>(mLines.size()) + 16.0f;
+        return {{0.0f, h}, {el::full_extent, h}};
+    }
+
+    void draw(const el::context& ctx) override
+    {
+        auto& cnv = ctx.canvas;
+        const auto b = ctx.bounds;
+        cnv.fill_style(mTheme.Bar());
+        cnv.fill_round_rect(b, 8.0f);
+        const auto font = MonoFont().size(11.0f);
+        const auto visible = ctx.view_bounds(); // only the lines on screen are drawn
+        float y = b.top + 8.0f;
+
+        for (const auto& line : mLines)
+        {
+            if (y + kLine >= visible.top && y <= visible.bottom)
+            {
+                FillText(cnv, line, font, mTheme.ModalTextSecondary(),
+                         el::rect{b.left + 10.0f, y, b.right - 6.0f, y + kLine}, HAlign::Left);
+            }
+
+            y += kLine;
+        }
+    }
+
+  private:
+    static constexpr float kLine = 15.0f;
+    const Theme& mTheme;
+    std::vector<std::string> mLines;
 };
 } // namespace nanoq::ui

@@ -543,10 +543,13 @@ void TestSaveSetsTagsAndFolder()
           {"name", "Tagged"},
           {"category", "User"},
           {"tags", {"live", "rhythm"}},
-          {"folderId", live}});
+          {"folderId", live},
+          {"designedPeakInputDbfs", -12.5}});
     const auto saved = Latest(host, "presetSaved");
     Expect(saved && saved->at("preset").at("tags") == nlohmann::json::array({"live", "rhythm"}),
            "the save sets the tags");
+    Expect(saved && saved->at("preset").value("designedPeakInputDbfs", 0.0) == -12.5,
+           "and the input peak it was designed at (the save dialog's Apply Current)");
     const auto id = saved->at("preset").at("id").get<std::string>();
     Expect(Latest(host, "presetFolders")->at("folders").at(0).at("presetIds") == nlohmann::json::array({id}),
            "and files the preset in the folder named");

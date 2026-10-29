@@ -111,6 +111,7 @@ set(TEST_SOURCES
     PresetArchiveInstallTests.cpp
     PresetArchiveExportTests.cpp
     PresetEditCommandsTests.cpp
+    PresetInspectTests.cpp
     PresetLevelMeasureTests.cpp
     PresetManagementWorkflowTests.cpp
     UiClientTests.cpp
@@ -303,6 +304,8 @@ target_compile_definitions(UiClientLayoutTests PRIVATE GUITARFX_UI_DIR="${CMAKE_
 target_link_libraries(ToneSharingLinkTests PRIVATE SoundshedUiClient)
 # The Jam tab's backing tracks and Practice Tool (uiclient/Jam.h, uiclient/PracticeTool.h).
 target_link_libraries(JamPracticeToolTests PRIVATE SoundshedUiClient)
+# The save dialog's preset inspector (uiclient/PresetInspect.h), against the web UI's validate.ts.
+target_link_libraries(PresetInspectTests PRIVATE SoundshedUiClient)
 
 # Builds real (deflated) zips to preview, as Tone3000 serves them; the core links miniz privately.
 target_link_libraries(Tone3000ResourceWorkflowTests PRIVATE guitarfx_miniz)

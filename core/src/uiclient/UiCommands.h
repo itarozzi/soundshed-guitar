@@ -46,6 +46,10 @@ class UiCommands
         std::string description;
         std::vector<std::string> tags;
         std::optional<std::string> folderId;
+        /// The input peak the preset was designed at (dBFS), when the dialog applied one.
+        std::optional<double> designedPeakInputDbfs;
+        /// The body to save instead of the preset playing: the inspector's cleaned copy.
+        std::optional<nlohmann::json> preset;
     };
 
     /// Saves the preset playing with these details: over itself, or (`asNew`) as a new preset.

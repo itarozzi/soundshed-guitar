@@ -7,6 +7,7 @@
 #include "presets/PresetStorage.h"
 
 #include <algorithm>
+#include <cmath>
 #include <set>
 
 namespace guitarfx::uiclient
@@ -141,6 +142,16 @@ void UiCommands::SavePresetWithDetails(const PresetDetails& details, bool asNew)
     if (details.folderId)
     {
         payload["folderId"] = *details.folderId;
+    }
+
+    if (details.designedPeakInputDbfs && std::isfinite(*details.designedPeakInputDbfs))
+    {
+        payload["designedPeakInputDbfs"] = std::round(*details.designedPeakInputDbfs * 10.0) / 10.0;
+    }
+
+    if (details.preset && details.preset->is_object())
+    {
+        payload["preset"] = *details.preset;
     }
 
     mClient.Send("savePreset", std::move(payload));

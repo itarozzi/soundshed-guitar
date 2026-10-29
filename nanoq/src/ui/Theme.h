@@ -271,6 +271,9 @@ enum class Weight
 
 [[nodiscard]] el::font_descr Font(Weight weight = Weight::Regular);
 
+/// A fixed-pitch face, for code (a preset's JSON).
+[[nodiscard]] el::font_descr MonoFont();
+
 /// Logical sizes. Everything is laid out in these pixels; the view scale (the zoom) turns them
 /// into screen pixels.
 namespace metrics

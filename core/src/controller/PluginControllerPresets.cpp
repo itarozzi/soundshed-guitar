@@ -329,6 +329,13 @@ void PluginController::HandleSavePresetRequest(const nlohmann::json& payload)
             }
         }
 
+        // The input peak the preset was designed at, when the save sets it (the save dialog's
+        // Apply Current); otherwise it keeps its own.
+        if (const auto peak = payload.find("designedPeakInputDbfs"); peak != payload.end() && peak->is_number())
+        {
+            newPreset.designedPeakInputDbfs = peak->get<double>();
+        }
+
         const auto currentChain = mPresetMixer.GetGlobalChainConfig();
 
         newPreset.global.inputTrim = currentChain.inputGain;
