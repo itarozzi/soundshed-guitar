@@ -870,6 +870,24 @@ bool Shell::DropFiles(const el::drop_info& info)
     }
 
     const auto& path = paths.front();
+
+    // A preset archive is imported, wherever it lands (presets/archive.ts
+    // findDroppedPresetPackCandidate).
+    {
+        std::string lower = path;
+        std::transform(lower.begin(), lower.end(), lower.begin(),
+                       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+
+        for (const std::string suffix : {".soundshed.preset", ".soundshed.presets"})
+        {
+            if (lower.size() > suffix.size() && lower.compare(lower.size() - suffix.size(), suffix.size(), suffix) == 0)
+            {
+                ImportPresetArchive(path);
+                return true;
+            }
+        }
+    }
+
     const auto resourceType = ResourceTypeOfFile(path);
     const auto nodeId = FileDropTarget(resourceType, info.where);
 

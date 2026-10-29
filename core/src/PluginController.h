@@ -461,6 +461,10 @@ class PluginController
     // controller/PluginControllerArchiveInstall.cpp: tones downloaded from tone sharing
     void HandleInstallPresetArchivesRequest(const nlohmann::json& payload);
     void HandleDeleteInstalledPresetArchiveRequest(const nlohmann::json& payload);
+    // PluginControllerArchiveImport.cpp: a preset archive file picked or dropped, installed as a
+    // zip import.
+    void HandleImportPresetArchiveFileRequest(const nlohmann::json& payload);
+    void ImportPresetArchiveFile(const std::filesystem::path& path, std::string requestId);
     // controller/PluginControllerTonePreview.cpp: a shared tone auditioned without installing it
     void HandlePreviewPresetRequest(const nlohmann::json& payload);
     /// The same from a downloaded archive, read here and writing nothing (previewPresetArchive).

@@ -4,8 +4,10 @@
 
 #include "uiclient/ChainLayout.h"
 #include "uiclient/NodeLabels.h"
+#include "uiclient/PresetBrowse.h"
 
 #include <algorithm>
+#include <chrono>
 
 namespace nanoq::ui
 {
@@ -257,8 +259,10 @@ void Shell::OpenPresetMenu(std::optional<el::rect> anchor)
     auto& commands = mSession.Commands();
     const auto* summary = mState.FindPresetSummary(mState.activePresetId);
     const bool havePreset = mState.activePreset.has_value();
-    const bool userPreset = summary != nullptr && summary->source == "user";
+    // What the web UI's toolbar allows (presets/toolbar.ts canModifyPreset).
+    const bool canModify = havePreset && guitarfx::uiclient::CanModifyActivePreset(mState);
     const std::string presetId = mState.activePresetId;
+    const std::string presetName = havePreset ? mState.activePreset->name : std::string();
     const bool favourite = std::find(mState.presetFavorites.begin(), mState.presetFavorites.end(), presetId) !=
                            mState.presetFavorites.end();
 
@@ -266,18 +270,29 @@ void Shell::OpenPresetMenu(std::optional<el::rect> anchor)
 
     if (havePreset)
     {
-        items.push_back({"Save", false, false, [this] { SaveActivePreset(false); }});
+        // Save over it only where the toolbar's Save would; Save As copies any preset.
+        if (canModify)
+        {
+            items.push_back({"Save", false, false, [this] { SaveActivePreset(false); }});
+        }
+
         items.push_back({"Save as new preset...", false, false, [this] { SaveActivePreset(true); }});
 
-        if (userPreset)
+        if (canModify)
         {
             items.push_back({"Edit details...", false, false, [this] { OpenPresetDetails(false); }});
         }
+
+        // The web UI's Export preset: a .soundshed.preset through a save dialog.
+        items.push_back({"Export preset...", false, false, [&commands, presetId, presetName] {
+                             commands.ExportPresetArchive({presetId}, presetName.empty() ? presetId : presetName);
+                         }});
 
         items.push_back({favourite ? "Remove from favourites" : "Add to favourites", false, false,
                          [&commands, presetId, favourite] { commands.SetPresetFavorite(presetId, !favourite); }});
     }
 
+    items.push_back({"Import preset...", false, false, [this] { ImportPresetArchive({}); }});
     items.push_back({"Input and output...", false, false, [this] { OpenControls(); }});
     items.push_back({"New preset", false, false, [this] {
                          if (mState.activePresetDirty)
@@ -325,7 +340,7 @@ void Shell::OpenPresetMenu(std::optional<el::rect> anchor)
                              }});
         }
 
-        if (userPreset)
+        if (canModify)
         {
             items.push_back({"Delete preset...", false, false, [this, presetId] { DeleteWithConfirm(presetId); }});
         }
@@ -339,5 +354,41 @@ void Shell::OpenPresetMenu(std::optional<el::rect> anchor)
     {
         OpenMenu("Preset", std::move(items));
     }
+}
+
+void Shell::ImportPresetArchive(const std::string& path)
+{
+    // As the web UI's Import Preset: the engine reads the archive (picking it first when there is
+    // no path), installs its presets in a folder named after it, and answers under this id.
+    const auto now =
+        std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch())
+            .count();
+    const std::string requestId = "zip-" + std::to_string(now);
+    mSession.Commands().ImportPresetArchiveFile(requestId, path);
+
+    // Told once it is in; a failure is the engine's own error notice.
+    mImportWatch = mSession.Client().Subscribe(guitarfx::uiclient::Topic::Tones, [this, requestId] {
+        const auto it = mState.toneInstalls.find(requestId);
+
+        if (it == mState.toneInstalls.end() || it->second.status == guitarfx::uiclient::ToneInstall::Status::Installing)
+        {
+            return;
+        }
+
+        if (it->second.status == guitarfx::uiclient::ToneInstall::Status::Installed)
+        {
+            const auto count = it->second.presetIds.size();
+            ShowToast("Preset imported", std::to_string(count) + (count == 1 ? " preset added" : " presets added"),
+                      false);
+        }
+
+        // Not from inside the callback that holds it.
+        mSession.View().post([this, alive = std::weak_ptr<bool>(mAlive)] {
+            if (alive.lock())
+            {
+                mImportWatch = {};
+            }
+        });
+    });
 }
 } // namespace nanoq::ui

@@ -257,6 +257,23 @@ void UiClient::RegisterLibraryHandlers()
         Notify(Topic::Tones);
     });
 
+    // An export through the engine's save dialog: the web UI's notices (messages/presetHandlers.ts).
+    On("presetExportSaved", [this](const nlohmann::json& m) {
+        PostNotification({Notification::Kind::Info, "Preset exported", m.value("path", std::string{})});
+
+        for (const auto& warning : m.value("warnings", nlohmann::json::array()))
+        {
+            if (warning.is_string() && !warning.get<std::string>().empty())
+            {
+                PostNotification({Notification::Kind::Info, "Export warning", warning.get<std::string>()});
+            }
+        }
+    });
+
+    On("presetExportFailed", [this](const nlohmann::json& m) {
+        PostNotification({Notification::Kind::Error, "Preset export failed", m.value("message", std::string{})});
+    });
+
     On("presetArchivesInstallFailed", [this](const nlohmann::json& m) {
         auto& install = mState.toneInstalls[m.value("entryId", std::string{})];
         install.status = ToneInstall::Status::Failed;

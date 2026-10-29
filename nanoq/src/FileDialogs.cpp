@@ -67,7 +67,8 @@ std::vector<Filter> FiltersFor(guitarfx::BrowseFileType type)
     case T::AudioFile:
         return {{L"Audio", L"*.wav;*.mp3;*.flac;*.ogg;*.aif;*.aiff"}};
     case T::ArchiveFile:
-        return {{L"Archives (*.zip)", L"*.zip"}};
+        return {{L"Preset archives (*.soundshed.preset;*.soundshed.presets;*.zip)",
+                 L"*.soundshed.preset;*.soundshed.presets;*.zip"}};
     case T::PluginFile:
         return {{L"Plugins", L"*.vst3;*.dll"}};
     default:

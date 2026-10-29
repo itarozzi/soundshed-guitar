@@ -77,6 +77,7 @@
     "getSharedSyncState",
     "getTheme",
     "importGeneratedCustomEffect",
+    "importPresetArchiveFile",
     "importRemoteResource",
     "importRiffWav",
     "installPresetArchives",

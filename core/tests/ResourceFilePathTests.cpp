@@ -454,6 +454,62 @@ void TestToneSharingInstallDropsTheRepeat()
     Expect(found, "the installed model is in the library");
 }
 
+/// importPresetArchiveFile: a .soundshed.preset on disk installs as a zip import, in a folder
+/// named after the file, as the web UI's Import Preset does.
+void TestImportPresetArchiveFile()
+{
+    const auto root = Sandbox("archive-import");
+    TestHost host(root);
+    guitarfx::PluginController controller(host);
+    controller.Initialize();
+
+    const nlohmann::json index = {
+        {"formatVersion", 1},
+        {"preset", PresetJson("imported-1", "r1")},
+        {"resources",
+         {{{"id", "r1"},
+           {"name", "Imported Model"},
+           {"category", "amp"},
+           {"type", "nam"},
+           {"fileName", kHashB + "-b.nam"},
+           {"hash", kHashB}}}},
+        {"blends", nlohmann::json::array()},
+    };
+    const auto file = root / "Crunch Rig.soundshed.preset";
+    WriteBytes(file, BuildZip({{"preset.json", ToBytes(index.dump())}, {"resources/" + kHashB + "-b.nam", kModelB}}));
+
+    Send(controller, "importPresetArchiveFile",
+         {{"requestId", "zip-test"}, {"path", guitarfx::util::PathToUtf8(file)}});
+    const auto installed = Messages(host, "presetArchivesInstalled");
+    Expect(installed.size() == 1 && installed.front().value("entryId", "") == "zip-test" &&
+               installed.front().value("presetIds", nlohmann::json::array()).size() == 1,
+           "the archive installs its preset under the request's id");
+
+    Send(controller, "getAppSettings");
+    bool recorded = false;
+
+    for (const auto& reply : Messages(host, "appSettingChanged"))
+    {
+        if (reply.value("key", "") != "toneSharing.installedPacks")
+        {
+            continue;
+        }
+
+        for (const auto& entry : reply.value("value", nlohmann::json::array()))
+        {
+            recorded = recorded || (entry.value("id", "") == "zip-test" && entry.value("source", "") == "zipImport" &&
+                                    entry.value("title", "") == "Crunch Rig");
+        }
+    }
+
+    Expect(recorded, "and is recorded as a zip import titled after the file");
+
+    Send(controller, "importPresetArchiveFile",
+         {{"requestId", "zip-missing"}, {"path", "C:/nowhere/none.soundshed.preset"}});
+    const auto failed = Messages(host, "presetArchivesInstallFailed");
+    Expect(!failed.empty() && failed.back().value("entryId", "") == "zip-missing", "a file that cannot be read fails");
+}
+
 guitarfx::LibraryResource Entry(const std::string& id, const fs::path& file)
 {
     guitarfx::LibraryResource resource;
@@ -683,6 +739,7 @@ int main()
     TestLongPathSafe();
     TestFactoryArchiveDropsTheRepeat();
     TestFactoryArchiveKeepsKnownMetadata();
+    TestImportPresetArchiveFile();
     TestToneSharingInstallDropsTheRepeat();
     TestStartupRenamesDoubledFiles();
 #ifdef _WIN32

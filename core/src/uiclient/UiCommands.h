@@ -236,6 +236,12 @@ class UiCommands
     /// pack's presets go in a folder named `folder`. Answered by presetArchivesInstalled or
     /// presetArchivesInstallFailed.
     void InstallPresetArchives(const nlohmann::json& entry, const std::string& folder, nlohmann::json archives);
+    /// Imports a preset archive file, or one the user picks when `path` is empty, as a zip import
+    /// under `requestId` (importPresetArchiveFile). The answer is a ToneInstall under that id.
+    void ImportPresetArchiveFile(const std::string& requestId, const std::string& path = {});
+    /// Writes presets as a preset archive through a save dialog (exportPresetArchive): one id
+    /// gives a .soundshed.preset named `name`.
+    void ExportPresetArchive(const std::vector<std::string>& presetIds, const std::string& name);
     /// Takes an install out again: its presets, folder, and the models only it used.
     void DeleteInstalledPresetArchive(const std::string& entryId);
 

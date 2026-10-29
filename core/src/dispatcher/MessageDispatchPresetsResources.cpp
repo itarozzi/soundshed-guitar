@@ -36,6 +36,12 @@ bool MessageDispatcher::DispatchPresetsAndResources(PluginController& c, const n
         return true;
     }
 
+    if (type == "importPresetArchiveFile")
+    {
+        c.HandleImportPresetArchiveFileRequest(msg);
+        return true;
+    }
+
     if (type == "previewPreset")
     {
         c.HandlePreviewPresetRequest(msg);

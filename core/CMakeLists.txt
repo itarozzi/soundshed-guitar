@@ -543,6 +543,7 @@ set(GUITARFX_CORE_SOURCES
     src/controller/PluginControllerNodeControl.cpp
     src/controller/PluginControllerTuner.cpp
     src/controller/PluginControllerSettings.cpp
+    src/controller/PluginControllerArchiveImport.cpp
     src/controller/PluginControllerArchiveInstall.cpp
     src/controller/PluginControllerArchiveExport.cpp
     src/controller/PluginControllerTonePreview.cpp

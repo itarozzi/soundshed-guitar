@@ -1006,6 +1006,23 @@ void UiCommands::InstallPresetArchives(const nlohmann::json& entry, const std::s
     mClient.Send("installPresetArchives", std::move(payload));
 }
 
+void UiCommands::ImportPresetArchiveFile(const std::string& requestId, const std::string& path)
+{
+    nlohmann::json payload = {{"requestId", requestId}};
+
+    if (!path.empty())
+    {
+        payload["path"] = path;
+    }
+
+    mClient.Send("importPresetArchiveFile", std::move(payload));
+}
+
+void UiCommands::ExportPresetArchive(const std::vector<std::string>& presetIds, const std::string& name)
+{
+    mClient.Send("exportPresetArchive", {{"presetIds", presetIds}, {"name", name}});
+}
+
 void UiCommands::DeleteInstalledPresetArchive(const std::string& entryId)
 {
     mClient.Send("deleteInstalledPresetArchive", {{"id", entryId}});

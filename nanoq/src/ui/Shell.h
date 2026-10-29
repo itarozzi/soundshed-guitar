@@ -625,6 +625,8 @@ class Shell
     bool RemoveChainNode(const std::string& nodeId);
     /// The toolbar's Edit: the save dialog over the preset playing (Dialogs.cpp).
     void EditActivePreset();
+    /// Imports a preset archive: `path`, or one the user picks when it is empty (Menus.cpp).
+    void ImportPresetArchive(const std::string& path);
 
     // Menus.cpp
     void OpenPresetMenu(std::optional<el::rect> anchor = std::nullopt);
@@ -733,6 +735,7 @@ class Shell
     std::shared_ptr<bool> mAlive = std::make_shared<bool>(true);
     std::function<void()> mOnOverlayClosed;                        // runs when the overlay closes
     std::vector<guitarfx::uiclient::Subscription> mInstrumentSubs; // an open dialog's live feeds
+    guitarfx::uiclient::Subscription mImportWatch;                 // a preset archive import, until it answers
     std::string mPickerCategory;
     std::optional<guitarfx::GraphEdge> mPickerEdge; // the open picker adds on this edge, not after a node
     guitarfx::uiclient::EffectPresentation mPresentation;
