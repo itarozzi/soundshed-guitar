@@ -10,6 +10,7 @@ import type { ParameterDef, ParamVisibleWhen } from "../../presetV2.js";
 import type { GraphNode } from "../../types.js";
 import { escapeHtml } from "../../utils.js";
 import { nodeParamsPanelElement } from "../state.js";
+import { refreshSplitRouting } from "./splitBranches.js";
 
 /** The engine's `visibleWhen`, or undefined unless it names a key and at least one value. */
 export function parseParamVisibleWhen(raw: unknown): ParamVisibleWhen | undefined {
@@ -72,6 +73,7 @@ export function applyParamVisibility(root: ParentNode | null | undefined, params
 
 /** After a change to `node`'s settings: re-applies the open panel's conditional controls. */
 export function refreshNodeParamVisibility(node: GraphNode): void {
+  refreshSplitRouting(node);
   const defs = getNodeEffectInfo(node)?.parameters ?? [];
   if (defs.some((def) => def.visibleWhen)) {
     applyParamVisibility(nodeParamsPanelElement, node.params, defs);

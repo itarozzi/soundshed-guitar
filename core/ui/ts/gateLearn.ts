@@ -10,6 +10,10 @@
  * band between the close level and Threshold (the hysteresis), Threshold itself, and while
  * listening the live level and a progress line. A view is markup from `gateLearnMeterHtml`
  * bound with `bindGateLearnView`; status messages update every bound view of that gate.
+ *
+ * The Multi-band Gate learns six thresholds at once, one per band. Its view is the same meter
+ * once per band, labelled, under one Learn button: `gateLearnMeterHtml` with the band labels,
+ * and a binding with `bandThresholds`. Its status carries `bands` instead of the single figures.
  */
 
 import { postMessage } from "./bridge.js";
@@ -27,6 +31,13 @@ export interface GateLearnTarget {
 
 export type GateLearnState = "idle" | "listening" | "done" | "failed" | "cancelled";
 
+/** One band of a Multi-band Gate's listen. */
+export interface GateLearnBandStatus {
+  levelDb?: number;
+  noiseFloorDb?: number;
+  thresholdDb?: number;
+}
+
 export interface GateLearnStatus {
   state: GateLearnState;
   /** 0..1 through the listen. */
@@ -39,6 +50,8 @@ export interface GateLearnStatus {
   thresholdDb?: number;
   /** Why a listen failed: "playing", "noSignal" or "notFound". */
   reason?: string;
+  /** A Multi-band Gate's listen, low band first, in place of the single figures above. */
+  bands?: GateLearnBandStatus[];
 }
 
 /** What a bound view needs to draw the gate's current settings and apply a result. */
@@ -50,10 +63,12 @@ export interface GateLearnViewBinding {
   range: () => { min: number; max: number };
   /** Before a listen starts: a bypassed gate hears nothing, so the view switches it on. */
   ensureEnabled: () => void;
+  /** A Multi-band Gate's thresholds, low band first: the view then draws one meter per band. */
+  bandThresholds?: () => number[];
 }
 
-/** Applies a finished listen's threshold to the gate it measured. */
-export type GateLearnApplier = (target: GateLearnTarget, thresholdDb: number) => void;
+/** Applies a finished listen's threshold, or a Multi-band Gate's thresholds, to the gate it measured. */
+export type GateLearnApplier = (target: GateLearnTarget, status: GateLearnStatus) => void;
 
 const statuses = new Map<string, GateLearnStatus>();
 const views = new Map<string, { root: HTMLElement; binding: GateLearnViewBinding }[]>();
@@ -86,6 +101,33 @@ function finiteOrUndefined(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
+function parseBands(value: unknown): GateLearnBandStatus[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+  return value.map((band: unknown) => {
+    const fields = typeof band === "object" && band !== null ? band as Record<string, unknown> : {};
+    return {
+      levelDb: finiteOrUndefined(fields.levelDb),
+      noiseFloorDb: finiteOrUndefined(fields.noiseFloorDb),
+      thresholdDb: finiteOrUndefined(fields.thresholdDb),
+    };
+  });
+}
+
+/** Whether a finished listen has something to apply. */
+function hasResult(status: GateLearnStatus): boolean {
+  if (status.bands) {
+    return status.bands.length > 0 && status.bands.every((band) => band.thresholdDb !== undefined);
+  }
+  return status.thresholdDb !== undefined;
+}
+
+/** A status's band noise floors alone, for a status that brings none of its own. */
+function keptNoiseFloors(status: GateLearnStatus): GateLearnBandStatus[] | undefined {
+  return status.bands?.map((band) => ({ noiseFloorDb: band.noiseFloorDb }));
+}
+
 /** "gateLearnStatus" from the engine. */
 export function onGateLearnStatus(payload: IncomingPayload): void {
   const scope = payload.scope === "preset" ? "preset" : "global";
@@ -97,6 +139,7 @@ export function onGateLearnStatus(payload: IncomingPayload): void {
   const state = (["listening", "done", "failed", "cancelled"] as const)
     .find((candidate) => candidate === payload.state) ?? "idle";
   const previous = gateLearnStatus(target);
+  const bands = parseBands(payload.bands);
   const status: GateLearnStatus = {
     state,
     progress: finiteOrUndefined(payload.progress) ?? (state === "done" ? 1 : previous.progress),
@@ -105,35 +148,56 @@ export function onGateLearnStatus(payload: IncomingPayload): void {
     noiseFloorDb: finiteOrUndefined(payload.noiseFloorDb) ?? previous.noiseFloorDb,
     thresholdDb: finiteOrUndefined(payload.thresholdDb),
     reason: typeof payload.reason === "string" ? payload.reason : undefined,
+    // Live levels while listening, results once done. The bands' last learned noise floors stay
+    // drawn under the live levels, as the single gate's does.
+    bands: bands?.map((band, index) => ({
+      ...band,
+      noiseFloorDb: band.noiseFloorDb ?? previous.bands?.[index]?.noiseFloorDb,
+    })) ?? keptNoiseFloors(previous),
   };
   if (state === "failed" && status.reason === "playing") {
     // What it heard was playing, not noise: do not leave it drawn as the noise floor.
     status.noiseFloorDb = previous.noiseFloorDb;
+    status.bands = keptNoiseFloors(previous);
   }
   statuses.set(gateLearnKey(target), status);
 
-  if (state === "done" && status.thresholdDb !== undefined) {
-    appliers.get(scope)?.(target, status.thresholdDb);
+  if (state === "done" && hasResult(status)) {
+    appliers.get(scope)?.(target, status);
   }
   refreshGateLearnViews(target);
 }
 
 // ── The view ─────────────────────────────────────────────────────────────────
 
-/** The meter, status line and button. Bind it with bindGateLearnView once it is in the DOM. */
-export function gateLearnMeterHtml(target: GateLearnTarget): string {
+function meterHtml(label: string): string {
   return `
-    <div class="gate-learn" data-gate-learn-key="${escapeHtml(gateLearnKey(target))}">
-      <div class="gate-learn-meter" role="img" aria-label="Noise floor and threshold">
+      <div class="gate-learn-meter" role="img" aria-label="${escapeHtml(label)}">
         <div class="gate-learn-noise"></div>
         <div class="gate-learn-hysteresis"></div>
         <div class="gate-learn-threshold"></div>
         <div class="gate-learn-level"></div>
         <div class="gate-learn-progress"></div>
-      </div>
+      </div>`;
+}
+
+/**
+ * The meter, status line and button. Bind it with bindGateLearnView once it is in the DOM.
+ * With `bandLabels` (a Multi-band Gate) it draws one labelled meter per band.
+ */
+export function gateLearnMeterHtml(target: GateLearnTarget, bandLabels?: readonly string[]): string {
+  const meters = bandLabels
+    ? bandLabels.map((label) => `
+      <div class="gate-learn-band">
+        <span class="gate-learn-band-label">${escapeHtml(label)}</span>${meterHtml(`${label}: noise floor and threshold`)}
+      </div>`).join("")
+    : meterHtml("Noise floor and threshold");
+  const learns = bandLabels ? "each band's threshold" : "Threshold";
+  return `
+    <div class="gate-learn${bandLabels ? " is-multiband" : ""}" data-gate-learn-key="${escapeHtml(gateLearnKey(target))}">${meters}
       <div class="gate-learn-scale" aria-hidden="true"><span class="gate-learn-scale-min"></span><span class="gate-learn-scale-max"></span></div>
       <div class="gate-learn-row">
-        <button type="button" class="gate-learn-button" title="Mute the strings, then listen for two seconds and set Threshold just above the noise">Learn</button>
+        <button type="button" class="gate-learn-button" title="Mute the strings, then listen for two seconds and set ${learns} just above the noise">Learn</button>
         <span class="gate-learn-status" aria-live="polite"></span>
       </div>
     </div>`;
@@ -187,6 +251,15 @@ function statusText(status: GateLearnStatus, floorDb: number): string {
     case "listening":
       return "Listening… keep the strings quiet";
     case "done": {
+      if (status.bands) {
+        const floors = status.bands.flatMap((band) => band.noiseFloorDb !== undefined ? [band.noiseFloorDb] : []);
+        if (floors.length === 0) {
+          return "Thresholds set";
+        }
+        const loudest = Math.max(...floors);
+        const noise = loudest < floorDb ? `under ${formatDb(floorDb)}` : `up to ${formatDb(loudest)}`;
+        return `Noise ${noise} · each band's threshold set just above it`;
+      }
       if (status.noiseFloorDb === undefined || status.thresholdDb === undefined) {
         return "Threshold set";
       }
@@ -208,29 +281,61 @@ function statusText(status: GateLearnStatus, floorDb: number): string {
   }
 }
 
+/** What one meter draws. */
+interface MeterReading {
+  threshold: number;
+  closeLevel: number;
+  noiseFloorDb?: number;
+  levelDb?: number;
+}
+
+/** One reading per meter: the gate's own, or one per band. A band has no hysteresis. */
+function meterReadings(status: GateLearnStatus, binding: GateLearnViewBinding): MeterReading[] {
+  const bandThresholds = binding.bandThresholds?.();
+  if (bandThresholds) {
+    return bandThresholds.map((threshold, index) => ({
+      threshold,
+      closeLevel: threshold,
+      noiseFloorDb: status.bands?.[index]?.noiseFloorDb,
+      levelDb: status.bands?.[index]?.levelDb,
+    }));
+  }
+  const threshold = binding.threshold();
+  return [{
+    threshold,
+    closeLevel: threshold - Math.max(0, binding.hysteresis()),
+    noiseFloorDb: status.noiseFloorDb,
+    levelDb: status.levelDb,
+  }];
+}
+
 function renderGateLearnView(root: HTMLElement, binding: GateLearnViewBinding): void {
   const status = gateLearnStatus(binding.target);
   const { min, max } = binding.range();
   const span = Math.max(1, max - min);
   const percent = (db: number) => `${(Math.min(Math.max((db - min) / span, 0), 1) * 100).toFixed(2)}%`;
-  const threshold = binding.threshold();
-  const closeLevel = threshold - Math.max(0, binding.hysteresis());
+  const readings = meterReadings(status, binding);
   const listening = status.state === "listening";
 
   root.classList.toggle("is-listening", listening);
-  root.classList.toggle("has-noise-floor", status.noiseFloorDb !== undefined);
+  root.classList.toggle("has-noise-floor", readings.some((reading) => reading.noiseFloorDb !== undefined));
   root.classList.toggle("is-failed", status.state === "failed");
 
-  const meter = root.querySelector<HTMLElement>(".gate-learn-meter");
-  if (meter) {
-    meter.style.setProperty("--gate-learn-threshold", percent(threshold));
-    meter.style.setProperty("--gate-learn-close", percent(closeLevel));
-    meter.style.setProperty("--gate-learn-noise", status.noiseFloorDb !== undefined ? percent(status.noiseFloorDb) : "0%");
-    meter.style.setProperty("--gate-learn-level", status.levelDb !== undefined ? percent(status.levelDb) : "0%");
+  root.querySelectorAll<HTMLElement>(".gate-learn-meter").forEach((meter, index) => {
+    const reading = readings[index];
+    if (!reading) {
+      return;
+    }
+    meter.style.setProperty("--gate-learn-threshold", percent(reading.threshold));
+    meter.style.setProperty("--gate-learn-close", percent(reading.closeLevel));
+    meter.style.setProperty("--gate-learn-noise", reading.noiseFloorDb !== undefined ? percent(reading.noiseFloorDb) : "0%");
+    meter.style.setProperty("--gate-learn-level", reading.levelDb !== undefined ? percent(reading.levelDb) : "0%");
     meter.style.setProperty("--gate-learn-progress", `${(status.progress * 100).toFixed(1)}%`);
-    const noise = status.noiseFloorDb !== undefined ? `, noise at ${formatDb(status.noiseFloorDb)}` : "";
-    meter.setAttribute("aria-label", `Threshold ${formatDb(threshold)}${noise}`);
-  }
+    meter.classList.toggle("has-noise-floor", reading.noiseFloorDb !== undefined);
+    const noise = reading.noiseFloorDb !== undefined ? `, noise at ${formatDb(reading.noiseFloorDb)}` : "";
+    const band = meter.closest(".gate-learn-band")?.querySelector(".gate-learn-band-label")?.textContent;
+    meter.setAttribute("aria-label", `${band ? `${band}: threshold` : "Threshold"} ${formatDb(reading.threshold)}${noise}`);
+  });
 
   const scaleMin = root.querySelector(".gate-learn-scale-min");
   const scaleMax = root.querySelector(".gate-learn-scale-max");

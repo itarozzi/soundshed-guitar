@@ -214,6 +214,15 @@ struct SpatialPosition
     bool moving = false;
 };
 
+/// One band of a Multi-band Gate's listen.
+struct GateLearnBandStatus
+{
+    std::optional<double> levelDb;
+    std::optional<double> noiseFloorDb;
+    std::optional<double> spreadDb;
+    std::optional<double> thresholdDb;
+};
+
 /// A noise gate Learn's progress (gateLearnStatus).
 struct GateLearnStatus
 {
@@ -224,6 +233,9 @@ struct GateLearnStatus
     std::optional<double> spreadDb;
     std::optional<double> thresholdDb;
     std::string reason;
+    // A Multi-band Gate's listen, low band first, in place of the single figures above; empty for
+    // the noise gate. The bands' last learned noise floors are kept under the live levels.
+    std::vector<GateLearnBandStatus> bands;
 };
 
 // ── MIDI and automation (Topic::Automation) ─────────────────────────────────────────────

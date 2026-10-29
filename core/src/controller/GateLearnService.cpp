@@ -2,10 +2,12 @@
 
 #include "MessageHandlerRegistry.h"
 #include "dsp/MultiPresetMixer.h"
-#include "dsp/effects/NoiseGateEffect.h"
+#include "dsp/EffectProcessor.h"
+#include "dsp/effects/NoiseGateLearn.h"
 
 #include <cmath>
 #include <utility>
+#include <vector>
 
 namespace guitarfx
 {
@@ -94,7 +96,7 @@ void GateLearnService::Start(Target target)
             return;
         }
 
-        gate->Learner().Start(mSession);
+        StartListening(*gate);
         mMixer.SetHoldAwake(true);
     }
 
@@ -116,7 +118,10 @@ void GateLearnService::Cancel()
 
         if (auto* gate = FindGate())
         {
-            gate->Learner().Cancel();
+            for (int band = 0; band < gate->NoiseLearnBandCount(); ++band)
+            {
+                gate->NoiseLearner(band).Cancel();
+            }
         }
     }
 
@@ -130,11 +135,19 @@ void GateLearnService::Finish()
     mMixer.SetHoldAwake(false);
 }
 
-NoiseGateEffect* GateLearnService::FindGate() const
+NoiseLearnHost* GateLearnService::FindGate() const
 {
     EffectProcessor* processor = mTarget.scope == "global" ? mMixer.GetGlobalPreNodeProcessor(mTarget.nodeId)
                                                            : mMixer.GetNodeProcessor(mTarget.presetId, mTarget.nodeId);
-    return dynamic_cast<NoiseGateEffect*>(processor);
+    return dynamic_cast<NoiseLearnHost*>(processor);
+}
+
+void GateLearnService::StartListening(NoiseLearnHost& gate) const
+{
+    for (int band = 0; band < gate.NoiseLearnBandCount(); ++band)
+    {
+        gate.NoiseLearner(band).Start(mSession);
+    }
 }
 
 void GateLearnService::OnIdle()
@@ -146,8 +159,10 @@ void GateLearnService::OnIdle()
 
     const auto now = Clock::now();
     const bool timedOut = now - mStarted > kTimeout;
-    GateNoiseLearner::Snapshot snapshot;
-    double thresholdDb = 0.0;
+    // One snapshot and suggested threshold per band: one for the noise gate, six for the
+    // Multi-band Gate. Its learners are fed in lockstep, so they finish together.
+    std::vector<GateNoiseLearner::Snapshot> snapshots;
+    std::vector<double> thresholdsDb;
     bool found = false;
 
     {
@@ -156,42 +171,93 @@ void GateLearnService::OnIdle()
         if (auto* gate = FindGate())
         {
             found = true;
-            snapshot = gate->Learner().Read();
+            const int bands = gate->NoiseLearnBandCount();
+            bool stale = false;
+            bool done = true;
 
-            if (snapshot.session != mSession && !timedOut)
+            for (int band = 0; band < bands; ++band)
+            {
+                snapshots.push_back(gate->NoiseLearner(band).Read());
+                stale = stale || snapshots.back().session != mSession;
+                done = done && snapshots.back().state == GateNoiseLearner::State::Done;
+            }
+
+            if (stale && !timedOut)
             {
                 // Rebuilt since the listen began: this is a new gate, so ask it afresh.
-                gate->Learner().Start(mSession);
+                StartListening(*gate);
             }
-            else if (snapshot.state == GateNoiseLearner::State::Done)
+            else if (!stale && done)
             {
-                thresholdDb = gate->LearnedThresholdDb(snapshot.noiseFloorDb);
+                for (int band = 0; band < bands; ++band)
+                {
+                    thresholdsDb.push_back(
+                        gate->LearnedThresholdDb(band, snapshots[static_cast<std::size_t>(band)].noiseFloorDb));
+                }
             }
             else if (timedOut)
             {
-                gate->Learner().Cancel();
+                for (int band = 0; band < bands; ++band)
+                {
+                    gate->NoiseLearner(band).Cancel();
+                }
             }
         }
     }
 
-    const bool done = found && snapshot.session == mSession && snapshot.state == GateNoiseLearner::State::Done;
+    const bool done = found && !snapshots.empty() && thresholdsDb.size() == snapshots.size();
+    const bool multiband = snapshots.size() > 1;
 
     if (done)
     {
         Finish();
-        const nlohmann::json measured{{"noiseFloorDb", Rounded(snapshot.noiseFloorDb)},
-                                      {"spreadDb", Rounded(snapshot.spreadDb)}};
+        bool heardOnlyNoise = true;
+        nlohmann::json measured = nlohmann::json::object();
+        nlohmann::json bands = nlohmann::json::array();
 
-        if (!GateNoiseLearner::HeardOnlyNoise(snapshot))
+        for (std::size_t band = 0; band < snapshots.size(); ++band)
+        {
+            const auto& snapshot = snapshots[band];
+            heardOnlyNoise = heardOnlyNoise && GateNoiseLearner::HeardOnlyNoise(snapshot);
+            bands.push_back({{"noiseFloorDb", Rounded(snapshot.noiseFloorDb)},
+                             {"spreadDb", Rounded(snapshot.spreadDb)},
+                             {"thresholdDb", Rounded(thresholdsDb[band])}});
+        }
+
+        if (multiband)
+        {
+            measured["bands"] = bands;
+        }
+        else
+        {
+            measured = bands[0];
+            measured.erase("thresholdDb");
+        }
+
+        if (!heardOnlyNoise)
         {
             nlohmann::json failure = measured;
             failure["reason"] = "playing";
+
+            if (multiband)
+            {
+                for (auto& band : failure["bands"])
+                {
+                    band.erase("thresholdDb");
+                }
+            }
+
             Send("failed", failure);
             return;
         }
 
         nlohmann::json result = measured;
-        result["thresholdDb"] = Rounded(thresholdDb);
+
+        if (!multiband)
+        {
+            result["thresholdDb"] = Rounded(thresholdsDb[0]);
+        }
+
         Send("done", result);
         return;
     }
@@ -205,11 +271,30 @@ void GateLearnService::OnIdle()
         return;
     }
 
-    if (found && snapshot.session == mSession && now - mLastProgressSent >= kProgressInterval)
+    const bool current = found && !snapshots.empty() && snapshots[0].session == mSession;
+
+    if (current && now - mLastProgressSent >= kProgressInterval)
     {
         mLastProgressSent = now;
-        Send("listening",
-             {{"progress", Rounded(snapshot.progress * 100.0) / 100.0}, {"levelDb", Rounded(snapshot.levelDb)}});
+        nlohmann::json progress{{"progress", Rounded(snapshots[0].progress * 100.0) / 100.0}};
+
+        if (multiband)
+        {
+            nlohmann::json bands = nlohmann::json::array();
+
+            for (const auto& snapshot : snapshots)
+            {
+                bands.push_back({{"levelDb", Rounded(snapshot.levelDb)}});
+            }
+
+            progress["bands"] = bands;
+        }
+        else
+        {
+            progress["levelDb"] = Rounded(snapshots[0].levelDb);
+        }
+
+        Send("listening", progress);
     }
 }
 

@@ -4,6 +4,7 @@
 #include "dsp/EffectProcessor.h"
 #include "dsp/EffectGuids.h"
 #include "dsp/effects/GainEffect.h"
+#include "dsp/effects/MultibandGateEffect.h"
 #include "dsp/effects/NoiseGateEffect.h"
 #include "dsp/effects/NoiseReductionEffect.h"
 #include "dsp/effects/ParametricEQEffect.h"
@@ -47,6 +48,7 @@
 #include "dsp/effects/IRCabEffect.h"
 #include "dsp/effects/IRReverbEffect.h"
 #include "dsp/effects/MixerEffect.h"
+#include "dsp/effects/SplitterEffect.h"
 #include "dsp/effects/InputAnalyzerEffect.h"
 #include "dsp/effects/SimpleCabEffect.h"
 #include "dsp/effects/CompositeEffectProcessor.h"
@@ -78,17 +80,8 @@ inline void RegisterAllEffects()
 #if defined(GUITARFX_ENABLE_WASM_EFFECTS)
     RegisterWasmEffect();
 #endif
+    RegisterSplitterEffect();
     {
-        EffectTypeInfo splitterInfo;
-        splitterInfo.type = EffectGuids::kSplitter;
-        splitterInfo.aliases = {"splitter"};
-        splitterInfo.displayName = "Splitter";
-        splitterInfo.category = "utility";
-        splitterInfo.description = "Split signal into parallel branches";
-        splitterInfo.requiresResource = false;
-        EffectRegistry::Instance().Register(splitterInfo.type, splitterInfo,
-                                            []() { return std::make_unique<PassthroughProcessor>(); });
-
         EffectTypeInfo mixerInfo;
         mixerInfo.type = EffectGuids::kMixer;
         mixerInfo.aliases = {"mixer"};
@@ -107,6 +100,7 @@ inline void RegisterAllEffects()
     // Dynamics
     RegisterNoiseGateEffect();
     RegisterNoiseReductionEffect();
+    RegisterMultibandGateEffect();
     RegisterCompressorEffects(); // VCA and Opto compressors
     RegisterLimiterEffect();
     RegisterOverdriveEffect();

@@ -1366,6 +1366,28 @@ void TestAnalysis()
            "a spatial position");
     Expect(a.gateLearn.count("global::global_gate") && a.gateLearn.at("global::global_gate").thresholdDb == -64.0,
            "the global gate's Learn result");
+
+    // A Multi-band Gate's listen: one entry per band, its noise floors kept through a listen
+    // that heard playing.
+    client.Enqueue(
+        R"({"type":"gateLearnStatus","scope":"preset","presetId":"p1","nodeId":"mbg","state":"done","bands":[)"
+        R"({"noiseFloorDb":-90,"thresholdDb":-84},{"noiseFloorDb":-80,"thresholdDb":-74},{},)"
+        R"({"thresholdDb":-70},{"thresholdDb":-70},{"thresholdDb":-70}]})");
+    client.DrainPending();
+    const auto& bands = client.State().analysis.gateLearn.at("p1::mbg").bands;
+    Expect(bands.size() == 6 && bands[1].thresholdDb == -74.0 && !bands[2].thresholdDb && !bands[0].levelDb,
+           "a Multi-band Gate's Learn result, band by band");
+    client.Enqueue(
+        R"({"type":"gateLearnStatus","scope":"preset","presetId":"p1","nodeId":"mbg","state":"listening","progress":0.5,)"
+        R"("bands":[{"levelDb":-60},{"levelDb":-61},{"levelDb":-62},{"levelDb":-63},{"levelDb":-64},{"levelDb":-65}]})");
+    client.Enqueue(
+        R"({"type":"gateLearnStatus","scope":"preset","presetId":"p1","nodeId":"mbg","state":"failed","reason":"playing",)"
+        R"("bands":[{"noiseFloorDb":-20},{"noiseFloorDb":-20},{},{},{},{}]})");
+    client.DrainPending();
+    const auto& kept = client.State().analysis.gateLearn.at("p1::mbg").bands;
+    Expect(kept.size() == 6 && kept[0].noiseFloorDb == -90.0 && kept[1].noiseFloorDb == -80.0 && !kept[0].levelDb &&
+               !kept[0].thresholdDb,
+           "a band's learned noise floor stays drawn; one that heard playing is not taken as noise");
     Expect(DecodeFloat32Base64("AACAPwAAAMA=") == std::vector<float>{1.0f, -2.0f}, "float32 samples from base64");
 }
 
@@ -1515,6 +1537,19 @@ void TestAnalysisPresentation()
     failed.reason = "playing";
     Expect(GateLearnStatusText(&failed, -80.0) == "Heard playing. Mute the strings and try again.",
            "a refused listen says why");
+    GateLearnStatus bands{"done"};
+    bands.bands.resize(6);
+    Expect(GateLearnStatusText(&bands, -96.0) == "Thresholds set", "a Multi-band Gate's listen with no floors");
+    bands.bands[1].noiseFloorDb = -88.4;
+    bands.bands[4].noiseFloorDb = -71.6;
+    Expect(GateLearnStatusText(&bands, -96.0) == "Noise up to \xE2\x88\x92"
+                                                 "72 dB \xC2\xB7 each band's threshold set just above it",
+           "a Multi-band Gate's listen reads as its loudest band");
+    bands.bands[1].noiseFloorDb = -99.0;
+    bands.bands[4].noiseFloorDb = -97.0;
+    Expect(GateLearnStatusText(&bands, -96.0) == "Noise under \xE2\x88\x92"
+                                                 "96 dB \xC2\xB7 each band's threshold set just above it",
+           "a Multi-band Gate's quiet bands read as under the meter");
 
     AnalyzerFrame frame;
     frame.peakPercent = 50.0;

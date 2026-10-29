@@ -106,3 +106,63 @@ describe("Learn in the global gate's flyout", () => {
     expect(flyout.querySelector(".gate-learn")?.classList.contains("is-failed")).toBe(true);
   });
 });
+
+describe("Learn on a Multi-band Gate", () => {
+  const target = { scope: "preset" as const, nodeId: "mbg", presetId: "p" };
+  const labels = ["Lows", "Low Mids", "Mids", "Upper Mids", "Presence", "Air"];
+  let thresholds: number[];
+  let applied: { thresholdDb?: number }[] | undefined;
+  let container: HTMLElement;
+
+  beforeEach(async () => {
+    const learn = await import("../ts/gateLearn.js");
+    thresholds = [-65, -65, -65, -65, -65, -65];
+    applied = undefined;
+    learn.registerGateLearnApplier("preset", (_target, status) => {
+      applied = status.bands;
+    });
+    container = document.createElement("div");
+    container.innerHTML = learn.gateLearnMeterHtml(target, labels);
+    document.body.appendChild(container);
+    learn.bindGateLearnView(container, {
+      target,
+      threshold: () => thresholds[0],
+      hysteresis: () => 0,
+      bandThresholds: () => thresholds,
+      range: () => ({ min: -96, max: 0 }),
+      ensureEnabled: () => {},
+    });
+    sent = [];
+  });
+
+  const meters = () => Array.from(container.querySelectorAll<HTMLElement>(".gate-learn-meter"));
+
+  it("draws one labelled meter per band under one Learn button", () => {
+    expect(meters()).toHaveLength(6);
+    expect(container.querySelectorAll(".gate-learn-button")).toHaveLength(1);
+    expect(meters()[5].getAttribute("aria-label")).toContain("Air: threshold");
+  });
+
+  it("shows each band's live level while listening, and applies all six thresholds when done", () => {
+    container.querySelector<HTMLButtonElement>(".gate-learn-button")?.click();
+    expect(sent).toContainEqual(expect.objectContaining({ type: "gateLearn", action: "start", scope: "preset", nodeId: "mbg" }));
+
+    onGateLearnStatus({ type: "gateLearnStatus", scope: "preset", presetId: "p", nodeId: "mbg", state: "listening",
+      progress: 0.25, bands: labels.map((_label, index) => ({ levelDb: -96 + 12 * index })) });
+    expect(meters()[0].style.getPropertyValue("--gate-learn-level")).toBe("0.00%");
+    expect(meters()[4].style.getPropertyValue("--gate-learn-level")).toBe("50.00%");
+
+    const bands = labels.map((_label, index) => ({ noiseFloorDb: -100 + 4 * index, spreadDb: 1, thresholdDb: -92 + 4 * index }));
+    onGateLearnStatus({ type: "gateLearnStatus", scope: "preset", presetId: "p", nodeId: "mbg", state: "done", bands });
+    expect(applied?.map((band) => band.thresholdDb)).toEqual(bands.map((band) => band.thresholdDb));
+    expect(meters()[5].classList.contains("has-noise-floor")).toBe(true);
+    expect(container.querySelector(".gate-learn-status")?.textContent).toContain("each band's threshold set");
+  });
+
+  it("applies nothing when it heard playing", () => {
+    onGateLearnStatus({ type: "gateLearnStatus", scope: "preset", presetId: "p", nodeId: "mbg", state: "failed",
+      reason: "playing", bands: labels.map(() => ({ noiseFloorDb: -20, spreadDb: 30 })) });
+    expect(applied).toBeUndefined();
+    expect(container.querySelector(".gate-learn-status")?.textContent).toContain("Heard playing");
+  });
+});

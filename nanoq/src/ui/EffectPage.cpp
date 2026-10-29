@@ -12,6 +12,7 @@
 #include "uiclient/EffectLayouts.h"
 #include "uiclient/NodeLabels.h"
 #include "uiclient/ParamFormat.h"
+#include "uiclient/SplitRouting.h"
 #include "util/PathEncoding.h"
 
 #include <algorithm>
@@ -351,9 +352,19 @@ Ptr Shell::BuildEffectPage()
     }
     else if (type != nullptr && !customControls)
     {
+        // A splitter shows only the split notes its branches use.
+        const int branches = IsSplitterType(node->type) && mState.activePreset
+                                 ? guitarfx::uiclient::CountSplitBranches(mState.activePreset->graph, node->id)
+                                 : 0;
+
         for (const auto& param : type->parameters)
         {
             anyAdvanced = anyAdvanced || param.advanced;
+
+            if (branches > 0 && !guitarfx::uiclient::IsSplitterParamInUse(param.key, branches))
+            {
+                continue;
+            }
 
             if (param.advanced == mShowAdvanced && IsParamVisible(param, *node, type))
             {
@@ -869,6 +880,15 @@ Ptr Shell::BuildEffectPage()
         addToSection(Over(Pad(10, 22, 10, 6, BuildGateLearn(NodeGateLearnTarget(*node))),
                           std::make_shared<InsetBox>(mTheme, "Noise Floor")),
                      22.0f + 60.0f + 6.0f);
+    }
+
+    if (node->type == guitarfx::EffectGuids::kMultibandGate)
+    {
+        auto target = MultibandGateLearnTarget(*node);
+        const float height = GateLearnHeight(target);
+        addToSection(Over(Pad(10, 22, 10, 6, BuildGateLearn(std::move(target))),
+                          std::make_shared<InsetBox>(mTheme, "Noise Floor by Band")),
+                     22.0f + height + 6.0f);
     }
 
     // The tabs (.node-param-tabs): on their own line, with a rule under them across the section.

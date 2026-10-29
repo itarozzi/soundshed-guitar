@@ -63,6 +63,7 @@ All UUID constants are defined in `core/src/dsp/EffectGuids.h`. The table below 
 | `kCompressorOpto` | `9651c79e-6530-4c23-9150-aa4c0ff2f1d8` | `compressor_opto` |
 | `kLimiterBrickwall` | `f4094126-b5de-4c5d-8d05-d56bd8c312d1` | `limiter_brickwall` |
 | `kNoiseReduction` | `b29b11b4-79ee-4e90-84f0-8a8ae5c6350b` | `noise_reduction` |
+| `kMultibandGate` | `51e2f89c-c174-4c1b-aa40-2e5a08dc745c` | `dynamics_multiband_gate` |
 | `kOverdrive` | `fa9e05a8-168a-4293-aa91-6b770de3da1d` | `overdrive` |
 | `kDistortion` | `686773c9-30ac-4f33-b0f8-9222146d45b1` | `distortion` |
 | `kFuzz` | `3a38b19c-1d97-4989-b5bb-12bcc59d1e6b` | `fuzz` |
@@ -763,6 +764,47 @@ their rig makes, and choosing how a gate closes should not move where it closes.
 | Ambient Friendly | 5 / 250 / 500 ms | 12 dB | -30 dB, so tails into a delay or reverb fade, not stop |
 | Volume Swell | Swell, 600 ms; hold 80, release 250 ms | 10 dB | -80 dB |
 | Slow Swell | Swell, 1100 ms; hold 150, release 500 ms | 12 dB | -80 dB |
+
+### Multi-band Gate (`dynamics_multiband_gate`)
+A noise gate in six frequency bands, each turned down only once its own level falls below its
+own threshold. A one-band gate shuts everything at one moment, hiss and body together; here the
+hiss bands close as a decaying note's top end fades into them while its lower bands, still well
+above their noise, play on. Each band is a soft downward expander rather than a switch, so there
+is no hysteresis or hold to set and nothing chatters. Engine: `MultibandGateEffect.h`, with the
+crossover, gain curve and parameter table in `MultibandGateSupport.h`. No latency.
+
+- **Bands.** Fixed crossovers at 150, 400, 1000, 2500 and 6000 Hz: lows (hum, rumble), low
+  mids (body), mids, upper mids, presence and air (most of the hiss). Fourth-order
+  Linkwitz-Riley in a cascade, each lower band run through the second-order all-passes of the
+  crossovers above it, so open the six add up to a flat all-pass of the input. A split by
+  subtraction (Noise Reduction's) adds back exactly but leaks about 6 dB/octave: a 1 kHz note
+  reads only 8 dB down in the air band, which would hold it open on every note.
+- **Detectors.** Each band's mean square, smoothed over 20 ms (lows), 8 ms (low mids), 4 ms
+  (mids) and 3 ms above, so a low note's ripple stays near a dB. One detector per band drives
+  both channels (the louder side's), except in dual mono.
+- **Gain.** Below a band's threshold (plus `offset`) its gain falls 4 dB per dB (1:5
+  expansion) through a 6 dB soft knee, down to `range`. Worked out every 16 samples; the applied
+  gain ramps per sample, up at `attack`, down at `release`.
+
+| Param | Range | Default | Notes |
+|---|---|---|---|
+| `threshold1`..`threshold6` | -96..0 dB | -65 dB | Lows, Low Mids, Mids, Upper Mids, Presence, Air (group Thresholds) |
+| `offset` | -24..+24 dB | 0 | Moves all six together |
+| `attack` | 0.1..50 ms | 1 ms | How fast a band opens |
+| `release` | 5..1000 ms | 120 ms | How fast it closes (log taper) |
+| `range` | -80..0 dB | -40 dB | The deepest cut |
+
+**Learn** is the noise gate's (`GateLearnService`), through `NoiseLearnHost`: one
+`GateNoiseLearner` per band, started together and fed in lockstep. Each band's threshold is
+its noise floor (95th percentile of the 10 ms slice peaks) plus 8 dB, which with the curve above
+takes about 20 dB off the noise floor itself. A listen fails as playing if any band heard
+playing. `offset` is left alone, as the player's trim. `gateLearnStatus` carries `bands`
+(docs/user-interface.md), and the node panel draws one meter per band.
+
+**Factory presets** leave the thresholds and `offset` alone (they belong to the player's rig):
+Standard (default; attack / release 1 / 120 ms, -40 dB), Subtle (1 / 150 ms, -12 dB), Gentle
+(2 / 250 ms, -20 dB), Tight (0.5 / 50 ms, -60 dB), Staccato (0.2 / 25 ms, -70 dB) and Slow
+Fade (2 / 500 ms, -30 dB).
 
 ### Noise Reduction (`noise_reduction`)
 Noise reduction for guitar and bass pickups: mains hum and single-coil buzz taken out by
@@ -2610,15 +2652,60 @@ Simple gain stage.
 | `gainDb` | -24..+24 | 0.0 | dB |
 
 ### Splitter (`splitter`)
-Creates parallel paths by inserting a splitter and an auto-join mixer.
+Creates parallel paths by inserting a splitter and an auto-join mixer. **Mode** sets what each
+branch gets. Branches are numbered as the chain draws them, top to bottom. Engine:
+`core/src/dsp/effects/SplitterEffect.h` (+ `SplitterSupport.h`).
 
-| Parameter | Range | Default | Unit |
-|-----------|-------|---------|------|
-| — | — | — | — |
+| Parameter | Range | Default | Unit | Shown in |
+|-----------|-------|---------|------|----------|
+| `mode` | Copy, Blend, Switch, Dynamics, Pitch, Stereo | Copy | enum | always |
+| `position` | 0..1 | 0 | amount | Blend |
+| `curve` | Equal power, Linear | Equal power | enum | Blend |
+| `branch` | Branch 1..4 | Branch 1 | enum | Switch |
+| `detect` | Pick, Level | Pick | enum | Dynamics |
+| `threshold` | -60..0 | -18 | dB | Dynamics |
+| `width` | 0..24 | 6 | dB | Dynamics |
+| `release` | 10..2000 (log) | 300 | ms | Dynamics |
+| `splitNote1`..`splitNote3` | E1..E6 (index 0..60) | C4, C5, C6 | enum | Pitch |
+| `lowestNote` | E2, D2, B1, F#1 | E2 | enum (advanced) | Pitch |
+| `unpitched` | All branches, Last branch, Branch 1..4 | All branches | enum | Pitch |
+| `crossfade` | 1..200 (log) | 10 | ms | Blend, Switch, Dynamics, Pitch |
+
+**Modes**:
+- **Copy**: every branch gets the whole signal, as a split always did. The branches read the
+  splitter's own buffer, so a Copy split runs exactly as it did before modes existed.
+- **Blend**: Position moves the signal from branch 1 (0) to the last branch (1), crossfading each
+  pair of neighbours. It's built for an expression pedal. Equal power keeps the loudness steady
+  between rigs that sound different; Linear suits branches that sound alike.
+- **Switch**: only the chosen branch plays, like an A/B/Y box. Every branch keeps running, so a
+  delay or reverb on the branch you left rings out.
+- **Dynamics**: soft playing goes to branch 1, hard to branch 2, crossfaded across Width (dB)
+  centred on Threshold. **Pick** judges each note by its pick's peak (`PickAttackDetector`) and
+  holds that until the next pick, so a hard note stays on branch 2 while it rings. For the first
+  5 ms of a pick the previous note's branch holds unless the new pick is already over the
+  threshold. **Level** follows a peak envelope with Release, so a note moves back to branch 1 as it
+  decays, and so does turning the guitar's volume down. Branches after the second get
+  everything.
+- **Pitch**: notes go to branches by range. Each split note is the lowest note of the branch
+  above it, and a split uses one fewer split note than it has branches (the panel hides the
+  rest). `NoteTracker` decides once per note: a bend or vibrato across a split note never moves
+  the note, but a legato move to a new note does. A pick's pitch is known about 55 ms after it
+  (84 ms worst, on the demo riffs). Until then, and for chords, which a mono tracker can't
+  pitch, the signal goes where **Unpitched** says: every branch at equal power (-3 dB each with
+  two), the branch the last note went to, or a fixed branch. Put the split before any drive:
+  distortion makes tracking worse.
+- **Stereo**: the left channel goes to branch 1 and the right to branch 2, each mono on both
+  sides; later branches get both channels as they came. The layout gives those two branches a
+  mono connection, so they run mono, and a mode change moves the layout at the next block
+  (docs/signal-chain.md). With a mono input, both branches get the same signal.
 
 **Notes**:
 - The `splitter` effect is user-addable.
 - A split has 2 to 4 branches (one per mixer input). It starts with two; the splitter's **Branches** control adds empty ones or removes empty ones (`setSplitBranchCount`). The count is the splitter's outgoing edges, so there is no parameter to keep in step with the graph.
+- Every change of branch ramps each branch's power over Crossfade, so a switch between two rigs neither dips nor bumps. A preset that loads in a routing mode starts on its branches without a ramp.
+- Detection runs on the mid of the two sides, and only in the mode that needs it. In dual mono, both sides are routed by that one decision.
+- A bypassed splitter copies. The editors don't offer bypass for a splitter; only automation can bypass one.
+- Under Branches, the panel says what the branches get in the current mode (`describeSplitRouting` in `splitBranches.ts`, `uiclient/SplitRouting.h` for Nano Q).
 - The `mixer` node is inserted automatically to rejoin branches and is not shown in the FX list.
 
 ### Signal Analyzer (`input_analyzer`)

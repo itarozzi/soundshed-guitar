@@ -44,6 +44,7 @@ set(TEST_SOURCES
     GuitarToMidiEffectTests.cpp
     HarmonizerEffectTests.cpp
     ParamGlideTests.cpp
+    SplitterRoutingTests.cpp
     PresetRetirementTests.cpp
     DemoPreviewLoopTests.cpp
     HostedPluginCaptureLockTests.cpp
@@ -96,6 +97,7 @@ set(TEST_SOURCES
     NAMPerformanceBenchmark.cpp
     NodeTelemetryHoldTests.cpp
     NoiseGateTests.cpp
+    MultibandGateEffectTests.cpp
     NoiseGateLearnTests.cpp
     NoiseReductionEffectTests.cpp
     NonAsciiPathWorkflowTests.cpp
@@ -305,6 +307,8 @@ target_link_libraries(ResourceThumbnailClientTests PRIVATE SoundshedUiClient)
 # Custom effect layouts as the native UIs read them, checked against the web UI's own fixtures.
 target_link_libraries(UiClientLayoutTests PRIVATE SoundshedUiClient)
 target_compile_definitions(UiClientLayoutTests PRIVATE GUITARFX_UI_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../ui")
+# The splitter's routing line as Nano Q words it (uiclient/SplitRouting.h), against splitBranches.ts.
+target_link_libraries(SplitterRoutingTests PRIVATE SoundshedUiClient)
 # The tone sharing links and installed-item lookups the native UIs share (uiclient/ToneSharing.h).
 target_link_libraries(ToneSharingLinkTests PRIVATE SoundshedUiClient)
 # The Jam tab's backing tracks and Practice Tool (uiclient/Jam.h, uiclient/PracticeTool.h).

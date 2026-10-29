@@ -664,6 +664,8 @@ set(GUITARFX_CORE_SOURCES
     src/dsp/effects/GainEffect.h
     src/dsp/effects/NoiseGateEffect.h
     src/dsp/effects/NoiseGateLearn.h
+    src/dsp/effects/MultibandGateEffect.h
+    src/dsp/effects/MultibandGateSupport.h
     src/dsp/effects/ParametricEQEffect.h
     src/dsp/effects/DelayEffect.h
     src/dsp/effects/ReverbEffect.h

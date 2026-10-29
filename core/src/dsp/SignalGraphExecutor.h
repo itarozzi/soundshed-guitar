@@ -28,6 +28,7 @@ namespace guitarfx
 {
 class EffectProcessor;
 class MixerEffect;
+class SplitterEffect;
 class ResourceLibrary;
 struct NoteBlock;
 
@@ -69,6 +70,14 @@ struct NoteBlock;
  * second on the right input and keeps its right, so each side hears exactly what a mono input of
  * its own would make. Every operation on a node reaches both instances. Hosted plugins, which
  * cannot be kept in step with their own editor, run shared.
+ *
+ * A splitter's branches: a splitter's outgoing edges are its branches, numbered in the order the
+ * chain draws them (by fromPort, then toPort, then target id, as ChainLayout sorts them). In Copy
+ * mode, or bypassed, every branch reads the splitter's own buffer, as a split always has. In its
+ * other modes the splitter (SplitterEffect::Route) writes one buffer per branch each block and each
+ * branch reads its own. In Stereo mode its first two branches carry one channel each, and the
+ * layout gives them a mono connection; a change of that mode re-resolves the layout at the start
+ * of the next block.
  */
 class SignalGraphExecutor
 {
@@ -486,12 +495,17 @@ class SignalGraphExecutor
         bool notesLastBlock = false;
     };
 
+    struct PlannedNode;
+
     /// One resolved incoming connection.
     struct PlannedEdge
     {
         NodeState* source = nullptr;
         float gain = 1.0f;
         int toPort = 0;
+        /// An edge out of a splitter: the splitter's plan entry, and which branch this edge is.
+        const PlannedNode* splitter = nullptr;
+        int branch = 0;
     };
 
     /// A node with everything Process() used to re-derive per block already resolved.
@@ -508,6 +522,11 @@ class SignalGraphExecutor
         std::vector<PlannedEdge> incoming;
         /// Non-null only for mixer nodes; resolved once instead of dynamic_cast per block.
         MixerEffect* mixer = nullptr;
+        /// Non-null only for splitter nodes, with their branch count, and whether the layout was
+        /// last resolved with its first two branches on one channel each.
+        SplitterEffect* splitter = nullptr;
+        int splitBranches = 0;
+        bool layoutSplitsChannels = false;
         bool isInput = false;
         bool isOutput = false;
         bool isSplitter = false;
@@ -630,6 +649,8 @@ class SignalGraphExecutor
     PlannedNode* mInputPlanNode = nullptr;
     /// Output candidates in id order; Process() takes the first one that ran this block.
     std::vector<PlannedNode*> mOutputPlanNodes;
+    /// The splitters, whose Stereo mode moves the layout (see the class comment).
+    std::vector<PlannedNode*> mSplitterPlanNodes;
 
     /// Every node in execution order with its entry in mGraph, for by-type automation, which
     /// otherwise found them with a map lookup by id and resolved each one's type as it went.

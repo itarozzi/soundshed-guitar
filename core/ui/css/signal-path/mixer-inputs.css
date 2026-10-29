@@ -142,3 +142,8 @@
   font-size: 10px;
   color: var(--text-tertiary);
 }
+
+/* What the branches get, in a routing mode: read first, so a step brighter than the hint. */
+.split-branch-routing {
+  color: var(--text-secondary);
+}

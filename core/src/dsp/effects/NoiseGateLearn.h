@@ -244,4 +244,20 @@ class GateNoiseLearner
     std::array<float, kSlices> mSlices{};
     std::array<float, kSlices> mSorted{};
 };
+
+/**
+ * An effect Learn can listen through (GateLearnService): one learner per detector it gates on.
+ * The noise gate has one; the Multi-band Gate one per band. The learners are started under one
+ * session and fed in lockstep, so they finish together.
+ */
+class NoiseLearnHost
+{
+  public:
+    virtual ~NoiseLearnHost() = default;
+
+    [[nodiscard]] virtual int NoiseLearnBandCount() const = 0;
+    [[nodiscard]] virtual GateNoiseLearner& NoiseLearner(int band) = 0;
+    /// The threshold a finished listen suggests for `band`, at the effect's current settings.
+    [[nodiscard]] virtual double LearnedThresholdDb(int band, double noiseFloorDb) const = 0;
+};
 } // namespace guitarfx
