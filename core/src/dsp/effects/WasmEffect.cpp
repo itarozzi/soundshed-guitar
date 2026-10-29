@@ -30,7 +30,7 @@ namespace guitarfx
 namespace
 {
 constexpr std::size_t kModuleSlot = 0;
-constexpr std::size_t kTempoParamIndex = WasmEffect::kGuestMacroCount;
+constexpr std::size_t kTempoParamIndex = WasmEffect::kTempoParamIndex;
 
 // The shared engine's epoch advances once per tick; a deadline is a number of ticks.
 constexpr std::chrono::milliseconds kEpochTick{10};
@@ -352,7 +352,8 @@ std::optional<WasmModuleDescriptor> BuildDescriptorFromEntries(const std::vector
             if (error)
             {
                 *error = "WASM descriptor param." + std::to_string(declIndex) +
-                         " declares slot outside the supported 0..7 range.";
+                         " declares slot outside the supported 0.." +
+                         std::to_string(WasmEffect::kGuestMacroCount - 1) + " range.";
             }
 
             return std::nullopt;
@@ -1256,16 +1257,18 @@ float WasmEffect::ReadGuestParam(int index) const
         return 0.0f;
     }
 
-    const std::size_t slot = static_cast<std::size_t>(index);
+    const std::size_t readIndex = static_cast<std::size_t>(index);
+
+    if (readIndex == kTempoParamIndex)
+    {
+        return static_cast<float>(mBpm);
+    }
+
+    const std::size_t slot = readIndex < kTempoParamIndex ? readIndex : readIndex - 1;
 
     if (slot < mGuestMacros.size())
     {
         return static_cast<float>(mGuestMacros[slot]);
-    }
-
-    if (slot == kTempoParamIndex)
-    {
-        return static_cast<float>(mBpm);
     }
 
     return 0.0f;

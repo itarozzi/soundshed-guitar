@@ -734,6 +734,115 @@ bool TestDirectGainModule(const TempDir& tempDir)
     return true;
 }
 
+// Outputs (read_param(32), read_param(8)): the last guest slot and the tempo.
+ByteVector MakeHighSlotModule()
+{
+    const std::vector<FuncTypeDef> types = {
+        {{WasmValueType::I32}, {WasmValueType::F32}},
+        {{WasmValueType::F32, WasmValueType::I32, WasmValueType::I32}, {WasmValueType::I32}},
+        {{}, {}},
+        {{WasmValueType::F32, WasmValueType::F32}, {WasmValueType::F32, WasmValueType::F32}},
+        {{}, {WasmValueType::I32}},
+    };
+
+    const std::vector<ImportFuncDef> imports = {
+        {"host", "read_param", 0},
+    };
+
+    const ByteVector descriptorBlob = BuildDescriptorBlob({
+        {"effect.name", "High Slot"},
+        {"param.0.id", "first"},
+        {"param.0.slot", "0"},
+        {"param.1.id", "last"},
+        {"param.1.slot", "31"},
+        {"param.1.default", "0.75"},
+    });
+
+    ByteVector processOps;
+    AppendOp(processOps, I32Const(32));
+    AppendOp(processOps, Call(0));
+    AppendOp(processOps, I32Const(8));
+    AppendOp(processOps, Call(0));
+
+    const std::vector<DefinedFuncDef> functions = {
+        {1, I32Const(0)}, {2, {}},          {3, processOps},
+        {4, I32Const(0)}, {4, I32Const(0)}, {4, I32Const(static_cast<int32_t>(descriptorBlob.size()))},
+    };
+
+    return MakeModule(types, imports, {}, functions,
+                      {
+                          {"audiofx_prepare", 1},
+                          {"audiofx_reset", 2},
+                          {"audiofx_process", 3},
+                          {"audiofx_get_latency_samples", 4},
+                          {"audiofx_descriptor_ptr", 5},
+                          {"audiofx_descriptor_len", 6},
+                      },
+                      true, {{0, descriptorBlob}});
+}
+
+// Slots 8..31 read at read_param(9..32); read_param(8) stays the tempo for older modules.
+bool TestHighParamSlotsKeepTempoIndex(const TempDir& tempDir)
+{
+    const auto modulePath = tempDir.root / "high_slot.wasm";
+
+    if (!WriteBytes(modulePath, MakeHighSlotModule()))
+    {
+        std::cerr << "Failed to write the high-slot module.\n";
+        return false;
+    }
+
+    std::string error;
+    const auto descriptor = WasmEffect::InspectModuleFile(modulePath, &error);
+
+    if (!descriptor || descriptor->parameters.size() != 2 || descriptor->parameters[1].slot != 31)
+    {
+        std::cerr << "A descriptor param in slot 31 was not accepted: " << error << "\n";
+        return false;
+    }
+
+    auto effect = CreateWasmHost();
+    ResourceRef moduleRef;
+    moduleRef.resourceType = "wasm";
+    moduleRef.filePath = modulePath.string();
+
+    if (!effect || !effect->LoadResources({moduleRef}, {modulePath}))
+    {
+        std::cerr << "High-slot module failed to load.\n";
+        return false;
+    }
+
+    effect->Prepare(kSampleRate, kBlockSize);
+
+    std::array<float, kBlockSize> leftIn{};
+    std::array<float, kBlockSize> rightIn{};
+    std::array<float, kBlockSize> leftOut{};
+    std::array<float, kBlockSize> rightOut{};
+    float* inputs[] = {leftIn.data(), rightIn.data()};
+    float* outputs[] = {leftOut.data(), rightOut.data()};
+
+    effect->Process(inputs, outputs, kBlockSize);
+
+    if (!NearlyEqual(leftOut[0], 0.75f) || !NearlyEqual(rightOut[0], 120.0f))
+    {
+        std::cerr << "Slot 31 default or tempo read back wrong: " << leftOut[0] << ", " << rightOut[0] << "\n";
+        return false;
+    }
+
+    effect->SetParam("last", 0.25);
+    effect->SetParam("bpm", 90.0);
+    effect->Process(inputs, outputs, kBlockSize);
+
+    if (!NearlyEqual(leftOut[0], 0.25f) || !NearlyEqual(rightOut[0], 90.0f) ||
+        !NearlyEqual(static_cast<float>(effect->GetParam("param32")), 0.25f))
+    {
+        std::cerr << "Slot 31 or tempo did not follow SetParam: " << leftOut[0] << ", " << rightOut[0] << "\n";
+        return false;
+    }
+
+    return true;
+}
+
 bool TestMonoInputToStereoGuestUsesDualMono(const TempDir& tempDir)
 {
     const auto modulePath = tempDir.root / "stereo_average_mono_input.wasm";
@@ -1316,6 +1425,7 @@ int main()
     allPassed = guitarfx::TestRegistryMetadata() && allPassed;
     allPassed = guitarfx::TestDescriptorInspection(tempDir) && allPassed;
     allPassed = guitarfx::TestDirectGainModule(tempDir) && allPassed;
+    allPassed = guitarfx::TestHighParamSlotsKeepTempoIndex(tempDir) && allPassed;
     allPassed = guitarfx::TestMonoInputToStereoGuestUsesDualMono(tempDir) && allPassed;
     allPassed = guitarfx::TestSignalGraphStereoModule(tempDir) && allPassed;
     allPassed = guitarfx::TestResourceBackedModule(tempDir) && allPassed;

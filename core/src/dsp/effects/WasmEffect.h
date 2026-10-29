@@ -51,7 +51,10 @@ class WasmSharedRuntime;
 class WasmEffect final : public EffectProcessor
 {
   public:
-    static constexpr std::size_t kGuestMacroCount = 8;
+    // Guest param slots 0..31. read_param(8) has always been the tempo, so slots 0..7 read at their
+    // own index and slots 8..31 read one higher, at 9..32.
+    static constexpr std::size_t kGuestMacroCount = 32;
+    static constexpr std::size_t kTempoParamIndex = 8;
     static constexpr const char* kDescriptorConfigKey = "wasmGuestDescriptor";
 
     static constexpr std::size_t kMaxModuleBytes = 32u * 1024u * 1024u;

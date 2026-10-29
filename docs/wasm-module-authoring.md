@@ -42,9 +42,10 @@ The host provides these imports from module `host`:
 - If the upstream source is effectively mono, the host mirrors the one live channel to both guest inputs before calling `audiofx_process`.
 - `audiofx_prepare` must return `0` on success. Any non-zero return is treated as failure.
 - `audiofx_get_latency_samples` is optional. If present, it can return `0` for zero-latency modules.
-- Parameter slots are fixed:
-  - `0..7` => `param1..param8`
-  - `8` => `bpm`
+- Parameter slots are fixed. There are 32 (`param1..param32`), and `read_param(8)` is the tempo, so the slots above it read one index higher:
+  - `read_param(0..7)` => slots `0..7` (`param1..param8`)
+  - `read_param(8)` => `bpm`
+  - `read_param(9..32)` => slots `8..31` (`param9..param32`)
 - Resource slots are fixed:
   - `0` => the `.wasm` module itself
   - `1..N` => optional external binary resources
@@ -116,7 +117,7 @@ Notes:
 
 - Prefer `effect.thumbnailBase64` plus `effect.thumbnailMimeType` over `effect.thumbnailDataUrl` if generating from raw bytes.
 - `effect.version` is an opaque module author version string. The host does not interpret its format, so semantic versions like `1.4.2` are recommended.
-- Parameter slot numbers must stay in the `0..7` range.
+- Parameter slot numbers must stay in the `0..31` range. A slot of 8 or more is read with `read_param(slot + 1)`.
 - Resource slot `0` is reserved for the module itself and must not be used for `resource.N.slot`.
 
 ## Shared Example: Simple Gain Module
@@ -455,7 +456,7 @@ Before accepting a generated module, verify all of the following:
 3. `audiofx_process` has the exact signature `(f32, f32) -> (f32, f32)`.
 4. `audiofx_prepare` returns `0` on success.
 5. Descriptor byte length matches the actual descriptor blob size exactly.
-6. Parameter slot values stay within `0..7`.
+6. Parameter slot values stay within `0..31`, and slots 8 and up are read at `read_param(slot + 1)`.
 7. Resource descriptors never use slot `0`.
 8. Descriptor keys use UTF-8 text with one `key=value` entry per line.
 9. The module does not emit `NaN` or `Inf` outputs during normal processing.
@@ -507,8 +508,8 @@ Host rules:
 - stereo input and stereo output
 - if only one input channel exists, the host mirrors it to both inputs before calling audiofx_process
 - audiofx_prepare must return 0 on success
-- parameter slots 0..7 map to param1..param8
-- parameter slot 8 is bpm
+- parameter slots 0..31 map to param1..param32
+- read_param(0..7) reads slots 0..7, read_param(8) is bpm, read_param(9..32) reads slots 8..31
 - resource slot 0 is reserved for the wasm module itself
 - external resources must use slots 1..N
 
@@ -598,7 +599,7 @@ Validation requirements:
 
 - do not use guitarfx_* names unless I explicitly ask for legacy compatibility
 - do not invent extra host imports
-- do not use param slots outside 0..7 for normal parameters
+- do not use param slots outside 0..31 for normal parameters
 - do not use resource slot 0 for external resources
 - do not return pseudocode
 - if the requested source language cannot preserve the exact wasm ABI, produce WAT instead
