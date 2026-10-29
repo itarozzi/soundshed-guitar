@@ -11,6 +11,7 @@
 import { getAppSetting, updateAppSetting } from "../appSettingsStore.js";
 import type { LibraryResource } from "../types.js";
 import { escapeHtml } from "../utils.js";
+import { isThumbnailCandidate, libraryThumbnailAttr, libraryThumbnailImage } from "./libraryThumbnails.js";
 import { LIBRARY_GROUP_PACKS_SETTING } from "./settings.js";
 
 export interface LibraryPack {
@@ -150,7 +151,7 @@ export class LibraryPackGrouping {
   render(
     list: HTMLElement,
     resources: LibraryResource[],
-    options: { selectedId: string; openAll: boolean; isFavorite: (resourceId: string) => boolean },
+    options: { selectedId: string; openAll: boolean; isFavorite: (resourceId: string) => boolean; resourceType?: string },
     renderRow: (resource: LibraryResource, titleInPack?: string) => string,
   ): string {
     this.bind(list);
@@ -171,11 +172,15 @@ export class LibraryPackGrouping {
         const rows = open
           ? entry.items.map((item) => renderRow(item, nameWithinPack(item.name?.trim() || item.id, pack))).join("")
           : "";
+        // A Tone3000 tone's group shows the tone's picture, as its models do (libraryThumbnails.ts).
+        const pictured = options.resourceType ? entry.items.find((item) => isThumbnailCandidate(item)) : undefined;
+        const thumbAttr = pictured ? libraryThumbnailAttr(options.resourceType!, pictured) : "";
+        const thumbImage = pictured ? libraryThumbnailImage(options.resourceType!, pictured) : "";
         return `
           <div class="resource-browser-pack${open ? " is-open" : ""}${holdsSelected ? " holds-selected" : ""}">
             <button class="resource-browser-pack-header" type="button" data-pack-key="${escapeHtml(pack.key)}"
-                    aria-expanded="${open ? "true" : "false"}" title="${escapeHtml(pack.title)}">
-              <span class="resource-browser-pack-chevron" aria-hidden="true"></span>
+                    aria-expanded="${open ? "true" : "false"}" title="${escapeHtml(pack.title)}"${thumbAttr}>
+              <span class="resource-browser-pack-chevron" aria-hidden="true"></span>${thumbImage}
               <span class="resource-browser-pack-title">${escapeHtml(pack.title)}</span>
               <span class="resource-browser-pack-count">${entry.items.length}</span>
             </button>

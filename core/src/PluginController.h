@@ -58,6 +58,7 @@ class DemoPreviewService;
 class MetronomeService;
 class SignalTestService;
 class ResourceFolderScanner;
+class ResourceThumbnailService;
 class PresetLevelMeter;
 struct PresetLevelJob;
 class TelemetryPublisher;
@@ -1326,6 +1327,8 @@ class PluginController
     /// Answers "listResourceFolder" itself. Shut down explicitly in the destructor, ahead of
     /// the members its detached workers publish through.
     std::unique_ptr<ResourceFolderScanner> mResourceFolderScanner;
+    /// Answers "getResourceThumbnails" and "saveResourceThumbnail": the browser's tone pictures.
+    std::unique_ptr<ResourceThumbnailService> mResourceThumbnails;
     /// Answers "measurePresetLevel" itself, rendering on a worker of its own. Shut down
     /// explicitly in the destructor, ahead of the resource library its graphs read.
     std::unique_ptr<PresetLevelMeter> mPresetLevelMeter;

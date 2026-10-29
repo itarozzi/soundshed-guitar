@@ -14,6 +14,7 @@
 #include "editor/StartupLog.h"
 #include "editor/UiResourcePrefetch.h"
 #include "WebView2UserData.h"
+#include "controller/ResourceThumbnailService.h"
 
 namespace
 {
@@ -723,6 +724,19 @@ std::optional<juce::WebBrowserComponent::Resource> PluginEditor::getResource(con
     if (urlToRetrieve.startsWith("layout-images/"))
     {
         if (const auto image = processorRef.getController().ResolveLayoutImageResource(urlToRetrieve.toStdString()))
+        {
+            return juce::WebBrowserComponent::Resource{readFileToVector(soundshed::toJuceFile(image->first)),
+                                                       juce::String(image->second)};
+        }
+
+        return std::nullopt;
+    }
+
+    // Thumbnails of the Tone3000 tones library resources came from, in the profile's cache
+    // (controller/ResourceThumbnailService.h).
+    if (urlToRetrieve.startsWith("resource-thumbnails/"))
+    {
+        if (const auto image = guitarfx::ResourceThumbnailService::ResolveUiResource(urlToRetrieve.toStdString()))
         {
             return juce::WebBrowserComponent::Resource{readFileToVector(soundshed::toJuceFile(image->first)),
                                                        juce::String(image->second)};

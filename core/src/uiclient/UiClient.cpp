@@ -8,6 +8,7 @@
 #include "uiclient/UiClient.h"
 
 #include "uiclient/Analysis.h"
+#include "uiclient/ResourceThumbnails.h"
 
 #include <algorithm>
 #include <chrono>
@@ -160,7 +161,9 @@ void Subscription::Reset()
 
 // ── UiClient ───────────────────────────────────────────────────────────────
 
-UiClient::UiClient(Transport transport) : mTransport(std::move(transport)), mAnalysis(std::make_unique<Analysis>(*this))
+UiClient::UiClient(Transport transport)
+    : mTransport(std::move(transport)), mAnalysis(std::make_unique<Analysis>(*this)),
+      mThumbnails(std::make_unique<ResourceThumbnails>())
 {
     RegisterHandlers();
 }

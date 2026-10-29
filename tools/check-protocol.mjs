@@ -78,7 +78,7 @@ function engineRoutes() {
   // Read before the dispatcher sees them: the controller's bootstrap-error intercept and
   // the JUCE host's link opener.
   const intercepts = collect([path.join(ROOT, 'core/src/PluginController.cpp'), path.join(ROOT, 'juce/source/PluginProcessorAdapter.cpp')],
-    [/value\("type", std::string\{\}\) == "([^"]+)"/g, /getProperty \(typeId\)\.toString\(\) == "([^"]+)"/g]);
+    [/value\("type", std::string\{\}\) == "([^"]+)"/g, /getProperty\s*\(typeId\)\.toString\(\) == "([^"]+)"/g]);
   for (const [type, where] of intercepts) routes.set(type, where);
   return routes;
 }

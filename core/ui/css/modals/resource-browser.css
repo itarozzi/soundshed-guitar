@@ -712,7 +712,8 @@
 }
 
 .resource-browser-tone-image,
-.resource-browser-tone-image-placeholder {
+.resource-browser-tone-image-placeholder,
+.resource-browser-item-thumb {
   flex: none;
   width: 36px;
   height: 36px;

@@ -19,6 +19,7 @@
 #include "uiclient/FeatureFlags.h"
 #include "uiclient/NodeLabels.h"
 #include "uiclient/ResourceIndex.h"
+#include "uiclient/ResourceThumbnails.h"
 #include "util/PathEncoding.h"
 
 #include <algorithm>
@@ -64,6 +65,37 @@ std::string MetaText(const nlohmann::json& metadata, const char* key)
     }
 
     return {};
+}
+
+/// A cached thumbnail file (the engine's resource-thumbnails cache), read once. Kept for the
+/// process and never destroyed: the drawing backend may be gone when statics are destroyed.
+std::shared_ptr<artist::image> CachedThumbnail(const std::string& path)
+{
+    static auto* images = new std::map<std::string, std::shared_ptr<artist::image>>();
+    auto it = images->find(path);
+
+    if (it == images->end())
+    {
+        std::shared_ptr<artist::image> image;
+
+        try
+        {
+            image = std::make_shared<artist::image>(guitarfx::util::PathFromUtf8(path));
+
+            if (image->size().x <= 0.0f)
+            {
+                image.reset();
+            }
+        }
+        catch (...)
+        {
+            image.reset(); // a backend that cannot decode it throws
+        }
+
+        it = images->emplace(path, std::move(image)).first;
+    }
+
+    return it->second;
 }
 
 /// "by creator · A2 · gear", the line under an entry's name.
@@ -114,12 +146,82 @@ std::string Describe(const nlohmann::json& metadata, const std::string& category
 
 /// One row of a list: a name with a line under it, an optional icon or picture at the left, and
 /// at the right a note or a button. A click calls `onClick`; a double click `onDouble`.
-class BrowserRow final : public el::element
+class BrowserRow final : public el::element, public Focusable
 {
   public:
     BrowserRow(const Theme& theme, Icons& icons, std::string title, std::string detail)
         : mTheme(theme), mIcons(icons), mTitle(std::move(title)), mDetail(std::move(detail))
     {
+    }
+
+    // With focus: Enter takes it (its button, or what a double click does), Space picks it as a
+    // click does, F stars it, and the Menu key opens its menu.
+    [[nodiscard]] AccessInfo Describe() const override
+    {
+        AccessInfo info;
+        info.role = AccessRole::ListItem;
+        info.name = NameOr(mTitle);
+        info.value = mDetail;
+
+        if (!note.empty())
+        {
+            info.value += (info.value.empty() ? "" : ", ") + note;
+        }
+
+        if (star > 0)
+        {
+            info.value += info.value.empty() ? "favourite" : ", favourite";
+        }
+
+        info.selected = selected;
+        return info;
+    }
+
+    bool Activate(const el::rect&) override
+    {
+        const auto& f = onButton ? onButton : (onDouble ? onDouble : onClick);
+        return Run(f);
+    }
+
+    bool wants_focus() const override
+    {
+        return FocusWanted(onClick || onDouble || onButton);
+    }
+
+    void begin_focus(focus_request) override
+    {
+        NoteFocus(true);
+    }
+
+    bool end_focus() override
+    {
+        NoteFocus(false);
+        return true;
+    }
+
+    bool key(const el::context& ctx, el::key_info k) override
+    {
+        if (IsMenuKey(k))
+        {
+            return Run(onMenu);
+        }
+
+        if (k.action != el::key_action::press || (k.modifiers & (el::mod_control | el::mod_alt | el::mod_super)) != 0)
+        {
+            return false;
+        }
+
+        if (k.key == el::key_code::space)
+        {
+            return Run(onClick ? onClick : onDouble);
+        }
+
+        if (k.key == el::key_code::f && star >= 0)
+        {
+            return Run(onStar);
+        }
+
+        return (k.key == el::key_code::enter || k.key == el::key_code::kp_enter) && Activate(ctx.bounds);
     }
 
     std::string icon;                                        // ui-folder, a chevron...
@@ -163,8 +265,22 @@ class BrowserRow final : public el::element
             cnv.fill_round_rect(b.inset(0.0f, 2.0f), 6.0f);
             mIcons.Draw(cnv, icon.empty() ? "ui-chevron-right" : icon,
                         el::rect{b.left + 10.0f, b.top + 9.0f, b.left + 22.0f, b.top + 21.0f}, mTheme.TextSecondary());
+            float titleLeft = b.left + 30.0f;
+
+            // A Tone3000 tone's group shows the tone's picture after the chevron, as the web UI's.
+            if (const auto image = picture ? picture() : nullptr)
+            {
+                const el::rect r{titleLeft, b.top + 5.0f, titleLeft + 20.0f, b.top + 25.0f};
+                auto state = cnv.new_state();
+                cnv.begin_path();
+                cnv.add_round_rect(r, 3.0f);
+                cnv.clip();
+                DrawImageCovering(cnv, *image, r);
+                titleLeft = r.right + 8.0f;
+            }
+
             FillText(cnv, mTitle, Font(Weight::SemiBold).size(12.5f), mTheme.Ink(),
-                     el::rect{b.left + 30.0f, b.top, b.right - 60.0f, b.bottom}, HAlign::Left);
+                     el::rect{titleLeft, b.top, b.right - 60.0f, b.bottom}, HAlign::Left);
 
             if (!note.empty())
             {
@@ -307,6 +423,19 @@ class BrowserRow final : public el::element
         }
     }
 
+    /// Runs a callback from a copy: it may rebuild the list this row sits in.
+    static bool Run(const std::function<void()>& f)
+    {
+        if (!f)
+        {
+            return false;
+        }
+
+        const auto run = f;
+        run();
+        return true;
+    }
+
     bool click(const el::context& ctx, el::mouse_button btn) override
     {
         if (btn.state == el::mouse_button::right && onMenu)
@@ -420,6 +549,15 @@ class BrowserTab final : public Pressable
     BrowserTab(const Theme& theme, std::string label, bool active)
         : mTheme(theme), mLabel(std::move(label)), mActive(active)
     {
+    }
+
+    [[nodiscard]] AccessInfo Describe() const override
+    {
+        AccessInfo info = Pressable::Describe();
+        info.role = AccessRole::Tab;
+        info.name = NameOr(mLabel);
+        info.selected = mActive;
+        return info;
     }
 
     el::view_limits limits(const el::basic_context& ctx) const override
@@ -563,6 +701,9 @@ void Shell::OpenResourceBrowser(const std::string& nodeId, const std::string& re
         Ptr searchElement, filterElement, t3Element;
         std::vector<Subscription> subscriptions;
         int toneListener = 0;
+        // The Tone3000 pictures the Library and Folder rows show (uiclient/ResourceThumbnails.h).
+        std::unique_ptr<ResourceThumbnailFetcher> thumbnails;
+        std::function<std::shared_ptr<artist::image>(const std::string&)> thumbnailFor;
         std::weak_ptr<Browser> self;
         std::function<void(const std::string&)> onPick; // pick only: what to do with the choice
     };
@@ -576,6 +717,18 @@ void Shell::OpenResourceBrowser(const std::string& nodeId, const std::string& re
     b->role = RoleFor(mState, *node, resourceType, resourceIndex);
     b->onPick = std::move(onPick);
     b->category = category;
+    b->thumbnails = std::make_unique<ResourceThumbnailFetcher>(mSession.Client(), mSession.Tones());
+    // A library entry's tone picture: the cached file, else the download while it arrives.
+    b->thumbnailFor = [this, b](const std::string& resourceId) -> std::shared_ptr<artist::image> {
+        const auto* picture = b->thumbnails ? b->thumbnails->Find(b->resourceType, resourceId) : nullptr;
+
+        if (picture == nullptr)
+        {
+            return nullptr;
+        }
+
+        return !picture->path.empty() ? CachedThumbnail(picture->path) : RemoteImage(picture->fetchUrl);
+    };
     b->t3Gear = b->role.gear;
 
     if (resourceType == "nam")
@@ -654,11 +807,25 @@ void Shell::OpenResourceBrowser(const std::string& nodeId, const std::string& re
     const auto libraryList = [this, b, preview, refillList, libraryFilter]() -> Ptr {
         const auto entries = FilterLibrary(mState, b->resourceType, libraryFilter(), b->selectedId);
 
+        // Which tone pictures these show: asked once a session for each (the answer redraws).
+        std::vector<std::string> ids;
+
+        for (const auto* r : entries)
+        {
+            ids.push_back(r->id);
+        }
+
+        if (b->thumbnails)
+        {
+            b->thumbnails->Request(b->resourceType, ids);
+        }
+
         const auto rowFor = [this, b, preview, refillList](const LibraryResource* r, const std::string& title) {
             // The category is left out while the list is filtered to one: every row would say it.
             auto row = std::make_shared<BrowserRow>(mTheme, mIcons, title,
                                                     ResourceMetaLine(*r, b->resourceType, b->category.empty()));
             row->selected = r->id == b->selectedId || (!b->selectedPath.empty() && r->filePath == b->selectedPath);
+            row->picture = [b, id = r->id] { return b->thumbnailFor ? b->thumbnailFor(id) : nullptr; };
             row->star = IsResourceFavorite(mState, r->id) ? 1 : 0;
             row->onStar = [this, refillList, id = r->id] {
                 mSession.Commands().SetResourceFavorite(id, !IsResourceFavorite(mState, id));
@@ -731,6 +898,25 @@ void Shell::OpenResourceBrowser(const std::string& nodeId, const std::string& re
                 head->heading = true;
                 head->icon = open ? "ui-caret" : "ui-chevron-right";
                 head->note = std::to_string(entry.items.size());
+                std::vector<std::string> members;
+
+                for (const auto* r : entry.items)
+                {
+                    members.push_back(r->id);
+                }
+
+                // The first of its models with a tone picture lends it to the group's caption.
+                head->picture = [b, members]() -> std::shared_ptr<artist::image> {
+                    for (const auto& id : members)
+                    {
+                        if (auto image = b->thumbnailFor ? b->thumbnailFor(id) : nullptr)
+                        {
+                            return image;
+                        }
+                    }
+
+                    return nullptr;
+                };
                 head->onClick = [b, refillList, key, open] {
                     b->openPacks[key] = !open;
                     refillList();
@@ -1005,6 +1191,7 @@ void Shell::OpenResourceBrowser(const std::string& nodeId, const std::string& re
         }
 
         const auto filter = Lower(b->filter);
+        std::vector<std::string> inLibrary; // the files' library ids, for their tone pictures
 
         for (const auto& dir : listing.dirs)
         {
@@ -1036,6 +1223,13 @@ void Shell::OpenResourceBrowser(const std::string& nodeId, const std::string& re
                 row->noteColour = mTheme.Success();
             }
 
+            // A file in the library shows its entry's tone picture, as the Library tab does.
+            if (file.inLibrary && !file.libraryId.empty() && file.resourceType == b->resourceType)
+            {
+                inLibrary.push_back(file.libraryId);
+                row->picture = [b, id = file.libraryId] { return b->thumbnailFor ? b->thumbnailFor(id) : nullptr; };
+            }
+
             row->onClick = [preview, refillList, path = file.path] {
                 preview({}, path);
                 refillList();
@@ -1045,6 +1239,11 @@ void Shell::OpenResourceBrowser(const std::string& nodeId, const std::string& re
                 CloseOverlay();
             };
             rows.push_back(row);
+        }
+
+        if (b->thumbnails)
+        {
+            b->thumbnails->Request(b->resourceType, inLibrary);
         }
 
         if (rows.empty())
@@ -1779,12 +1978,25 @@ void Shell::OpenResourceBrowser(const std::string& nodeId, const std::string& re
             b->fillList();
         }
     }));
-    // A tone's picture arriving, or an import moving on.
-    b->toneListener = mSession.Tones().AddListener([this, b] {
-        if (b->tab == Tab::Tone3000)
+    // The engine saying which tone pictures the Library and Folder rows show: what it lacks is
+    // fetched (and handed back to it to keep), and the rows redraw.
+    b->subscriptions.push_back(mSession.Client().Subscribe(Topic::Thumbnails, [this, b] {
+        if (b->thumbnails)
         {
-            mSession.View().refresh();
+            b->thumbnails->Update();
         }
+
+        mSession.View().refresh();
+    }));
+    // A tone's picture arriving (a Tone3000 result's, or a library row's thumbnail), or an import
+    // moving on.
+    b->toneListener = mSession.Tones().AddListener([this, b] {
+        if (b->thumbnails)
+        {
+            b->thumbnails->Update();
+        }
+
+        mSession.View().refresh();
     });
 
     b->fillTabs();
@@ -1829,6 +2041,8 @@ void Shell::OpenResourceBrowser(const std::string& nodeId, const std::string& re
     mOnOverlayClosed = [this, state] {
         mSession.Tones().RemoveListener(state->toneListener);
         state->subscriptions.clear();
+        state->thumbnailFor = nullptr;
+        state->thumbnails.reset();
         state->fillTabs = state->fillControls = state->fillList = state->fillFooter = nullptr;
         state->searchTone3000 = nullptr;
     };

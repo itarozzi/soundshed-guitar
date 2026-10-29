@@ -4,6 +4,7 @@
  */
 
 #include "uiclient/UiClient.h"
+#include "uiclient/ResourceThumbnails.h"
 #include "uiclient/UiClientParsing.h"
 
 #include "presets/PresetTypesJson.h"
@@ -176,6 +177,12 @@ void UiClient::RegisterLibraryHandlers()
             mState.pickedResourceFolder = m.value("path", "");
             Notify(Topic::ResourceFolders);
         }
+    });
+
+    // The pictures library resources show in the resource browser (ResourceThumbnails.h).
+    On("resourceThumbnails", [this](const nlohmann::json& m) {
+        mThumbnails->Apply(m);
+        Notify(Topic::Thumbnails);
     });
 
     On("resourceRemoved", [this](const nlohmann::json& m) {
