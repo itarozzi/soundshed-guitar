@@ -874,40 +874,64 @@ void Shell::CloseDropdown()
 
 void Shell::OpenDropdown(el::rect anchor, std::vector<MenuItem> items, float width)
 {
-    std::vector<Ptr> rows;
+    OpenDropdownColumns(anchor, {std::move(items)}, width);
+}
+
+void Shell::OpenDropdownColumns(el::rect anchor, std::vector<std::vector<MenuItem>> columns, float width)
+{
+    std::vector<Ptr> lists;
     float height = 12.0f;
 
-    for (auto& item : items)
+    for (auto& items : columns)
     {
-        const bool heading = item.heading || !item.onChoose;
-        const el::color ink = item.tint != 0 ? Theme::Argb(item.tint) : mTheme.Ink();
-        auto row = std::make_shared<MenuRow>(mTheme, item.label, item.selected, heading, ink);
+        std::vector<Ptr> rows;
+        float columnHeight = 12.0f;
 
-        if (!item.icon.empty())
+        for (auto& item : items)
         {
-            row->Icon(&mIcons, item.icon);
+            const bool heading = item.heading || !item.onChoose;
+            const el::color ink = item.tint != 0 ? Theme::Argb(item.tint) : mTheme.Ink();
+            auto row = std::make_shared<MenuRow>(mTheme, item.label, item.selected, heading, ink);
+
+            if (!item.icon.empty())
+            {
+                row->Icon(&mIcons, item.icon);
+            }
+
+            row->Subtitle(item.subtitle);
+            auto choose = item.onChoose;
+            row->onClick = [this, choose] {
+                // Close first: the choice may open another dialog. Only the list closes: a list
+                // opened from a dialog (a filter, a folder) leaves the dialog open.
+                CloseDropdown();
+
+                if (choose)
+                {
+                    choose();
+                }
+            };
+            columnHeight += MenuRow::Height(heading, item.label.empty(), !item.subtitle.empty());
+            rows.push_back(row);
         }
 
-        row->Subtitle(item.subtitle);
-        auto choose = item.onChoose;
-        row->onClick = [this, choose] {
-            // Close first: the choice may open another dialog. Only the list closes: a list
-            // opened from a dialog (a filter, a folder) leaves the dialog open.
-            CloseDropdown();
+        // A shorter column keeps its rows at the top.
+        rows.push_back(std::make_shared<el::element>());
 
-            if (choose)
-            {
-                choose();
-            }
-        };
-        height += MenuRow::Height(heading, item.label.empty(), !item.subtitle.empty());
-        rows.push_back(row);
+        if (!lists.empty())
+        {
+            lists.push_back(HGap(4));
+        }
+
+        lists.push_back(FixedWidth(width, Col(rows)));
+        height = std::max(height, columnHeight);
     }
 
     // Near the bottom of the window (the footer's selects) the list opens upwards.
     const bool above = anchor.top > ViewSize().y * 0.6f;
     const float maxHeight = above ? anchor.top - 16.0f : ViewSize().y - anchor.bottom - 16.0f;
-    Ptr list = Col(rows);
+    const float n = static_cast<float>(columns.size());
+    width = width * n + 4.0f * (n - 1.0f) + (n > 1.0f ? 12.0f : 0.0f);
+    Ptr list = lists.size() == 1 ? lists.front() : Row(lists);
 
     if (height > maxHeight)
     {

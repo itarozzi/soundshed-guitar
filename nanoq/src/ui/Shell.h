@@ -234,6 +234,9 @@ class Shell
     void CloseDropdown();
     /// A drop-down list under `anchor`, as the web UI's menus open from their buttons.
     void OpenDropdown(el::rect anchor, std::vector<MenuItem> items, float width = 180.0f);
+    /// A drop-down whose options sit in columns side by side, each `width` wide (the web UI's
+    /// multi-column metro-select, for the meters).
+    void OpenDropdownColumns(el::rect anchor, std::vector<std::vector<MenuItem>> columns, float width);
     void OpenOptions(el::rect anchor);
     void OpenNewPresetMenu(el::rect anchor);
     void LoadRandomPreset();

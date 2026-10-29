@@ -118,29 +118,24 @@ void Shell::OpenMetronome()
     };
     pan->onReset = [&commands] { commands.SetMetronomePan(0.0); };
 
-    // The meter: simple meters, then compound ones and the odd meters' groupings.
+    // The meter: simple meters in one column, compound ones and the odd meters' groupings in the
+    // other, as the web UI's.
     auto meter = std::make_shared<PickerField>(mTheme, mIcons);
     meter->onClick = [this, meter] {
-        std::vector<MenuItem> items;
-        bool compound = false;
+        std::vector<std::vector<MenuItem>> columns(2);
 
         for (const auto& option : guitarfx::uiclient::TimeSignatures())
         {
-            if (option.compound && !compound)
-            {
-                compound = true;
-                items.push_back({"Compound and odd", false, true, {}});
-            }
-
             const auto& s = mState.metronome;
-            items.push_back({option.label,
-                             s.timeSigNum == option.num && s.timeSigDen == option.den && s.grouping == option.grouping,
-                             false, [this, option] {
-                                 mSession.Commands().SetMetronomeTimeSignature(option.num, option.den, option.grouping);
-                             }});
+            columns[option.compound ? 1 : 0].push_back(
+                {option.label,
+                 s.timeSigNum == option.num && s.timeSigDen == option.den && s.grouping == option.grouping, false,
+                 [this, option] {
+                     mSession.Commands().SetMetronomeTimeSignature(option.num, option.den, option.grouping);
+                 }});
         }
 
-        OpenDropdown(meter->Bounds(), std::move(items), std::max(160.0f, meter->Bounds().width()));
+        OpenDropdownColumns(meter->Bounds(), std::move(columns), std::max(120.0f, meter->Bounds().width() * 0.6f));
     };
 
     auto sound = std::make_shared<PickerField>(mTheme, mIcons);
