@@ -114,8 +114,16 @@ export function initializeNewPresetMenu(): void {
       openMenu(button, event.key === "ArrowUp");
     }
   });
+  // Focus landing on the page itself is focus cleared, not moved: WebKit on macOS does
+  // not focus a button that is clicked, so the press on a template takes focus off the
+  // highlighted item and gives it to <html>. Closing on that lost every choice in the
+  // macOS app (traced in the Standalone), so only focus reaching another element counts.
   document.addEventListener("focusin", (event) => {
-    if (event.target instanceof Node && !menu?.contains(event.target) && !anchor?.contains(event.target)) {
+    const target = event.target;
+    if (target === document.documentElement || target === document.body) {
+      return;
+    }
+    if (target instanceof Node && !menu?.contains(target) && !anchor?.contains(target)) {
       closeMenu();
     }
   });

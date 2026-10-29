@@ -86,6 +86,18 @@ describe("new preset flyout", () => {
     expect(createDefaultPreset).toHaveBeenCalledWith("basic");
   });
 
+  it("stays open when pressing a template moves focus to the page, as WebKit on macOS does", () => {
+    trigger().click();
+    const [, basic] = options();
+    basic.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+    // WebKit does not focus a clicked button: focus leaves the highlighted item for <html>.
+    document.documentElement.dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
+    document.body.dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
+    expect(options()).toHaveLength(2);
+    basic.click();
+    expect(createDefaultPreset).toHaveBeenCalledWith("basic");
+  });
+
   it("closes when a scroll moves its button", () => {
     document.body.insertAdjacentHTML("beforeend", '<div id="bar"></div>');
     const bar = document.getElementById("bar")!;
