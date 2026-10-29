@@ -175,6 +175,7 @@ class NodeCard final : public el::element, public Drawn
         bool selected = false;
         bool missing = false;
         bool canBypass = true;
+        bool canRemove = false;
         bool iconOnly = false; // a 40 px tile with the icon (or the artwork) and nothing else
         Boundary boundary = Boundary::None;
     };
@@ -444,14 +445,42 @@ class NodeCard final : public el::element, public Drawn
                      el::rect{r.left + 4.0f, r.bottom - 15.0f, r.left + 16.0f, r.bottom - 3.0f}, HAlign::Centre);
         }
 
-        // The power button: shown while the card is hovered, and while it is off.
-        if (mLook.canBypass && (mHover || !on))
+        // The corners (.signal-node-delete, .signal-node-bypass): remove at the top left and the
+        // power at the top right, shown while the card is hovered or chosen; the power also
+        // while the card is off.
+        const auto corner = [&](el::rect at, bool hot, el::color ring) {
+            const auto c = artist::center_point(at);
+            cnv.fill_style(hot ? mTheme.Elevated() : el::rgba(0, 0, 0, 64));
+            cnv.add_circle(artist::circle(c, kPowerSize * 0.5f));
+            cnv.fill();
+            cnv.stroke_style(ring);
+            cnv.line_width(1.0f);
+            cnv.add_circle(artist::circle(c, kPowerSize * 0.5f - 0.5f));
+            cnv.stroke();
+        };
+        const bool showCorners = mHover || mLook.selected;
+
+        if (mLook.canRemove && showCorners)
+        {
+            const auto x = RemoveRect(r);
+            corner(x, mHoverRemove, el::rgba(255, 255, 255, 38));
+            const auto c = artist::center_point(x);
+            cnv.stroke_style(el::rgba(255, 255, 255, 205));
+            cnv.line_width(1.4f);
+            cnv.begin_path();
+            cnv.move_to(c.x - 3.0f, c.y - 3.0f);
+            cnv.line_to(c.x + 3.0f, c.y + 3.0f);
+            cnv.move_to(c.x + 3.0f, c.y - 3.0f);
+            cnv.line_to(c.x - 3.0f, c.y + 3.0f);
+            cnv.stroke();
+        }
+
+        if (mLook.canBypass && (showCorners || !on))
         {
             const auto p = PowerRect(r);
-            cnv.fill_style(mHoverPower ? mTheme.Elevated() : mTheme.Pick(el::rgba(9, 11, 17, 170), mTheme.Card()));
-            cnv.add_circle(artist::circle(artist::center_point(p), kPowerSize * 0.5f));
-            cnv.fill();
-            mIcons.Draw(cnv, "output", p.inset(3.0f, 3.0f), on ? mTheme.Success() : mTheme.TextSecondary());
+            corner(p, mHoverPower, on ? el::rgba(255, 255, 255, 38) : el::rgba(255, 80, 80, 90));
+            mIcons.Draw(cnv, "output", p.inset(3.0f, 3.0f),
+                        on ? el::rgba(160, 236, 186, 242) : el::rgba(255, 170, 170, 250));
         }
     }
 
@@ -478,6 +507,8 @@ class NodeCard final : public el::element, public Drawn
         {
             mDown = true;
             mDownOnPower = mLook.canBypass && PowerRect(r).inset(-4.0f, -4.0f).includes(btn.pos);
+            mDownOnRemove = !mDownOnPower && mLook.canRemove && (mHover || mLook.selected) &&
+                            RemoveRect(r).inset(-4.0f, -4.0f).includes(btn.pos);
             mDownAt = btn.pos;
             mDragging = false;
             return true;
@@ -512,6 +543,13 @@ class NodeCard final : public el::element, public Drawn
                 onToggle();
             }
         }
+        else if (mDownOnRemove)
+        {
+            if (onRemove)
+            {
+                onRemove();
+            }
+        }
         else if (btn.num_clicks >= 2 && onReplace)
         {
             onReplace();
@@ -526,7 +564,7 @@ class NodeCard final : public el::element, public Drawn
 
     void drag(const el::context& ctx, el::mouse_button btn) override
     {
-        if (!mDown || mDownOnPower || !onDrag)
+        if (!mDown || mDownOnPower || mDownOnRemove || !onDrag)
         {
             return;
         }
@@ -547,13 +585,15 @@ class NodeCard final : public el::element, public Drawn
     bool cursor(const el::context& ctx, el::point p, el::cursor_tracking status) override
     {
         const bool inside = status != el::cursor_tracking::leaving;
-        const bool power =
-            inside && mLook.canBypass && PowerRect(CardRect(ctx.bounds, CardHeight())).inset(-4.0f, -4.0f).includes(p);
+        const auto r = CardRect(ctx.bounds, CardHeight());
+        const bool power = inside && mLook.canBypass && PowerRect(r).inset(-4.0f, -4.0f).includes(p);
+        const bool remove = inside && mLook.canRemove && RemoveRect(r).inset(-4.0f, -4.0f).includes(p);
 
-        if (inside != mHover || power != mHoverPower)
+        if (inside != mHover || power != mHoverPower || remove != mHoverRemove)
         {
             mHover = inside;
             mHoverPower = power;
+            mHoverRemove = remove;
             ctx.view.refresh(ctx);
         }
 
@@ -587,7 +627,7 @@ class NodeCard final : public el::element, public Drawn
         return mLook.boundary;
     }
 
-    std::function<void()> onSelect, onToggle, onMenu, onReplace;
+    std::function<void()> onSelect, onToggle, onMenu, onReplace, onRemove;
     /// A drag from `from` that is now at `to` (view coordinates); `done` when it is let go.
     std::function<void(el::point from, el::point to, bool done)> onDrag;
 
@@ -607,18 +647,31 @@ class NodeCard final : public el::element, public Drawn
         // On a tile it sits over the corner, clear of the icon.
         if (mLook.iconOnly)
         {
+            return el::rect{card.right + 5.0f - kPowerSize, card.top - 5.0f, card.right + 5.0f,
+                            card.top - 5.0f + kPowerSize};
+        }
+
+        return el::rect{card.right - 4.0f - kPowerSize, card.top + 4.0f, card.right - 4.0f,
+                        card.top + 4.0f + kPowerSize};
+    }
+
+    [[nodiscard]] el::rect RemoveRect(const el::rect& card) const
+    {
+        if (mLook.iconOnly)
+        {
             return el::rect{card.left - 5.0f, card.top - 5.0f, card.left - 5.0f + kPowerSize,
                             card.top - 5.0f + kPowerSize};
         }
 
-        return el::rect{card.left + 6.0f, card.top + 6.0f, card.left + 6.0f + kPowerSize, card.top + 6.0f + kPowerSize};
+        return el::rect{card.left + 4.0f, card.top + 4.0f, card.left + 4.0f + kPowerSize, card.top + 4.0f + kPowerSize};
     }
 
     const Theme& mTheme;
     Icons& mIcons;
     Look mLook;
     Light mLight = Light::Idle;
-    bool mDown = false, mDownOnPower = false, mHover = false, mHoverPower = false;
+    bool mDown = false, mDownOnPower = false, mDownOnRemove = false, mHover = false, mHoverPower = false,
+         mHoverRemove = false;
     std::shared_ptr<HitMap> mHits;
     std::string mNodeId;
     el::point mDownAt{0.0f, 0.0f};

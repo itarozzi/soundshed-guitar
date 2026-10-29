@@ -234,10 +234,14 @@ Ptr Shell::BuildChain()
             look.missing = isMissing(nodeId);
             look.canBypass = !IsMixerType(node->type) && !IsSplitterType(node->type);
 
-            if (type != nullptr && (type->requiresResource || !type->resourceType.empty()))
+            // The equipment picture over the card's top edge, wherever the effect has one
+            // (signalPath.ts: getEffectVisualizationEquipmentImage).
+            if (const auto image = mPresentation.EquipmentImage(node->type, category); !image.empty())
             {
-                look.thumbnail = mImages.Find(mPresentation.EquipmentImage(node->type, category));
+                look.thumbnail = mImages.Find(image);
             }
+
+            look.canRemove = true;
 
             look.width = CardWidthFor(look.name, look.detail);
         }
@@ -282,6 +286,16 @@ Ptr Shell::BuildChain()
             };
             card->onReplace = [this, nodeId] { OpenEffectPicker({}, nodeId); };
         }
+
+        // Posted: removing rebuilds the strip, which would free the card in its own click.
+        card->onRemove = [this, nodeId] {
+            mSession.View().post([this, alive = std::weak_ptr<bool>(mAlive), nodeId] {
+                if (alive.lock())
+                {
+                    RemoveChainNode(nodeId);
+                }
+            });
+        };
 
         // Its light follows the telemetry feed.
         mLive.Feed(card, [this, key = mState.activePresetId + "::" + nodeId](NodeCard& c) {

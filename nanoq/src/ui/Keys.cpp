@@ -10,6 +10,48 @@
 
 namespace nanoq::ui
 {
+bool Shell::RemoveChainNode(const std::string& nodeId)
+{
+    const auto* node = mState.activePreset ? mState.activePreset->graph.FindNode(nodeId) : nullptr;
+
+    if (node == nullptr)
+    {
+        return false;
+    }
+
+    auto& commands = mSession.Commands();
+
+    // A split or its mix: the whole split collapses, as the web UI's cross on either does.
+    if (guitarfx::uiclient::IsSplitterType(node->type) || guitarfx::uiclient::IsMixerType(node->type))
+    {
+        const auto layout = guitarfx::uiclient::BuildChainLayout(mState.activePreset->graph);
+
+        for (const auto& item : layout.items)
+        {
+            if (item.kind == guitarfx::uiclient::ChainItem::Kind::Parallel && item.collapsible &&
+                (item.splitNodeId == nodeId || item.joinNodeId == nodeId))
+            {
+                commands.CollapseSplit(item.splitNodeId);
+                mSelectedNode.clear();
+                mChainFocused = false;
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    if (mSelectedNode == nodeId)
+    {
+        mSelectedNode.clear();
+    }
+
+    mChainFocused = false;
+    commands.RemoveNode(nodeId);
+    Mark(kChain | kPage);
+    return true;
+}
+
 namespace
 {
 bool CommandHeld(int modifiers)
@@ -141,32 +183,7 @@ bool Shell::HandleKey(const el::key_info& k)
             return false;
         }
 
-        const std::string nodeId = node->id;
-
-        if (guitarfx::uiclient::IsSplitterType(node->type) || guitarfx::uiclient::IsMixerType(node->type))
-        {
-            const auto layout = guitarfx::uiclient::BuildChainLayout(mState.activePreset->graph);
-
-            for (const auto& item : layout.items)
-            {
-                if (item.kind == guitarfx::uiclient::ChainItem::Kind::Parallel && item.collapsible &&
-                    (item.splitNodeId == nodeId || item.joinNodeId == nodeId))
-                {
-                    commands.CollapseSplit(item.splitNodeId);
-                    mSelectedNode.clear();
-                    mChainFocused = false;
-                    return true;
-                }
-            }
-
-            return false;
-        }
-
-        mSelectedNode.clear();
-        mChainFocused = false;
-        commands.RemoveNode(nodeId);
-        Mark(kChain | kPage);
-        return true;
+        return RemoveChainNode(node->id);
     }
 
     case key_code::f2: {

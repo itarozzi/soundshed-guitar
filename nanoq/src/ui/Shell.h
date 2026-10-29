@@ -619,6 +619,9 @@ class Shell
     void OpenMetronome();
     void OpenControls();
     void OpenGlobalEq(); // EqDialog.cpp
+    /// Removes a node from the chain, or collapses the split it opens or closes (Keys.cpp): the
+    /// Delete key and a card's cross.
+    bool RemoveChainNode(const std::string& nodeId);
 
     // Menus.cpp
     void OpenPresetMenu(std::optional<el::rect> anchor = std::nullopt);
