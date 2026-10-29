@@ -20,6 +20,7 @@
 // drop a drag.
 
 #include "WebView.h"
+#include "ui/AccessBridge.h"
 #include "ui/Bindings.h"
 #include "ui/Graphics.h"
 #include "ui/KeyRouter.h"
@@ -667,7 +668,8 @@ class Shell
     void ToggleLooper();
     [[nodiscard]] std::string LooperShape() const;
     Ptr BuildLooperStrip();
-    std::vector<Ptr> BuildCaptureButtons(float size);
+    /// `labelled`: each spelt out beside its icon, as the full footer does when it is wide.
+    std::vector<Ptr> BuildCaptureButtons(float size, bool labelled = false);
     void SyncLooper();
     void SyncLooperLive();
     void RepaintLooperLive();
@@ -723,6 +725,10 @@ class Shell
 
     Ptr mRoot;
     std::shared_ptr<KeyRouter> mKeys;
+    /// What a screen reader sees (AccessBridge.h): made at the first tick, once the view has its
+    /// window.
+    std::unique_ptr<AccessBridge> mAccess;
+    bool mAccessTried = false;
     /// The last click picked a chain card: Space bypasses it and Delete removes it, as when
     /// a card has focus in the web UI. Any other click clears it.
     bool mChainFocused = false;

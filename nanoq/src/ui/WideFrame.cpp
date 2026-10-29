@@ -32,6 +32,15 @@ class NavTab final : public Pressable
     {
     }
 
+    [[nodiscard]] AccessInfo Describe() const override
+    {
+        AccessInfo info = Pressable::Describe();
+        info.role = AccessRole::Tab;
+        info.name = NameOr(mLabel);
+        info.selected = mActive;
+        return info;
+    }
+
     el::view_limits limits(const el::basic_context& ctx) const override
     {
         const float w = el::measure_text(ctx.canvas, mLabel, Font(Weight::SemiBold).size(12.0f)).x + 28.0f;
@@ -414,6 +423,7 @@ Ptr Shell::BuildDemoControls(float chooserWidth, bool withRepeat)
 
     auto play = ToolButton(mTheme, mIcons, playing ? "ui-stop" : "ui-play", [this] { PlayOrStopDemo(); }, 26.0f, 12.0f);
     play->Lit(playing).Disabled(clip == nullptr);
+    play->AccessName(playing ? "Stop demo" : "Play demo");
 
     std::vector<Ptr> parts{chooserBox, HGap(4), play};
 
@@ -423,7 +433,7 @@ Ptr Shell::BuildDemoControls(float chooserWidth, bool withRepeat)
         auto loop = ToolButton(
             mTheme, mIcons, "ui-loop", [this, repeat] { mSession.Commands().SetSetting(kDemoRepeatSetting, !repeat); },
             26.0f, 14.0f);
-        loop->Lit(repeat);
+        loop->Lit(repeat).AccessName("Repeat demo");
         parts.push_back(HGap(2));
         parts.push_back(loop);
     }
@@ -460,6 +470,8 @@ Ptr Shell::BuildTempoControls(bool withTap)
         mTheme, mIcons, ticking ? "ui-stop" : "ui-play",
         [&commands, ticking] { commands.SetMetronomeEnabled(!ticking); }, 26.0f, 12.0f);
     tick->Lit(ticking);
+    tick->AccessName(ticking ? "Stop metronome" : "Start metronome");
+    tempo->AccessName(std::string("Tempo ") + bpm);
 
     if (!withTap)
     {
@@ -503,7 +515,7 @@ Ptr Shell::ZoomButton()
 
 /// The footers' Rec (the riff capture dialog, counting in at once: the standalone app with the
 /// riff library on, as the web UI's) and Loop (the looper strip) buttons, those that apply.
-std::vector<Ptr> Shell::BuildCaptureButtons(float size)
+std::vector<Ptr> Shell::BuildCaptureButtons(float size, bool labelled)
 {
     std::vector<Ptr> buttons;
 
@@ -511,14 +523,25 @@ std::vector<Ptr> Shell::BuildCaptureButtons(float size)
         guitarfx::uiclient::IsFeatureEnabled(mState, guitarfx::uiclient::Feature::RiffLibrary))
     {
         auto rec = ToolButton(mTheme, mIcons, "ui-record", [this] { OpenRiffCapture(true); }, size, 14.0f);
-        rec->Ink(mTheme.Error());
+        rec->Ink(mTheme.Error()).AccessName("Record riff");
+
+        if (labelled)
+        {
+            rec->Label("Rec", 11.0f);
+        }
+
         buttons.push_back(rec);
     }
 
     if (LooperShown())
     {
         auto loop = ToolButton(mTheme, mIcons, "ui-loop", [this] { ToggleLooper(); }, size, 16.0f);
-        loop->Lit(mLooperOpen);
+        loop->Lit(mLooperOpen).AccessName("Looper");
+
+        if (labelled)
+        {
+            loop->Label("Loop", 11.0f);
+        }
 
         if (!mLooperOpen)
         {
@@ -553,6 +576,7 @@ Ptr Shell::BuildWideFooter()
     auto midi =
         ToolButton(mTheme, mIcons, "ui-midi", [this] { OpenMidiAutomation(); }, 28.0f, 16.0f); // MIDI & Automation
     midi->Ink(mTheme.TextSecondary());
+    bool toolLabels = false;
     const bool muted = mState.outputMuted;
     auto mute = ToolButton(
         mTheme, mIcons, muted ? "ui-mute" : "ui-speaker", [this, muted] { mSession.Commands().SetOutputMuted(!muted); },
@@ -562,6 +586,18 @@ Ptr Shell::BuildWideFooter()
     if (!muted)
     {
         mute->Ink(mTheme.TextSecondary());
+    }
+
+    // The tools spelt out beside their icons once there is room, as the web UI's do when its
+    // tools group is 330 px wide (footer.css): the footer's four groups share what the history
+    // controls leave, so from a window about 1,540 px wide.
+    if ((width - 220.0f) / 4.0f >= 330.0f)
+    {
+        pads->Label("Setlists", 11.0f);
+        tuner->Label("Tuner", 11.0f);
+        midi->Label("MIDI", 11.0f);
+        mute->Label(muted ? "Muted" : "Mute", 11.0f);
+        toolLabels = true;
     }
 
     // Render the clip through the preset: the web UI's camera (#footer-demo-render-btn).
@@ -586,7 +622,7 @@ Ptr Shell::BuildWideFooter()
 
     std::vector<Ptr> tools;
 
-    for (auto& b : BuildCaptureButtons(28.0f))
+    for (auto& b : BuildCaptureButtons(28.0f, toolLabels))
     {
         tools.insert(tools.end(), {b, HGap(6)});
     }

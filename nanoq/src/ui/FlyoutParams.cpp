@@ -31,6 +31,7 @@ Ptr Shell::BuildFlyoutParamRows(const std::vector<EffectParamInfo>& params, cons
         if (info.control == "picker" && !info.labels.empty())
         {
             auto picker = std::make_shared<PickerField>(mTheme, mIcons);
+            picker->AccessName(info.name);
             picker->onClick = [this, info, current, apply = binding.apply, weak = std::weak_ptr<PickerField>(picker)] {
                 const auto p = weak.lock();
 
@@ -59,6 +60,7 @@ Ptr Shell::BuildFlyoutParamRows(const std::vector<EffectParamInfo>& params, cons
         if (pf::IsSwitchParam(info))
         {
             auto toggle = std::make_shared<ToggleSwitch>(mTheme);
+            toggle->AccessName(info.name);
             toggle->onClick = [info, current, apply = binding.apply] {
                 apply(info.key, current() >= 0.5 ? info.minValue : info.maxValue, true);
             };

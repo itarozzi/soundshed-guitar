@@ -30,6 +30,15 @@ class SectionTab final : public Pressable
     {
     }
 
+    [[nodiscard]] AccessInfo Describe() const override
+    {
+        AccessInfo info = Pressable::Describe();
+        info.role = mStyle == Style::Account ? AccessRole::Button : AccessRole::Tab;
+        info.name = NameOr(mLabel);
+        info.selected = mActive;
+        return info;
+    }
+
     el::view_limits limits(const el::basic_context&) const override
     {
         if (mStyle == Style::Side)

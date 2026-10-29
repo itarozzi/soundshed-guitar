@@ -48,6 +48,35 @@ class PerformancePad final : public Pressable
     /// The save button: put the preset playing on this pad.
     std::function<void()> onAssign;
 
+    [[nodiscard]] AccessInfo Describe() const override
+    {
+        AccessInfo info = Pressable::Describe();
+        info.role = AccessRole::ListItem;
+        info.name = NameOr("Pad " + std::to_string(mNumber));
+        info.value = mState == State::Empty ? std::string("empty") : mName;
+        info.selected = mState == State::Current;
+        return info;
+    }
+
+    // S saves the preset playing to the pad, as its save button does.
+    bool key(const el::context& ctx, el::key_info k) override
+    {
+        if (onAssign && k.action == el::key_action::press && k.key == el::key_code::s &&
+            (k.modifiers & (el::mod_control | el::mod_alt | el::mod_super)) == 0)
+        {
+            onAssign();
+            return true;
+        }
+
+        return Pressable::key(ctx, k);
+    }
+
+    // Even an empty pad takes focus: S assigns it.
+    bool wants_focus() const override
+    {
+        return FocusWanted(mEnabled && (onClick != nullptr || onAssign != nullptr));
+    }
+
     el::view_limits limits(const el::basic_context&) const override
     {
         return {{120.0f, 96.0f}, {el::full_extent, el::full_extent}};
@@ -195,6 +224,13 @@ class BankStep final : public Pressable
   public:
     BankStep(const Theme& theme, bool up, std::string label) : mTheme(theme), mUp(up), mLabel(std::move(label))
     {
+    }
+
+    [[nodiscard]] AccessInfo Describe() const override
+    {
+        AccessInfo info = Pressable::Describe();
+        info.name = NameOr(std::string(mUp ? "Next bank, " : "Previous bank, ") + mLabel);
+        return info;
     }
 
     el::view_limits limits(const el::basic_context&) const override
@@ -405,6 +441,7 @@ Ptr Shell::BuildPadsView()
     header.push_back(FixedWidth(32, Middle(padsLabel)));
     header.push_back(HGap(8));
     auto count = std::make_shared<PickerField>(mTheme, mIcons);
+    count->AccessName("Pads");
     count->Set(std::to_string(padCount));
     count->onClick = [this, padCount, weak = std::weak_ptr<PickerField>(count)] {
         auto field = weak.lock();

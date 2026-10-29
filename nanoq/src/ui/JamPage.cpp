@@ -79,8 +79,8 @@ constexpr float kBarAboveFooter = 40.0f;
 constexpr float kCardMin = 220.0f; // .jam-results: minmax(220px, 1fr)
 
 /// One backing track as a card (.jam-result-card): the thumbnail with a play mark over it, the
-/// title and channel, and the favourite star.
-class VideoCard final : public el::element
+/// title and channel, and the favourite star. With focus Enter plays it and F stars it.
+class VideoCard final : public el::element, public Focusable
 {
   public:
     VideoCard(const Theme& theme, jam::Video video, bool favorite,
@@ -90,6 +90,56 @@ class VideoCard final : public el::element
     }
 
     std::function<void()> onPlay, onFavorite;
+
+    [[nodiscard]] AccessInfo Describe() const override
+    {
+        AccessInfo info;
+        info.role = AccessRole::ListItem;
+        info.name = NameOr(mVideo.title);
+        info.value = mVideo.channelTitle + (mFavorite ? ", favourite" : "");
+        return info;
+    }
+
+    bool Activate(const el::rect&) override
+    {
+        if (!onPlay)
+        {
+            return false;
+        }
+
+        const auto play = onPlay;
+        play();
+        return true;
+    }
+
+    bool wants_focus() const override
+    {
+        return FocusWanted(onPlay != nullptr);
+    }
+
+    void begin_focus(focus_request) override
+    {
+        NoteFocus(true);
+    }
+
+    bool end_focus() override
+    {
+        NoteFocus(false);
+        return true;
+    }
+
+    bool key(const el::context& ctx, el::key_info k) override
+    {
+        if (onFavorite && k.action == el::key_action::press && k.key == el::key_code::f &&
+            (k.modifiers & (el::mod_control | el::mod_alt | el::mod_super)) == 0)
+        {
+            const auto star = onFavorite;
+            star();
+            return true;
+        }
+
+        return IsPressKey(k) && Activate(ctx.bounds);
+    }
 
     el::view_limits limits(const el::basic_context&) const override
     {

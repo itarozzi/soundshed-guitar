@@ -143,8 +143,10 @@ inline el::rect CardRect(const el::rect& bounds, float height = kPlainCardHeight
 
 using namespace chain;
 
-/// One node in the chain.
-class NodeCard final : public el::element, public Drawn
+/// One node in the chain. With focus: Enter opens it in the editor (Ctrl+Enter swaps it for
+/// another effect), Space turns it on or off, Delete removes it, the Menu key opens its menu, and
+/// the arrows go along the chain.
+class NodeCard final : public el::element, public Drawn, public Focusable
 {
   public:
     enum class Light
@@ -182,6 +184,88 @@ class NodeCard final : public el::element, public Drawn
 
     NodeCard(const Theme& theme, Icons& icons, Look look) : mTheme(theme), mIcons(icons), mLook(std::move(look))
     {
+    }
+
+    [[nodiscard]] AccessInfo Describe() const override
+    {
+        AccessInfo info;
+        info.role = AccessRole::ListItem;
+        info.name = NameOr(mLook.name);
+        info.value = mLook.detail;
+
+        if (mLook.missing)
+        {
+            info.value += info.value.empty() ? "missing" : ", missing";
+        }
+
+        if (mLook.canBypass)
+        {
+            info.toggled = mLook.enabled ? 1 : 0;
+        }
+
+        info.selected = mLook.selected;
+        return info;
+    }
+
+    bool Activate(const el::rect&) override
+    {
+        return Run(onSelect);
+    }
+
+    bool wants_focus() const override
+    {
+        return FocusWanted(onSelect != nullptr);
+    }
+
+    void begin_focus(focus_request) override
+    {
+        NoteFocus(true);
+    }
+
+    bool end_focus() override
+    {
+        NoteFocus(false);
+        return true;
+    }
+
+    bool key(const el::context&, el::key_info k) override
+    {
+        using el::key_code;
+
+        if (IsMenuKey(k))
+        {
+            return Run(onMenu);
+        }
+
+        if (k.action != el::key_action::press)
+        {
+            return false;
+        }
+
+        const bool command = (k.modifiers & (el::mod_control | el::mod_action)) != 0;
+
+        if ((k.key == key_code::enter || k.key == key_code::kp_enter) && command)
+        {
+            return Run(onReplace);
+        }
+
+        if (k.modifiers & (el::mod_control | el::mod_alt | el::mod_super))
+        {
+            return false;
+        }
+
+        switch (k.key)
+        {
+        case key_code::enter:
+        case key_code::kp_enter:
+            return Run(onSelect);
+        case key_code::space:
+            return mLook.canBypass && Run(onToggle);
+        case key_code::_delete:
+            return mLook.canRemove && Run(onRemove);
+        default:
+            return false;
+        }
     }
 
     /// Notes the card in `hits` as `nodeId` when drawn, so drops find it; with onDrag it can be
@@ -632,6 +716,19 @@ class NodeCard final : public el::element, public Drawn
     std::function<void(el::point from, el::point to, bool done)> onDrag;
 
   private:
+    /// Runs one of the callbacks from a copy: it may rebuild the chain this card sits in.
+    static bool Run(const std::function<void()>& f)
+    {
+        if (!f)
+        {
+            return false;
+        }
+
+        const auto run = f;
+        run();
+        return true;
+    }
+
     [[nodiscard]] float CardHeight() const
     {
         if (mLook.iconOnly)
@@ -681,12 +778,53 @@ class NodeCard final : public el::element, public Drawn
 
 /// A cable between two things in a row. With `onAdd` it carries a + in its middle that inserts
 /// an effect there; `stretch` lets it run on to fill a short branch.
-class Connector final : public el::element, public Drawn
+class Connector final : public el::element, public Drawn, public Focusable
 {
   public:
     Connector(const Theme& theme, std::function<void()> onAdd, bool stretch = false)
         : mTheme(theme), mOnAdd(std::move(onAdd)), mStretch(stretch)
     {
+    }
+
+    // Its + is a button: add an effect here.
+    [[nodiscard]] AccessInfo Describe() const override
+    {
+        AccessInfo info;
+        info.name = NameOr("Add effect here");
+        return info;
+    }
+
+    bool Activate(const el::rect&) override
+    {
+        if (!mOnAdd)
+        {
+            return false;
+        }
+
+        const auto add = mOnAdd;
+        add();
+        return true;
+    }
+
+    bool wants_focus() const override
+    {
+        return FocusWanted(mOnAdd != nullptr);
+    }
+
+    void begin_focus(focus_request) override
+    {
+        NoteFocus(true);
+    }
+
+    bool end_focus() override
+    {
+        NoteFocus(false);
+        return true;
+    }
+
+    bool key(const el::context& ctx, el::key_info k) override
+    {
+        return IsPressKey(k) && Activate(ctx.bounds);
     }
 
     /// The graph edge this cable draws, so a dragged card can be dropped on it.
@@ -904,12 +1042,55 @@ class Connector final : public el::element, public Drawn
 /// Where a parallel block splits (or joins): the cable from the main line meets a rail that
 /// reaches each branch, with the split (join) icon on it. The split's icon selects the splitter,
 /// which is where its Branches control is.
-class Rail final : public el::element
+class Rail final : public el::element, public Focusable
 {
   public:
     Rail(const Theme& theme, Icons& icons, int lanes, bool join, bool selected, std::function<void()> onSelect)
         : mTheme(theme), mIcons(icons), mLanes(lanes), mJoin(join), mSelected(selected), mOnSelect(std::move(onSelect))
     {
+    }
+
+    [[nodiscard]] AccessInfo Describe() const override
+    {
+        AccessInfo info;
+        info.role = AccessRole::ListItem;
+        info.name = NameOr(mJoin ? "Mix" : "Split");
+        info.value = std::to_string(mLanes) + " lanes";
+        info.selected = mSelected;
+        return info;
+    }
+
+    bool Activate(const el::rect&) override
+    {
+        if (!mOnSelect)
+        {
+            return false;
+        }
+
+        const auto select = mOnSelect;
+        select();
+        return true;
+    }
+
+    bool wants_focus() const override
+    {
+        return FocusWanted(mOnSelect != nullptr);
+    }
+
+    void begin_focus(focus_request) override
+    {
+        NoteFocus(true);
+    }
+
+    bool end_focus() override
+    {
+        NoteFocus(false);
+        return true;
+    }
+
+    bool key(const el::context& ctx, el::key_info k) override
+    {
+        return IsPressKey(k) && Activate(ctx.bounds);
     }
 
     /// Each lane's height: the cards' (kCardHeight), or the tiles' (kIconRowHeight).

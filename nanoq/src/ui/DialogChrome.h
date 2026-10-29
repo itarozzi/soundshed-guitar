@@ -80,6 +80,13 @@ class CloseCross final : public Pressable
     {
     }
 
+    [[nodiscard]] AccessInfo Describe() const override
+    {
+        AccessInfo info = Pressable::Describe();
+        info.name = NameOr("Close");
+        return info;
+    }
+
     el::view_limits limits(const el::basic_context&) const override
     {
         return {{28.0f, 28.0f}, {28.0f, 28.0f}};
@@ -133,6 +140,15 @@ class CheckBox final : public Pressable
     [[nodiscard]] bool Checked() const
     {
         return mChecked;
+    }
+
+    [[nodiscard]] AccessInfo Describe() const override
+    {
+        AccessInfo info = Pressable::Describe();
+        info.role = AccessRole::CheckBox;
+        info.name = NameOr(mLabel);
+        info.toggled = mChecked ? 1 : 0;
+        return info;
     }
 
     el::view_limits limits(const el::basic_context& ctx) const override
@@ -200,6 +216,14 @@ class PickerField final : public Pressable
         mText = std::move(text);
     }
 
+    [[nodiscard]] AccessInfo Describe() const override
+    {
+        AccessInfo info = Pressable::Describe();
+        info.role = AccessRole::ComboBox;
+        info.value = mText;
+        return info;
+    }
+
     el::view_limits limits(const el::basic_context&) const override
     {
         return {{60.0f, 32.0f}, {el::full_extent, 32.0f}};
@@ -249,6 +273,14 @@ class ToggleSwitch final : public Pressable
         return mOn;
     }
 
+    [[nodiscard]] AccessInfo Describe() const override
+    {
+        AccessInfo info = Pressable::Describe();
+        info.role = AccessRole::Toggle;
+        info.toggled = mOn ? 1 : 0;
+        return info;
+    }
+
     el::view_limits limits(const el::basic_context&) const override
     {
         return {{36.0f, 20.0f}, {36.0f, 20.0f}};
@@ -261,19 +293,26 @@ class ToggleSwitch final : public Pressable
         const auto b = ctx.bounds;
         const float fade = mEnabled ? 1.0f : 0.5f;
         const float radius = b.height() * 0.5f;
-        cnv.fill_style(
-            (mOn ? mTheme.Accent().level(mHover ? 1.05f : 0.92f) : mTheme.ToggleBg().level(mHover ? 1.2f : 1.0f))
-                .opacity(fade));
+        const float on = mMotion.Position(mOn, DrawnArea());
+        cnv.fill_style(SwitchMotion::Mix(mTheme.ToggleBg().level(mHover ? 1.2f : 1.0f),
+                                         mTheme.Accent().level(mHover ? 1.05f : 0.92f), on)
+                           .opacity(fade));
         cnv.fill_round_rect(b, radius);
         cnv.fill_style(el::rgba(255, 255, 255, 240).opacity(fade));
-        cnv.add_circle(
-            cycfi::artist::circle(el::point{mOn ? b.right - radius : b.left + radius, b.top + radius}, radius - 3.0f));
+        cnv.add_circle(cycfi::artist::circle(
+            el::point{b.left + radius + (b.width() - 2.0f * radius) * on, b.top + radius}, radius - 3.0f));
         cnv.fill();
     }
 
   private:
+    void Pressed() override
+    {
+        mMotion.NoteToggled(DrawnArea());
+    }
+
     const Theme& mTheme;
     bool mOn;
+    SwitchMotion mMotion;
 };
 
 /// Lines of code in a fixed-pitch face (the web UI's pre blocks): a preset's JSON, a report.
@@ -339,8 +378,9 @@ class CodeBlock final : public el::element
 };
 
 /// Two or more choices joined into one control (the tuner's Cents | Hz, a Cards | List view
-/// switch): the chosen one filled with the accent. `onSelect` hears the index tapped.
-class Segmented final : public el::element, public Drawn
+/// switch): the chosen one filled with the accent. `onSelect` hears the index tapped. With focus
+/// the arrows choose the one beside it.
+class Segmented final : public el::element, public Drawn, public Focusable
 {
   public:
     Segmented(const Theme& theme, std::vector<std::string> options, float segmentWidth = 0.0f)
@@ -349,6 +389,77 @@ class Segmented final : public el::element, public Drawn
     }
 
     std::function<void(int index)> onSelect;
+
+    [[nodiscard]] AccessInfo Describe() const override
+    {
+        AccessInfo info;
+        info.role = AccessRole::ComboBox;
+        info.name = mAccessName;
+        info.value = mSelected >= 0 && mSelected < static_cast<int>(mOptions.size())
+                         ? mOptions[static_cast<std::size_t>(mSelected)]
+                         : std::string();
+        return info;
+    }
+
+    // Enter or Space steps on round, as a two-way switch is used.
+    bool Activate(const el::rect&) override
+    {
+        return Choose((mSelected + 1) % std::max<int>(1, static_cast<int>(mOptions.size())));
+    }
+
+    bool wants_focus() const override
+    {
+        return FocusWanted(onSelect != nullptr && mOptions.size() > 1);
+    }
+
+    void begin_focus(focus_request) override
+    {
+        NoteFocus(true);
+    }
+
+    bool end_focus() override
+    {
+        NoteFocus(false);
+        return true;
+    }
+
+    bool key(const el::context& ctx, el::key_info k) override
+    {
+        if (IsPressKey(k))
+        {
+            Activate(ctx.bounds);
+            ctx.view.refresh(ctx);
+            return true;
+        }
+
+        if (k.action != el::key_action::press && k.action != el::key_action::repeat)
+        {
+            return false;
+        }
+
+        int next = mSelected;
+
+        if (k.key == el::key_code::left || k.key == el::key_code::up)
+        {
+            next = std::max(0, mSelected - 1);
+        }
+        else if (k.key == el::key_code::right || k.key == el::key_code::down)
+        {
+            next = std::min(static_cast<int>(mOptions.size()) - 1, mSelected + 1);
+        }
+        else
+        {
+            return false;
+        }
+
+        if (next != mSelected)
+        {
+            Choose(next);
+            ctx.view.refresh(ctx);
+        }
+
+        return true;
+    }
 
     void Select(int index)
     {
@@ -441,6 +552,18 @@ class Segmented final : public el::element, public Drawn
     }
 
   private:
+    bool Choose(int index)
+    {
+        if (!onSelect || index < 0 || index >= static_cast<int>(mOptions.size()))
+        {
+            return false;
+        }
+
+        const auto select = onSelect; // it may rebuild the region this sits in
+        select(index);
+        return true;
+    }
+
     [[nodiscard]] int Hit(el::rect bounds, el::point p) const
     {
         for (std::size_t i = 0; i < mEdges.size(); ++i)
@@ -464,8 +587,9 @@ class Segmented final : public el::element, public Drawn
 
 /// A number in a field with ▲ and ▼ beside it (the tuner's reference pitch, the web UI's
 /// number inputs with their step buttons): the arrows and the wheel step it, Shift for a finer
-/// step, and a double click on the number asks for one to type.
-class Stepper final : public el::element, public Drawn
+/// step, and a double click on the number (or, with focus, Enter or a digit) types one in its
+/// place. With focus the arrow keys step it too.
+class Stepper final : public el::element, public Drawn, public Focusable
 {
   public:
     Stepper(const Theme& theme, float width) : mTheme(theme), mWidth(width)
@@ -474,8 +598,89 @@ class Stepper final : public el::element, public Drawn
 
     /// +1 or -1, and whether Shift was held.
     std::function<void(int direction, bool fine)> onStep;
-    /// A double click on the number, with where it is in view coordinates.
-    std::function<void(el::rect at)> onEdit;
+    /// What the field opens with, and what was typed into it.
+    std::function<std::string()> editText;
+    std::function<void(const std::string& typed)> onTyped;
+
+    [[nodiscard]] AccessInfo Describe() const override
+    {
+        AccessInfo info;
+        info.role = mEdit.Active() ? AccessRole::Edit : AccessRole::Slider;
+        info.name = mAccessName;
+        info.value = mEdit.Active() ? mEdit.Value() : mText;
+        return info;
+    }
+
+    [[nodiscard]] bool Editing() const override
+    {
+        return mEdit.Active();
+    }
+
+    bool wants_focus() const override
+    {
+        return FocusWanted(onStep != nullptr) || mEdit.Active();
+    }
+
+    void begin_focus(focus_request) override
+    {
+        NoteFocus(true);
+    }
+
+    bool end_focus() override
+    {
+        // Leaving the field keeps what was typed.
+        if (mEdit.Active())
+        {
+            const auto typed = mEdit.Value();
+            mEdit.End();
+            RepaintSoon(DrawnArea());
+
+            if (onTyped)
+            {
+                const auto typedTo = onTyped;
+                typedTo(typed);
+            }
+        }
+
+        NoteFocus(false);
+        return true;
+    }
+
+    bool key(const el::context& ctx, el::key_info k) override
+    {
+        bool changed = false;
+        const bool used = InlineEdit::FieldKey(mEdit, k, editText, onTyped, changed);
+
+        if (changed)
+        {
+            ctx.view.refresh(ctx);
+        }
+
+        if (used || mEdit.Active())
+        {
+            return used;
+        }
+
+        if ((k.action == el::key_action::press || k.action == el::key_action::repeat) && onStep &&
+            (k.key == el::key_code::up || k.key == el::key_code::down))
+        {
+            onStep(k.key == el::key_code::up ? 1 : -1, (k.modifiers & el::mod_shift) != 0);
+            return true;
+        }
+
+        return false;
+    }
+
+    bool text(const el::context& ctx, el::text_info info) override
+    {
+        if (!mEdit.Char(info))
+        {
+            return false;
+        }
+
+        ctx.view.refresh(ctx);
+        return true;
+    }
 
     void Set(std::string text)
     {
@@ -501,7 +706,15 @@ class Stepper final : public el::element, public Drawn
         cnv.fill_style(mTheme.ModalRule());
         cnv.fill_rect(el::rect{field.right, b.top, field.right + 1.0f, b.bottom});
         cnv.fill_rect(el::rect{field.right, b.top + b.height() * 0.5f, b.right, b.top + b.height() * 0.5f + 1.0f});
-        FillText(cnv, mText, Font(Weight::Medium).size(14.0f), mTheme.ModalText(), field, HAlign::Centre);
+
+        if (mEdit.Active())
+        {
+            mEdit.Draw(cnv, field.inset(3.0f, 4.0f), mTheme, Font(Weight::Medium).size(14.0f));
+        }
+        else
+        {
+            FillText(cnv, mText, Font(Weight::Medium).size(14.0f), mTheme.ModalText(), field, HAlign::Centre);
+        }
 
         for (int dir : {1, -1})
         {
@@ -534,9 +747,18 @@ class Stepper final : public el::element, public Drawn
                 onStep(dir, fine);
             }
         }
-        else if (btn.num_clicks == 2 && onEdit)
+        else if (btn.num_clicks == 2 && editText && onTyped)
         {
-            onEdit(ctx.bounds);
+            // The number turns into a field where it is; the stepper takes focus for the keys
+            // once this click is done with.
+            mEdit.Begin(editText());
+            ctx.view.refresh(ctx);
+            ctx.view.post([self = weak_from_this(), &view = ctx.view] {
+                if (const auto stepper = self.lock())
+                {
+                    FocusInView(view, *stepper);
+                }
+            });
         }
 
         return true;
@@ -588,5 +810,6 @@ class Stepper final : public el::element, public Drawn
     float mWidth;
     std::string mText;
     int mHoverArrow = 0;
+    InlineEdit mEdit;
 };
 } // namespace nanoq::ui

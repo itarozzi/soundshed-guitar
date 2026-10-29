@@ -165,6 +165,7 @@ void Shell::OpenEqDialog(EqDialogSpec spec)
 
     // ── The header: Enabled, and Reset where the dialog has one ──
     auto enabled = std::make_shared<ToggleSwitch>(mTheme, spec.enabled());
+    enabled->AccessName("Enabled");
     enabled->onClick = [enabled, getter = spec.enabled, setter = spec.setEnabled, this] {
         setter(!getter());
         enabled->Set(getter());

@@ -76,6 +76,7 @@ Shell::ControlCells Shell::BuildControlCells()
                         std::function<bool()> readOn = {}, std::function<void(bool)> writeOn = {},
                         Ptr below = nullptr) -> Ptr {
         auto knob = std::make_shared<ParamKnob>(mTheme, "");
+        knob->AccessName(info.name);
         knob->DefaultPosition(guitarfx::uiclient::ParamValueToPosition(info, info.defaultValue));
         knob->onChange = [info, write, format, k = knob.get()](double position) {
             const double v =
@@ -84,15 +85,13 @@ Shell::ControlCells Shell::BuildControlCells()
             write(v);
         };
         knob->onReset = [info, write] { write(info.defaultValue); };
-        knob->onEdit = [this, label, info, read, write] {
-            OpenPrompt(label, guitarfx::uiclient::EditableParamText(info, read()), "Set",
-                       [info, write](const std::string& entered) {
-                           if (const auto typed = guitarfx::uiclient::ParseTypedNumber(entered))
-                           {
-                               write(guitarfx::uiclient::SnapParamValue(
-                                   info, std::clamp(*typed, info.minValue, info.maxValue)));
-                           }
-                       });
+        // A value typed in where its value text is, as the web UI's knob does.
+        knob->editText = [info, read] { return guitarfx::uiclient::EditableParamText(info, read()); };
+        knob->onTyped = [info, write](const std::string& entered) {
+            if (const auto typed = guitarfx::uiclient::ParseTypedNumber(entered))
+            {
+                write(guitarfx::uiclient::SnapParamValue(info, std::clamp(*typed, info.minValue, info.maxValue)));
+            }
         };
 
         // The input and output levels take a MIDI mapping, as the web UI's control-bar knobs do.
@@ -113,6 +112,7 @@ Shell::ControlCells Shell::BuildControlCells()
         if (readOn)
         {
             auto toggle = std::make_shared<MiniSwitch>(mTheme, readOn());
+            toggle->AccessName(std::string(label) + " on");
             toggle->onClick = [readOn, writeOn] { writeOn(!readOn()); };
             mLive.Bind(toggle, readOn, &MiniSwitch::Set);
             head.push_back(HGap(5));
@@ -241,6 +241,7 @@ Shell::ControlCells Shell::BuildControlCells()
         eqButton, [chain] { return NodeEnabled(chain().postChainGraph, "global_eq"); },
         [](IconButton& b, bool on) { b.Lit(on); });
     auto eqOn = std::make_shared<MiniSwitch>(mTheme, NodeEnabled(chain().postChainGraph, "global_eq"));
+    eqOn->AccessName("EQ on");
     eqOn->onClick = [this, chain] {
         mSession.Commands().SetGlobalChainToggle("eq.enabled", !NodeEnabled(chain().postChainGraph, "global_eq"));
     };

@@ -61,6 +61,7 @@ Shell::Shell(UiSession& session)
 Shell::~Shell()
 {
     *mAlive = false;
+    mAccess.reset(); // before the view's window goes: it unhooks from it
     mSession.Tones().RemoveListener(mToneListener);
     mSession.onToast = nullptr;
 
@@ -165,6 +166,7 @@ void Shell::BuildRoot()
 
     mKeys = std::make_shared<KeyRouter>(Over(MinSize(metrics::kMinWidth, metrics::kMinHeight, frame), mBgSlot));
     mKeys->onKey = [this](const el::key_info& k) { return HandleKey(k); };
+    mKeys->ringColour = [this] { return mTheme.Accent(); };
     mKeys->onPointerDown = [this] { mChainFocused = false; };
     mKeys->onTrackDrop = [this](const el::drop_info& info, bool leaving) { TrackFileDrop(info, leaving); };
     mKeys->onDrop = [this](const el::drop_info& info) { return DropFiles(info); };
@@ -521,6 +523,30 @@ void Shell::OnTick()
     SyncTonePreview();
     SyncJam();
     mLive.Sync();
+
+    // Keyboard focus that a rebuild took from its control goes to the same one in the new
+    // region; switches slide; fields closed without a context are redrawn; and a screen reader
+    // is told what changed (Focus.h, SwitchMotion.h, AccessBridge.h).
+    auto& view = mSession.View();
+
+    if (auto* router = KeyRouter::Focused(view))
+    {
+        router->KeepFocus(view);
+    }
+
+    FlushRepaints(view);
+    SwitchMotion::Tick(view);
+
+    if (!mAccessTried && view.host() != nullptr)
+    {
+        mAccessTried = true;
+        mAccess = AccessBridge::Create(view);
+    }
+
+    if (mAccess)
+    {
+        mAccess->Tick();
+    }
 }
 
 // ── Selection and pages ─────────────────────────────────────────────────────────

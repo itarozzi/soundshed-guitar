@@ -109,8 +109,9 @@ float DrawChip(artist::canvas& cnv, const std::string& text, float x, float y, e
 }
 
 /// One tone as a card: its picture or accent, title, chips, description, tags and creator over
-/// a bar of actions. Pictures are fetched as the card is drawn, and drawn once they arrive.
-class ToneCard final : public el::element
+/// a bar of actions. Pictures are fetched as the card is drawn, and drawn once they arrive. With
+/// focus Left and Right pick an action (lit as under the pointer), and Enter or Space runs it.
+class ToneCard final : public el::element, public Focusable
 {
   public:
     struct Action
@@ -131,6 +132,77 @@ class ToneCard final : public el::element
     std::vector<Action> actions;
     std::vector<std::string> lines; // extra lines (Installed's details) in place of chips and tags
     bool row = false;               // the List layout's row (.tone-sharing-feed.is-list) rather than a card
+
+    [[nodiscard]] AccessInfo Describe() const override
+    {
+        AccessInfo info;
+        info.role = AccessRole::ListItem;
+        info.name = NameOr(mTone.title);
+        const int at = KeyAction();
+
+        if (at >= 0)
+        {
+            const auto& a = actions[static_cast<std::size_t>(at)];
+            info.value = a.label.empty() ? IconButton::IconMeaning(a.icon) : a.label;
+        }
+
+        return info;
+    }
+
+    bool Activate(const el::rect&) override
+    {
+        const int at = KeyAction();
+
+        if (at < 0 || !actions[static_cast<std::size_t>(at)].onClick)
+        {
+            return false;
+        }
+
+        const auto run = actions[static_cast<std::size_t>(at)].onClick; // it may rebuild the list
+        run();
+        return true;
+    }
+
+    bool wants_focus() const override
+    {
+        return FocusWanted(KeyAction() >= 0);
+    }
+
+    void begin_focus(focus_request) override
+    {
+        NoteFocus(true);
+    }
+
+    bool end_focus() override
+    {
+        NoteFocus(false);
+        mHoverAction = -1;
+        return true;
+    }
+
+    bool key(const el::context& ctx, el::key_info k) override
+    {
+        if ((k.action == el::key_action::press || k.action == el::key_action::repeat) &&
+            (k.key == el::key_code::left || k.key == el::key_code::right))
+        {
+            const int step = k.key == el::key_code::right ? 1 : -1;
+
+            for (int i = KeyAction() + step; i >= 0 && i < static_cast<int>(actions.size()); i += step)
+            {
+                if (actions[static_cast<std::size_t>(i)].enabled && actions[static_cast<std::size_t>(i)].onClick)
+                {
+                    mKeyAction = i;
+                    mHoverAction = i;
+                    ctx.view.refresh(ctx);
+                    break;
+                }
+            }
+
+            return true;
+        }
+
+        return IsPressKey(k) && Activate(ctx.bounds);
+    }
 
     el::view_limits limits(const el::basic_context&) const override
     {
@@ -435,6 +507,38 @@ class ToneCard final : public el::element
     }
 
   private:
+    /// The action Enter runs: the one picked, else the filled one, else the first that does
+    /// anything; -1 for none.
+    [[nodiscard]] int KeyAction() const
+    {
+        const auto usable = [this](int i) {
+            return i >= 0 && i < static_cast<int>(actions.size()) && actions[static_cast<std::size_t>(i)].enabled &&
+                   actions[static_cast<std::size_t>(i)].onClick;
+        };
+
+        if (usable(mKeyAction))
+        {
+            return mKeyAction;
+        }
+
+        int first = -1;
+
+        for (int i = 0; i < static_cast<int>(actions.size()); ++i)
+        {
+            if (usable(i))
+            {
+                if (actions[static_cast<std::size_t>(i)].primary)
+                {
+                    return i;
+                }
+
+                first = first < 0 ? i : first;
+            }
+        }
+
+        return first;
+    }
+
     el::rect ActionRect(const el::rect& b, std::size_t i) const
     {
         const auto width = [this](std::size_t j) { return actions[j].label.empty() ? 26.0f : 70.0f; };
@@ -488,6 +592,7 @@ class ToneCard final : public el::element
     float mWidth, mHeight;
     bool mHover = false;
     int mHoverAction = -1;
+    int mKeyAction = -1; // the action Enter runs: the one picked with the arrows
 };
 
 /// A section's heading (.tone-sharing-row-title): small capitals.
@@ -736,6 +841,7 @@ Ptr Shell::BuildTonesPage()
     };
     const auto layout = [this](float segment) {
         auto s = std::make_shared<Segmented>(mTheme, std::vector<std::string>{"Cards", "List"}, segment);
+        s->AccessName("View");
         s->Select(mTonesList ? 1 : 0);
         s->onSelect = [this](int index) {
             mTonesList = index == 1;

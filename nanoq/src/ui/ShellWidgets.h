@@ -7,8 +7,10 @@
 // chain. Measurements are the web UI's at its compact density.
 
 #include "ui/Drawn.h"
+#include "ui/Focus.h"
 #include "ui/Graphics.h"
 #include "ui/Layout.h"
+#include "ui/SwitchMotion.h"
 #include "ui/Widgets.h"
 
 #include <cmath>
@@ -20,14 +22,70 @@
 namespace nanoq::ui
 {
 /// Hover and press tracking shared by the clickable pieces here: a left click released inside
-/// runs `onClick`.
-class Pressable : public el::element, public Drawn
+/// runs `onClick`. With focus (Focus.h), Enter or Space runs it too, and the Menu key or
+/// Shift+F10 opens `onMenu`. Read as a button unless a subclass says what it is.
+class Pressable : public el::element, public Drawn, public Focusable
 {
   public:
     std::function<void()> onClick;
     /// A right click (a long press on a touch screen), at a point in view coordinates: the
     /// control's context menu, such as MIDI Learn.
     std::function<void(el::point at)> onMenu;
+
+    [[nodiscard]] AccessInfo Describe() const override
+    {
+        AccessInfo info;
+        info.name = mAccessName;
+        info.enabled = mEnabled;
+        return info;
+    }
+
+    bool Activate(const el::rect& at) override
+    {
+        if (!mEnabled || !onClick)
+        {
+            return false;
+        }
+
+        mBounds = at;
+        Pressed();
+        const auto run = onClick; // it may rebuild the region this sits in
+        run();
+        return true;
+    }
+
+    bool wants_focus() const override
+    {
+        return FocusWanted(mEnabled && (onClick != nullptr || onMenu != nullptr));
+    }
+
+    void begin_focus(focus_request) override
+    {
+        NoteFocus(true);
+    }
+
+    bool end_focus() override
+    {
+        NoteFocus(false);
+        return true;
+    }
+
+    bool key(const el::context& ctx, el::key_info k) override
+    {
+        if (IsMenuKey(k) && onMenu)
+        {
+            mBounds = ctx.bounds;
+            onMenu(cycfi::artist::center_point(ctx.bounds));
+            return true;
+        }
+
+        if (IsPressKey(k))
+        {
+            return Activate(ctx.bounds);
+        }
+
+        return false;
+    }
 
     bool click(const el::context& ctx, el::mouse_button btn) override
     {
@@ -60,6 +118,7 @@ class Pressable : public el::element, public Drawn
 
         if (fire && onClick)
         {
+            Pressed();
             onClick();
         }
 
@@ -96,6 +155,12 @@ class Pressable : public el::element, public Drawn
     }
 
   protected:
+    /// Just before `onClick` runs, from a click or a key: a switch notes where it was for the
+    /// slide to its new state (SwitchMotion).
+    virtual void Pressed()
+    {
+    }
+
     bool mHover = false, mDown = false, mEnabled = true;
     el::rect mBounds;
 };
@@ -108,6 +173,15 @@ class RailTab final : public Pressable
     RailTab(const Theme& theme, Icons& icons, std::string icon, std::string label, bool active)
         : mTheme(theme), mIcons(icons), mIcon(std::move(icon)), mLabel(Upper(std::move(label))), mActive(active)
     {
+    }
+
+    [[nodiscard]] AccessInfo Describe() const override
+    {
+        AccessInfo info = Pressable::Describe();
+        info.role = AccessRole::Tab;
+        info.name = NameOr(mLabel);
+        info.selected = mActive;
+        return info;
     }
 
     el::view_limits limits(const el::basic_context&) const override
@@ -161,6 +235,81 @@ class IconButton final : public Pressable
     IconButton(const Theme& theme, Icons& icons, std::string icon, Look look = Look::Ghost)
         : mTheme(theme), mIcons(icons), mIcon(std::move(icon)), mLook(look)
     {
+    }
+
+    /// Read as its label, or for an icon alone what the icon stands for; with a caret it opens a
+    /// list, and lit it is pressed.
+    [[nodiscard]] AccessInfo Describe() const override
+    {
+        AccessInfo info = Pressable::Describe();
+        info.role = mCaret ? AccessRole::ComboBox : AccessRole::Button;
+        info.name = NameOr(mLabel.empty() ? IconMeaning(mIcon) : mLabel);
+        info.selected = mLit;
+        return info;
+    }
+
+    /// What an icon on a button means, for one with no label to read.
+    [[nodiscard]] static std::string IconMeaning(const std::string& icon)
+    {
+        static const std::pair<const char*, const char*> kMeanings[] = {
+            {"ui-prev", "Previous"},
+            {"ui-next", "Next"},
+            {"ui-play", "Play"},
+            {"ui-stop", "Stop"},
+            {"ui-loop", "Loop"},
+            {"ui-record", "Record"},
+            {"ui-save", "Save"},
+            {"ui-new", "New preset"},
+            {"ui-random", "Random preset"},
+            {"ui-swap", "Copy the chain to the other slot"},
+            {"ui-more", "More"},
+            {"ui-gear", "Settings"},
+            {"ui-folder", "Folder"},
+            {"ui-trash", "Delete"},
+            {"ui-share", "Share"},
+            {"ui-edit", "Edit"},
+            {"pencil", "Rename"},
+            {"ui-download", "Download"},
+            {"ui-upload", "Upload"},
+            {"ui-up", "Up"},
+            {"ui-speaker", "Mute"},
+            {"ui-mute", "Unmute"},
+            {"ui-tuner", "Tuner"},
+            {"ui-midi", "MIDI and automation"},
+            {"ui-pads", "Setlists"},
+            {"ui-metronome", "Metronome"},
+            {"ui-jam", "Jam"},
+            {"ui-jump-back", "Back to start"},
+            {"ui-wrap", "Wrap"},
+            {"ui-box", "Composite"},
+            {"ui-caret", "Open"},
+            {"ui-undo", "Undo"},
+            {"ui-redo", "Redo"},
+            {"ui-copy", "Copy"},
+            {"ui-close", "Close"},
+            {"x", "Close"},
+            {"star", "Favourite"},
+            {"sliders", "Controls"},
+            {"meter", "DSP status"},
+        };
+
+        for (const auto& [name, meaning] : kMeanings)
+        {
+            if (icon == name)
+            {
+                return meaning;
+            }
+        }
+
+        // An icon not listed: its name, without the prefix.
+        auto words = icon.rfind("ui-", 0) == 0 ? icon.substr(3) : icon;
+
+        for (auto& ch : words)
+        {
+            ch = ch == '-' ? ' ' : ch;
+        }
+
+        return words;
     }
 
     IconButton& Size(float w, float h)
@@ -370,6 +519,14 @@ class PresetPill final : public Pressable
 
     std::function<void()> onFavourite;
 
+    [[nodiscard]] AccessInfo Describe() const override
+    {
+        AccessInfo info = Pressable::Describe();
+        info.name = NameOr("Preset");
+        info.value = mName + (mDirty ? ", unsaved changes" : "") + (mFavourite ? ", favourite" : "");
+        return info;
+    }
+
     /// The full layout's selector is taller, with the preset's source (User, Factory) at its right.
     PresetPill& Height(float h)
     {
@@ -492,6 +649,33 @@ class SceneChip final : public Pressable
     std::function<void()> onRemove;
     std::function<void()> onMenu;
 
+    [[nodiscard]] AccessInfo Describe() const override
+    {
+        AccessInfo info = Pressable::Describe();
+        info.role = mAdd ? AccessRole::Button : AccessRole::Tab;
+        info.name = NameOr(mAdd ? "Add scene" : "Scene " + mLabel);
+        info.selected = mActive;
+        return info;
+    }
+
+    // Delete removes the scene (as its x does), the Menu key opens its menu.
+    bool key(const el::context& ctx, el::key_info k) override
+    {
+        if (IsMenuKey(k) && onMenu)
+        {
+            onMenu();
+            return true;
+        }
+
+        if (k.action == el::key_action::press && k.key == el::key_code::_delete && onRemove)
+        {
+            onRemove();
+            return true;
+        }
+
+        return Pressable::key(ctx, k);
+    }
+
     el::view_limits limits(const el::basic_context& ctx) const override
     {
         const float w = mAdd ? 20.0f
@@ -579,6 +763,15 @@ class PowerSwitch final : public Pressable
     {
     }
 
+    [[nodiscard]] AccessInfo Describe() const override
+    {
+        AccessInfo info = Pressable::Describe();
+        info.role = AccessRole::Toggle;
+        info.name = NameOr("Effect on");
+        info.toggled = mOn ? 1 : 0;
+        return info;
+    }
+
     void Set(bool on)
     {
         mOn = on;
@@ -595,36 +788,46 @@ class PowerSwitch final : public Pressable
         auto& cnv = ctx.canvas;
         const auto b = ctx.bounds;
         const float radius = b.height() * 0.5f;
+        // Sliding: the grey track under the accent one, which fades in as the thumb goes right.
+        const float on = mMotion.Position(mOn, DrawnArea());
 
-        if (mOn)
-        {
-            cycfi::artist::canvas::linear_gradient fill{b.top_left(), b.bottom_left()};
-            fill.add_color_stop(0.0f, mTheme.Accent().level(1.05f));
-            fill.add_color_stop(1.0f, mTheme.Accent().level(0.82f));
-            cnv.fill_style(fill);
-        }
-        else
+        if (on < 1.0f)
         {
             cnv.fill_style(mTheme.ToggleBg());
+            cnv.fill_round_rect(b, radius);
         }
 
-        cnv.fill_round_rect(b, radius);
+        if (on > 0.0f)
+        {
+            cycfi::artist::canvas::linear_gradient fill{b.top_left(), b.bottom_left()};
+            fill.add_color_stop(0.0f, mTheme.Accent().level(1.05f).opacity(on));
+            fill.add_color_stop(1.0f, mTheme.Accent().level(0.82f).opacity(on));
+            cnv.fill_style(fill);
+            cnv.fill_round_rect(b, radius);
+        }
 
         const float thumbR = radius - 4.0f;
-        const el::point thumb{mOn ? b.right - radius : b.left + radius, b.top + radius};
-        cnv.fill_style(el::rgba(255, 255, 255, mOn ? 255 : 200));
+        const el::point thumb{b.left + radius + (b.width() - 2.0f * radius) * on, b.top + radius};
+        cnv.fill_style(el::rgba(255, 255, 255, 255).opacity((200.0f + 55.0f * on) / 255.0f));
         cnv.add_circle(cycfi::artist::circle(thumb, thumbR));
         cnv.fill();
 
+        const bool lit = on >= 0.5f;
         const auto font = Font(Weight::SemiBold).size(7.5f);
-        const el::rect label = mOn ? el::rect{b.left + 3.0f, b.top, thumb.x - thumbR, b.bottom}
+        const el::rect label = lit ? el::rect{b.left + 3.0f, b.top, thumb.x - thumbR, b.bottom}
                                    : el::rect{thumb.x + thumbR, b.top, b.right - 3.0f, b.bottom};
-        FillText(cnv, mOn ? "ON" : "OFF", font, el::rgba(255, 255, 255, mOn ? 240 : 170), label, HAlign::Centre);
+        FillText(cnv, lit ? "ON" : "OFF", font, el::rgba(255, 255, 255, lit ? 240 : 170), label, HAlign::Centre);
     }
 
   private:
+    void Pressed() override
+    {
+        mMotion.NoteToggled(DrawnArea());
+    }
+
     const Theme& mTheme;
     bool mOn;
+    SwitchMotion mMotion;
 };
 
 /// A tab drawn as text with an accent underline when chosen (.node-param-tab).
@@ -634,6 +837,15 @@ class UnderlineTab final : public Pressable
     UnderlineTab(const Theme& theme, std::string label, bool active)
         : mTheme(theme), mLabel(Upper(std::move(label))), mActive(active)
     {
+    }
+
+    [[nodiscard]] AccessInfo Describe() const override
+    {
+        AccessInfo info = Pressable::Describe();
+        info.role = AccessRole::Tab;
+        info.name = NameOr(mLabel);
+        info.selected = mActive;
+        return info;
     }
 
     el::view_limits limits(const el::basic_context& ctx) const override
@@ -671,6 +883,15 @@ class AbButton final : public Pressable
     AbButton(const Theme& theme, std::string label, bool active)
         : mTheme(theme), mLabel(std::move(label)), mActive(active)
     {
+    }
+
+    [[nodiscard]] AccessInfo Describe() const override
+    {
+        AccessInfo info = Pressable::Describe();
+        info.role = AccessRole::Tab;
+        info.name = NameOr("Chain " + mLabel);
+        info.selected = mActive;
+        return info;
     }
 
     el::view_limits limits(const el::basic_context&) const override
@@ -714,6 +935,13 @@ class RoundAdd final : public Pressable
   public:
     explicit RoundAdd(const Theme& theme, float size = 24.0f) : mTheme(theme), mSize(size)
     {
+    }
+
+    [[nodiscard]] AccessInfo Describe() const override
+    {
+        AccessInfo info = Pressable::Describe();
+        info.name = NameOr("Add effect");
+        return info;
     }
 
     el::view_limits limits(const el::basic_context&) const override
@@ -767,6 +995,15 @@ class SelectField final : public Pressable
     {
     }
 
+    [[nodiscard]] AccessInfo Describe() const override
+    {
+        AccessInfo info = Pressable::Describe();
+        info.role = AccessRole::ComboBox;
+        info.name = NameOr("Choose");
+        info.value = mText;
+        return info;
+    }
+
     el::view_limits limits(const el::basic_context&) const override
     {
         return {{120.0f, 26.0f}, {el::full_extent, 26.0f}};
@@ -809,6 +1046,15 @@ class ParamToggle final : public Pressable
     {
     }
 
+    [[nodiscard]] AccessInfo Describe() const override
+    {
+        AccessInfo info = Pressable::Describe();
+        info.role = AccessRole::Toggle;
+        info.name = NameOr(mName);
+        info.toggled = mOn ? 1 : 0;
+        return info;
+    }
+
     void Set(bool on)
     {
         mOn = on;
@@ -830,12 +1076,13 @@ class ParamToggle final : public Pressable
                  el::rect{b.left, b.top, b.right, b.top + 12.0f}, HAlign::Centre);
         const float cx = (b.left + b.right) * 0.5f;
         const el::rect track{cx - 17.0f, b.top + 22.0f, cx + 17.0f, b.top + 40.0f};
-        cnv.fill_style(mOn ? mTheme.Accent().level(mHover ? 1.05f : 0.92f)
-                           : mTheme.ToggleBg().level(mHover ? 1.15f : 1.0f));
+        const float on = mMotion.Position(mOn, DrawnArea());
+        cnv.fill_style(SwitchMotion::Mix(mTheme.ToggleBg().level(mHover ? 1.15f : 1.0f),
+                                         mTheme.Accent().level(mHover ? 1.05f : 0.92f), on));
         cnv.fill_round_rect(track, 9.0f);
         cnv.fill_style(el::rgba(255, 255, 255, 240));
         cnv.add_circle(
-            cycfi::artist::circle(el::point{mOn ? track.right - 9.0f : track.left + 9.0f, track.top + 9.0f}, 7.0f));
+            cycfi::artist::circle(el::point{track.left + 9.0f + (track.width() - 18.0f) * on, track.top + 9.0f}, 7.0f));
         cnv.fill();
         FillText(cnv, mOn ? "On" : "Off", Font(Weight::SemiBold).size(10.0f),
                  mTheme.Pick(el::rgba(231, 236, 246, 194), mTheme.Text()),
@@ -843,9 +1090,15 @@ class ParamToggle final : public Pressable
     }
 
   private:
+    void Pressed() override
+    {
+        mMotion.NoteToggled(DrawnArea());
+    }
+
     const Theme& mTheme;
     std::string mName;
     bool mOn = false;
+    SwitchMotion mMotion;
 };
 
 /// A category in the effect chooser's left column (.fx-selector-category): its icon in its
@@ -858,6 +1111,16 @@ class CategoryRow final : public Pressable
         : mTheme(theme), mIcons(icons), mIcon(std::move(icon)), mLabel(Upper(std::move(label))), mCount(count),
           mTint(tint), mActive(active)
     {
+    }
+
+    [[nodiscard]] AccessInfo Describe() const override
+    {
+        AccessInfo info = Pressable::Describe();
+        info.role = AccessRole::Tab;
+        info.name = NameOr(mLabel);
+        info.value = std::to_string(mCount);
+        info.selected = mActive;
+        return info;
     }
 
     el::view_limits limits(const el::basic_context&) const override
@@ -917,6 +1180,28 @@ class EffectRow final : public Pressable
         : mTheme(theme), mIcons(icons), mIcon(std::move(icon)), mThumb(std::move(thumb)), mName(std::move(name)),
           mCategory(std::move(category)), mTint(tint), mCurrent(current)
     {
+    }
+
+    [[nodiscard]] AccessInfo Describe() const override
+    {
+        AccessInfo info = Pressable::Describe();
+        info.role = AccessRole::ListItem;
+        info.name = NameOr(mName);
+        info.value = mCategory + (mFavourite ? ", favourite" : "");
+        info.selected = mCurrent;
+        return info;
+    }
+
+    // F stars it, as a click on its star does.
+    bool key(const el::context& ctx, el::key_info k) override
+    {
+        if (onStar && k.action == el::key_action::press && k.key == el::key_code::f && k.modifiers == 0)
+        {
+            onStar();
+            return true;
+        }
+
+        return Pressable::key(ctx, k);
     }
 
     el::view_limits limits(const el::basic_context&) const override
@@ -1165,6 +1450,55 @@ class PresetRow final : public Pressable
     {
     }
 
+    [[nodiscard]] AccessInfo Describe() const override
+    {
+        AccessInfo info = Pressable::Describe();
+        info.role = AccessRole::ListItem;
+        info.name = NameOr(mName);
+        info.value = mDetail;
+
+        if (mRating > 0)
+        {
+            info.value += (info.value.empty() ? "" : ", ") + std::to_string(mRating) + " stars";
+        }
+
+        if (mFavourite)
+        {
+            info.value += info.value.empty() ? "favourite" : ", favourite";
+        }
+
+        info.selected = mSelected;
+        return info;
+    }
+
+    // The Menu key opens the row's menu; F favourites it and 0 to 5 rate it, as the heart and the
+    // stars do.
+    bool key(const el::context& ctx, el::key_info k) override
+    {
+        if (IsMenuKey(k) && onMenu)
+        {
+            onMenu();
+            return true;
+        }
+
+        if (k.action == el::key_action::press && k.modifiers == 0)
+        {
+            if (k.key == el::key_code::f && onFavourite)
+            {
+                onFavourite();
+                return true;
+            }
+
+            if (k.key >= el::key_code::_0 && k.key <= el::key_code::_5 && onRate)
+            {
+                onRate(static_cast<int>(k.key) - static_cast<int>(el::key_code::_0));
+                return true;
+            }
+        }
+
+        return Pressable::key(ctx, k);
+    }
+
     el::view_limits limits(const el::basic_context&) const override
     {
         return {{200.0f, 44.0f}, {el::full_extent, 44.0f}};
@@ -1360,6 +1694,14 @@ class MiniSwitch final : public Pressable
         mOn = on;
     }
 
+    [[nodiscard]] AccessInfo Describe() const override
+    {
+        AccessInfo info = Pressable::Describe();
+        info.role = AccessRole::Toggle;
+        info.toggled = mOn ? 1 : 0;
+        return info;
+    }
+
     el::view_limits limits(const el::basic_context&) const override
     {
         return {{22.0f, 12.0f}, {22.0f, 12.0f}};
@@ -1367,18 +1709,27 @@ class MiniSwitch final : public Pressable
 
     void draw(const el::context& ctx) override
     {
+        NoteDrawn(ctx);
         auto& cnv = ctx.canvas;
         const auto b = ctx.bounds;
-        cnv.fill_style(mOn ? mTheme.Accent().level(0.92f) : mTheme.ToggleBg().level(mHover ? 1.2f : 1.0f));
+        const float on = mMotion.Position(mOn, DrawnArea());
+        cnv.fill_style(
+            SwitchMotion::Mix(mTheme.ToggleBg().level(mHover ? 1.2f : 1.0f), mTheme.Accent().level(0.92f), on));
         cnv.fill_round_rect(b, 6.0f);
         cnv.fill_style(el::rgba(255, 255, 255, 235));
-        cnv.add_circle(cycfi::artist::circle(el::point{mOn ? b.right - 6.0f : b.left + 6.0f, b.top + 6.0f}, 4.0f));
+        cnv.add_circle(cycfi::artist::circle(el::point{b.left + 6.0f + (b.width() - 12.0f) * on, b.top + 6.0f}, 4.0f));
         cnv.fill();
     }
 
   private:
+    void Pressed() override
+    {
+        mMotion.NoteToggled(DrawnArea());
+    }
+
     const Theme& mTheme;
     bool mOn;
+    SwitchMotion mMotion;
 };
 
 /// A loaded model's architecture as a small green pill (.node-architecture-badge, "A2").

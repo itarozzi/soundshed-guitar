@@ -9,6 +9,7 @@
 #include <cctype>
 #include <cmath>
 #include <cstdio>
+#include <optional>
 
 namespace nanoq::ui
 {
@@ -272,6 +273,34 @@ bool Button::click(const el::context& ctx, el::mouse_button btn)
     return true;
 }
 
+bool Button::key(const el::context& ctx, el::key_info k)
+{
+    return IsPressKey(k) && Activate(ctx.bounds);
+}
+
+AccessInfo Button::Describe() const
+{
+    AccessInfo info;
+    info.role = mDot ? AccessRole::Toggle : AccessRole::Button;
+    info.name = NameOr(mText);
+    info.toggled = mDot ? (mOn ? 1 : 0) : -1;
+    info.selected = mSelected;
+    info.enabled = mEnabled;
+    return info;
+}
+
+bool Button::Activate(const el::rect&)
+{
+    if (!mEnabled || !mOnClick)
+    {
+        return false;
+    }
+
+    const auto run = mOnClick; // it may rebuild the region this sits in
+    run();
+    return true;
+}
+
 bool Button::cursor(const el::context& ctx, el::point, el::cursor_tracking status)
 {
     const bool hover = status != el::cursor_tracking::leaving;
@@ -338,6 +367,69 @@ Button& Button::TextSize(float size)
     mSize = size;
     return *this;
 }
+
+// ── Turning a knob or slider from the keyboard ─────────────────────────────────
+
+namespace
+{
+/// Where an arrow, Page Up or Down, Home or End takes a control at `value` (0..1): a hundredth a
+/// step (a thousandth with Shift), or one position of `steps`, and a tenth a page.
+std::optional<double> KeyedPosition(const el::key_info& k, double value, int steps)
+{
+    using el::key_code;
+
+    if ((k.action != el::key_action::press && k.action != el::key_action::repeat) ||
+        (k.modifiers & (el::mod_control | el::mod_alt | el::mod_super)) != 0)
+    {
+        return std::nullopt;
+    }
+
+    const double step =
+        steps > 1 ? 1.0 / static_cast<double>(steps - 1) : ((k.modifiers & el::mod_shift) ? 0.001 : 0.01);
+    const double page = std::max(step, 0.1);
+    double next = value;
+
+    switch (k.key)
+    {
+    case key_code::up:
+    case key_code::right:
+        next = value + step;
+        break;
+    case key_code::down:
+    case key_code::left:
+        next = value - step;
+        break;
+    case key_code::page_up:
+        next = value + page;
+        break;
+    case key_code::page_down:
+        next = value - page;
+        break;
+    case key_code::home:
+        next = 0.0;
+        break;
+    case key_code::end:
+        next = 1.0;
+        break;
+    default:
+        return std::nullopt;
+    }
+
+    next = std::clamp(next, 0.0, 1.0);
+
+    if (steps > 1)
+    {
+        next = std::round(next * static_cast<double>(steps - 1)) / static_cast<double>(steps - 1);
+    }
+
+    return next;
+}
+
+bool IsResetKey(const el::key_info& k)
+{
+    return k.action == el::key_action::press && (k.key == el::key_code::_delete || k.key == el::key_code::backspace);
+}
+} // namespace
 
 // ── ParamSlider ─────────────────────────────────────────────────────────────────
 
@@ -475,6 +567,55 @@ bool ParamSlider::scroll(const el::context& ctx, el::point dir, el::point)
     }
 
     ctx.view.refresh(ctx);
+    return true;
+}
+
+bool ParamSlider::key(const el::context& ctx, el::key_info k)
+{
+    if (IsResetKey(k) && onReset)
+    {
+        onReset();
+        return true;
+    }
+
+    const auto next = KeyedPosition(k, mValue, 0);
+
+    if (!next)
+    {
+        return false;
+    }
+
+    SetPosition(*next);
+    ctx.view.refresh(ctx);
+    return true;
+}
+
+AccessInfo ParamSlider::Describe() const
+{
+    AccessInfo info;
+    info.role = AccessRole::Slider;
+    info.name = NameOr(mName);
+    info.value = mValueText;
+    info.position = mValue;
+    return info;
+}
+
+bool ParamSlider::SetPosition(double normalised)
+{
+    // A step from the keyboard is a whole gesture: previewed and committed at once.
+    mValue = std::clamp(normalised, 0.0, 1.0);
+
+    if (onChange)
+    {
+        onChange(mValue);
+    }
+
+    if (onRelease)
+    {
+        onRelease();
+    }
+
+    RepaintSoon(DrawnArea());
     return true;
 }
 
@@ -627,9 +768,169 @@ void ParamKnob::draw(const el::context& ctx)
         return;
     }
 
+    if (mEdit.Active())
+    {
+        mEdit.Draw(cnv, ValueBox(b), mTheme, valueFont);
+        return;
+    }
+
     const auto valueBounds = el::rect{b.left, b.bottom - valueHeight, b.right, b.bottom};
     FillText(cnv, Ellipsize(cnv, mValueText, valueFont, valueBounds.width() + 6.0f), valueFont, valueInk, valueBounds,
              Text::Align::Centre);
+}
+
+el::rect ParamKnob::ValueBox(const el::rect& b) const
+{
+    const float valueHeight = mLarge ? kLargeValueHeight : kKnobValueHeight;
+    return el::rect{b.left + 1.0f, b.bottom - valueHeight - 2.0f, b.right - 1.0f, b.bottom + 1.0f};
+}
+
+void ParamKnob::BeginEdit(std::string text)
+{
+    mDragging = false;
+    mEdit.Begin(std::move(text));
+}
+
+void ParamKnob::FinishEdit(bool commit)
+{
+    const auto typed = mEdit.Value();
+    mEdit.End();
+    RepaintSoon(DrawnArea());
+
+    if (commit && onTyped)
+    {
+        const auto typedTo = onTyped; // it may rebuild the region this sits in
+        typedTo(typed);
+    }
+}
+
+bool ParamKnob::end_focus()
+{
+    // Going elsewhere keeps what was typed, as leaving the web UI's field does.
+    if (mEdit.Active())
+    {
+        FinishEdit(true);
+    }
+
+    NoteFocus(false);
+    return true;
+}
+
+void ParamKnob::Turn(const el::context& ctx, double normalised)
+{
+    mValue = normalised;
+
+    if (onChange)
+    {
+        onChange(mValue);
+    }
+
+    ctx.view.refresh(ctx);
+}
+
+bool ParamKnob::key(const el::context& ctx, el::key_info k)
+{
+    using el::key_code;
+
+    if (mEdit.Active())
+    {
+        switch (mEdit.Key(k))
+        {
+        case InlineEdit::Outcome::Commit:
+            FinishEdit(true);
+            ctx.view.refresh(ctx);
+            return true;
+        case InlineEdit::Outcome::Cancel:
+            FinishEdit(false);
+            ctx.view.refresh(ctx);
+            return true;
+        case InlineEdit::Outcome::Used:
+            ctx.view.refresh(ctx);
+            return true;
+        case InlineEdit::Outcome::Unused:
+            return false;
+        }
+    }
+
+    if (IsMenuKey(k) && onMenu)
+    {
+        onMenu(cycfi::artist::center_point(ctx.bounds));
+        return true;
+    }
+
+    const bool plain = (k.modifiers & (el::mod_control | el::mod_alt | el::mod_super)) == 0;
+    const bool typeable = editText && onTyped && mBare <= 0.0f;
+
+    if (k.action == el::key_action::press && plain && typeable)
+    {
+        if (k.key == key_code::enter || k.key == key_code::kp_enter || k.key == key_code::f2)
+        {
+            BeginEdit(editText());
+            ctx.view.refresh(ctx);
+            return true;
+        }
+
+        // A number typed straight away opens the field for it; the character comes as text().
+        const bool digit = (k.key >= key_code::_0 && k.key <= key_code::_9 && (k.modifiers & el::mod_shift) == 0) ||
+                           (k.key >= key_code::kp_0 && k.key <= key_code::kp_9);
+
+        if (digit || k.key == key_code::minus || k.key == key_code::period || k.key == key_code::kp_subtract ||
+            k.key == key_code::kp_decimal)
+        {
+            BeginEdit({});
+            ctx.view.refresh(ctx);
+            return true;
+        }
+    }
+
+    if (IsResetKey(k) && onReset)
+    {
+        onReset();
+        ctx.view.refresh(ctx);
+        return true;
+    }
+
+    if (const auto next = KeyedPosition(k, mValue, mKeySteps))
+    {
+        Turn(ctx, *next);
+        return true;
+    }
+
+    return false;
+}
+
+bool ParamKnob::text(const el::context& ctx, el::text_info info)
+{
+    if (!mEdit.Char(info))
+    {
+        return false;
+    }
+
+    ctx.view.refresh(ctx);
+    return true;
+}
+
+AccessInfo ParamKnob::Describe() const
+{
+    AccessInfo info;
+    info.role = mEdit.Active() ? AccessRole::Edit : AccessRole::Slider;
+    info.name = NameOr(mName);
+    info.value = mEdit.Active() ? mEdit.Value() : mValueText;
+    info.position = mValue;
+    return info;
+}
+
+bool ParamKnob::SetPosition(double normalised)
+{
+    mValue = std::clamp(normalised, 0.0, 1.0);
+
+    if (onChange)
+    {
+        onChange(mValue);
+    }
+
+    RepaintSoon(DrawnArea());
+    return true;
 }
 
 bool ParamKnob::click(const el::context& ctx, el::mouse_button btn)
@@ -655,10 +956,19 @@ bool ParamKnob::click(const el::context& ctx, el::mouse_button btn)
         {
             mDragging = false;
 
-            if (onEdit && mBare <= 0.0f &&
+            if (editText && onTyped && mBare <= 0.0f &&
                 btn.pos.y >= ctx.bounds.bottom - (mLarge ? kLargeValueHeight : kKnobValueHeight) - 2.0f)
             {
-                onEdit();
+                // The value turns into a field where it is; the knob takes focus for the keys
+                // once this click is done with.
+                BeginEdit(editText());
+                ctx.view.refresh(ctx);
+                ctx.view.post([self = weak_from_this(), &view = ctx.view] {
+                    if (const auto knob = self.lock())
+                    {
+                        FocusInView(view, *knob);
+                    }
+                });
             }
             else if (onReset)
             {
@@ -936,6 +1246,39 @@ void ListRow::draw(const el::context& ctx)
 
     FillText(cnv, Ellipsize(cnv, mText, textFont, textBounds.width()), textFont, mTheme.Text(), textBounds,
              Text::Align::Left);
+}
+
+bool ListRow::key(const el::context& ctx, el::key_info k)
+{
+    if (IsMenuKey(k) && onMenu)
+    {
+        onMenu();
+        return true;
+    }
+
+    return IsPressKey(k) && Activate(ctx.bounds);
+}
+
+AccessInfo ListRow::Describe() const
+{
+    AccessInfo info;
+    info.role = AccessRole::ListItem;
+    info.name = NameOr(mText);
+    info.value = mSecondary;
+    info.selected = mSelected;
+    return info;
+}
+
+bool ListRow::Activate(const el::rect&)
+{
+    if (mHeading || !mOnClick)
+    {
+        return false;
+    }
+
+    const auto run = mOnClick; // it may rebuild the list this sits in
+    run();
+    return true;
 }
 
 ListRow& ListRow::Icon(Icons* icons, std::string name, el::color tint)

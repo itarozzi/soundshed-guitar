@@ -60,6 +60,16 @@ class MenuRow final : public Pressable
         Enabled(!heading);
     }
 
+    [[nodiscard]] AccessInfo Describe() const override
+    {
+        AccessInfo info = Pressable::Describe();
+        info.role = AccessRole::MenuItem;
+        info.name = NameOr(mLabel);
+        info.value = mSubtitle;
+        info.selected = mSelected;
+        return info;
+    }
+
     /// An icon at the left (the input modes' routing pictures), 30 by 20 in its own tile.
     void Icon(Icons* icons, std::string icon)
     {
