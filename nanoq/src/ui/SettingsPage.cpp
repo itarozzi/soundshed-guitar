@@ -120,6 +120,7 @@ Ptr Shell::BuildSettingsPage()
     const auto pick = [&](const char* title, std::vector<std::string> options, std::function<int()> get,
                           std::function<void(int)> set) {
         auto field = std::make_shared<PickerField>(mTheme, mIcons);
+        field->AccessName(title);
         mLive.Bind(field, get, [options](PickerField& f, int i) {
             f.Set(i >= 0 && i < static_cast<int>(options.size()) ? options[static_cast<std::size_t>(i)] : "");
         });
@@ -146,6 +147,7 @@ Ptr Shell::BuildSettingsPage()
     // A switch (.toggle-switch).
     const auto toggle = [&](const char* title, std::function<bool()> get, std::function<void(bool)> set) {
         auto sw = std::make_shared<ToggleSwitch>(mTheme);
+        sw->AccessName(title);
         mLive.Bind(sw, get, &ToggleSwitch::Set);
         sw->onClick = [get, set] { set(!get()); };
         row(title, Row({Middle(sw), Stretch()}));
@@ -159,6 +161,7 @@ Ptr Shell::BuildSettingsPage()
     const auto slider = [&](const char* title, const char* key, double lo, double hi, double def, const char* unit,
                             int decimals) {
         auto sl = std::make_shared<ParamSlider>(mTheme, "");
+        sl->AccessName(title);
         sl->onChange = [&commands, key, lo, hi, decimals](double v) {
             const double scale = std::pow(10.0, decimals);
             commands.SetSetting(key, std::round((lo + v * (hi - lo)) * scale) / scale);
@@ -340,6 +343,7 @@ Ptr Shell::BuildSettingsPage()
         beginCard("NAM Processing Quality");
         {
             auto quality = std::make_shared<ParamSlider>(mTheme, "");
+            quality->AccessName("NAM Processing Quality");
             quality->onChange = [&commands](double v) {
                 commands.SetSetting(kNamSlimmableSizeSetting, std::round(v * 100.0) / 100.0);
             };

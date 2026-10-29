@@ -28,22 +28,51 @@ void Shell::LoadWithConfirm(const std::string& presetId)
         return;
     }
 
-    const auto load = [this, presetId] {
+    const auto* summary = mState.FindPresetSummary(presetId);
+    ConfirmDiscardThen("Load " + (summary != nullptr ? summary->name : std::string("this preset")), [this, presetId] {
         mSession.Commands().LoadPreset(presetId);
         ShowPage(Page::Chain);
-    };
+    });
+}
 
+void Shell::ConfirmDiscardThen(const std::string& what, std::function<void()> proceed)
+{
     if (!mState.activePresetDirty)
     {
-        load();
+        proceed();
+        return;
+    }
+
+    OpenConfirm("Unsaved changes", what + " and lose the changes to the current one?", "Load", std::move(proceed));
+}
+
+void Shell::StepPresetWithConfirm(int direction)
+{
+    ConfirmDiscardThen(direction < 0 ? "Load the previous preset" : "Load the next preset",
+                       [this, direction] { mSession.Commands().StepPreset(direction); });
+}
+
+void Shell::SelectSetlistSlot(int index)
+{
+    const auto* setlist = ActiveSetlist(mState);
+
+    if (setlist == nullptr || index < 0 || index >= static_cast<int>(setlist->presetIds.size()))
+    {
+        return;
+    }
+
+    const auto& presetId = setlist->presetIds[static_cast<std::size_t>(index)];
+    const auto select = [this, index] { mSession.Commands().SetSetlistCursor(index); };
+
+    // A slot holding the preset playing moves the cursor only: nothing is lost.
+    if (presetId.empty() || presetId == mState.activePresetId)
+    {
+        select();
         return;
     }
 
     const auto* summary = mState.FindPresetSummary(presetId);
-    OpenConfirm("Unsaved changes",
-                "Load " + (summary != nullptr ? summary->name : std::string("this preset")) +
-                    " and lose the changes to the current one?",
-                "Load", load);
+    ConfirmDiscardThen("Load " + (summary != nullptr ? summary->name : presetId), select);
 }
 
 void Shell::DeleteWithConfirm(const std::string& presetId)
@@ -375,19 +404,19 @@ Ptr Shell::BuildSetlistsView(Ptr tabs)
     const int count = active != nullptr ? static_cast<int>(active->presetIds.size()) : 0;
     auto prev = std::make_shared<Button>(
         mTheme, "\xE2\x80\xB9",
-        [&commands, cursor, count] {
+        [this, cursor, count] {
             if (count > 0)
             {
-                commands.SetSetlistCursor((cursor - 1 + count) % count);
+                SelectSetlistSlot((cursor - 1 + count) % count);
             }
         },
         Button::Style::Plain);
     auto next = std::make_shared<Button>(
         mTheme, "\xE2\x80\xBA",
-        [&commands, cursor, count] {
+        [this, cursor, count] {
             if (count > 0)
             {
-                commands.SetSetlistCursor((cursor + 1) % count);
+                SelectSetlistSlot((cursor + 1) % count);
             }
         },
         Button::Style::Plain);
@@ -468,7 +497,7 @@ Ptr Shell::BuildSetlistsView(Ptr tabs)
                 auto row = std::make_shared<ListRow>(
                     mTheme, std::to_string(i + 1) + ".  " + (summary != nullptr ? summary->name : presetId),
                     summary != nullptr ? summary->category : std::string(), i == cursor, false,
-                    [&commands, i] { commands.SetSetlistCursor(i); });
+                    [this, i] { SelectSetlistSlot(i); });
                 row->onMenu = [this, id, i, count] {
                     std::vector<MenuItem> items;
 

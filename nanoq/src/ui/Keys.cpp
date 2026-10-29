@@ -68,6 +68,7 @@ Ptr Shell::KeyLayer(Ptr layer)
 {
     auto router = std::make_shared<KeyRouter>(std::move(layer), true);
     router->onKey = [this](const el::key_info& k) { return HandleKey(k); };
+    router->ringColour = [this] { return mTheme.Accent(); };
     return router;
 }
 

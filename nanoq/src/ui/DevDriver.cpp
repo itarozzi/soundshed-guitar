@@ -78,6 +78,34 @@ std::optional<el::key_info> ParseKey(std::string spec)
     {
         code = el::key_code::down;
     }
+    else if (spec == "tab")
+    {
+        code = el::key_code::tab;
+    }
+    else if (spec == "home")
+    {
+        code = el::key_code::home;
+    }
+    else if (spec == "end")
+    {
+        code = el::key_code::end;
+    }
+    else if (spec == "pageup")
+    {
+        code = el::key_code::page_up;
+    }
+    else if (spec == "pagedown")
+    {
+        code = el::key_code::page_down;
+    }
+    else if (spec == "menu")
+    {
+        code = el::key_code::menu;
+    }
+    else if (spec.size() == 1 && spec[0] >= '0' && spec[0] <= '9')
+    {
+        code = static_cast<el::key_code>(static_cast<int>(el::key_code::_0) + (spec[0] - '0'));
+    }
     else if (spec.size() == 2 && spec[0] == 'f' && spec[1] >= '1' && spec[1] <= '9')
     {
         code = static_cast<el::key_code>(static_cast<int>(el::key_code::f1) + (spec[1] - '1'));

@@ -46,6 +46,14 @@ class SelectBox final : public Pressable
     {
     }
 
+    [[nodiscard]] AccessInfo Describe() const override
+    {
+        AccessInfo info = Pressable::Describe();
+        info.role = AccessRole::ComboBox;
+        info.value = mText;
+        return info;
+    }
+
     el::view_limits limits(const el::basic_context&) const override
     {
         return {{mWidth, 30.0f}, {mWidth, 30.0f}};
@@ -502,6 +510,7 @@ Ptr Shell::BuildDeviceContent()
         const bool muted = Flag(s, "inputMuted");
         const bool risk = Flag(s, "feedbackRisk");
         auto toggle = std::make_shared<PowerSwitch>(mTheme, muted);
+        toggle->AccessName("Mute Input");
         toggle->onClick = [this, muted] { DeviceRequest("setInputMuted", {{"muted", !muted}}); };
         row("Mute Input", {Middle(toggle)});
         hint(MuteHint(muted, risk), muted || risk);
@@ -535,6 +544,7 @@ Ptr Shell::BuildDeviceContent()
             const bool enabled = port.value("enabled", false);
             auto name = std::make_shared<Text>(mTheme, port.value("name", identifier), metrics::kTextSize);
             auto toggle = std::make_shared<PowerSwitch>(mTheme, enabled);
+            toggle->AccessName(port.value("name", identifier));
             toggle->onClick = [this, identifier, enabled] {
                 DeviceRequest("setMidiInputEnabled", {{"identifier", identifier}, {"enabled", !enabled}});
             };

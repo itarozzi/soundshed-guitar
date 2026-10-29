@@ -148,6 +148,7 @@ Ptr Shell::BuildResourceSlot(const guitarfx::GraphNode& node, const std::string&
         };
     };
 
+    const std::string what = resourceType == "nam" ? "model" : "impulse response";
     auto slate = [this](const char* icon, std::function<void()> onClick, bool enabled) {
         auto b = std::make_shared<IconButton>(mTheme, mIcons, icon, IconButton::Look::Slate);
         b->Size(26, 26).IconSize(13).Disabled(!enabled);
@@ -157,6 +158,7 @@ Ptr Shell::BuildResourceSlot(const guitarfx::GraphNode& node, const std::string&
 
     auto choose = std::make_shared<SelectField>(mTheme, mIcons, missing ? name + "  (file missing)" : name,
                                                 at >= 0 || ref != nullptr, missing);
+    choose->AccessName(what == "model" ? "Model" : "Impulse response");
     choose->onClick = [this, nodeId, resourceType, resourceIndex] {
         OpenResourceBrowser(nodeId, resourceType, resourceIndex);
     };
@@ -167,9 +169,13 @@ Ptr Shell::BuildResourceSlot(const guitarfx::GraphNode& node, const std::string&
             commands.SetNodeResource(nodeId, resourceType, {}, resourceIndex);
         },
         ref != nullptr);
+    clear->AccessName("Clear " + what);
+    auto previous = slate("ui-prev", step(-1), !list.empty());
+    previous->AccessName("Previous " + what);
+    auto next = slate("ui-next", step(1), !list.empty());
+    next->AccessName("Next " + what);
 
-    auto controls = Row({slate("ui-prev", step(-1), !list.empty()), HGap(6), choose, HGap(6),
-                         slate("ui-next", step(1), !list.empty()), HGap(6), clear});
+    auto controls = Row({previous, HGap(6), choose, HGap(6), next, HGap(6), clear});
 
     // Stacked, as the effect editor's model card (.neural-model-resource-selector): the label
     // over the row, which takes the card's width.

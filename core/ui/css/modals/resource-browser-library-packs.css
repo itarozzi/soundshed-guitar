@@ -49,6 +49,11 @@
   transform: rotate(90deg);
 }
 
+.resource-browser-pack-header > .resource-browser-item-thumb {
+  width: 24px;
+  height: 24px;
+}
+
 .resource-browser-pack-title {
   flex: 1;
   min-width: 0;

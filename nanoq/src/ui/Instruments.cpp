@@ -178,7 +178,9 @@ void Shell::OpenTuner()
     // ── The controls: the reading's unit, the live switch and the reference pitch ──
     auto units = std::make_shared<Segmented>(mTheme, std::vector<std::string>{"Cents", "Hz"});
     units->Select(gTunerShowsHz ? 1 : 0);
+    units->AccessName("Reading");
     auto live = std::make_shared<ToggleSwitch>(mTheme);
+    live->AccessName("Live Tuner");
     live->onClick = [this, &commands] { commands.SetTunerLiveMode(!mState.tuner.liveMode); };
     auto liveLabel = std::make_shared<Text>(mTheme, "Live Tuner", 13.0f);
     liveLabel->Colour(mTheme.ModalTextSecondary()).Fixed(true);
@@ -186,17 +188,17 @@ void Shell::OpenTuner()
     reference->onStep = [this, setReference](int direction, bool) {
         setReference(mState.tuner.referenceFrequency + 0.1 * direction);
     };
-    reference->onEdit = [this, setReference](el::rect at) {
-        OpenInlinePrompt(at, "Reference pitch (Hz)", Fixed(mState.tuner.referenceFrequency, 1),
-                         [setReference](const std::string& text) {
-                             char* end = nullptr;
-                             const double hz = std::strtod(text.c_str(), &end);
+    reference->AccessName("Reference pitch, Hz");
+    // A pitch typed in where it shows.
+    reference->editText = [this] { return Fixed(mState.tuner.referenceFrequency, 1); };
+    reference->onTyped = [setReference](const std::string& text) {
+        char* end = nullptr;
+        const double hz = std::strtod(text.c_str(), &end);
 
-                             if (end != text.c_str() && hz >= 400.0 && hz <= 480.0)
-                             {
-                                 setReference(hz);
-                             }
-                         });
+        if (end != text.c_str() && hz >= 400.0 && hz <= 480.0)
+        {
+            setReference(hz);
+        }
     };
 
     auto sync = [this, face, model, mute, live, reference, units] {

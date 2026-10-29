@@ -530,6 +530,8 @@ set(GUITARFX_CORE_SOURCES
     src/controller/TelemetryPublisher.cpp
     src/controller/ResourceFolderScanner.h
     src/controller/ResourceFolderScanner.cpp
+    src/controller/ResourceThumbnailService.h
+    src/controller/ResourceThumbnailService.cpp
     src/controller/PresetLevelMeter.h
     src/controller/PresetLevelMeter.cpp
     src/controller/PluginControllerPresetLevel.cpp

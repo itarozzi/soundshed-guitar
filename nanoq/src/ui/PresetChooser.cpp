@@ -38,6 +38,30 @@ class PresetCard final : public Pressable
     std::function<void()> onAddToMixer;
     std::function<void(int rating)> onRate;
 
+    [[nodiscard]] AccessInfo Describe() const override
+    {
+        AccessInfo info = Pressable::Describe();
+        info.role = AccessRole::ListItem;
+        info.name = NameOr(mName);
+        info.value = mSource + (mPath.empty() ? "" : ", " + mPath) +
+                     (mRating > 0 ? ", " + std::to_string(mRating) + " stars" : std::string());
+        info.selected = mActive;
+        return info;
+    }
+
+    // 0 to 5 rate it, as the stars do.
+    bool key(const el::context& ctx, el::key_info k) override
+    {
+        if (onRate && k.action == el::key_action::press && k.key >= el::key_code::_0 && k.key <= el::key_code::_5 &&
+            (k.modifiers & (el::mod_control | el::mod_alt | el::mod_super)) == 0)
+        {
+            onRate(static_cast<int>(k.key) - static_cast<int>(el::key_code::_0));
+            return true;
+        }
+
+        return Pressable::key(ctx, k);
+    }
+
     el::view_limits limits(const el::basic_context&) const override
     {
         return {{240.0f, kHeight}, {el::full_extent, kHeight}};

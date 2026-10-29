@@ -326,6 +326,7 @@ void Shell::OpenGlobalGate(el::rect anchor)
         return t;
     };
     auto enabled = std::make_shared<ToggleSwitch>(mTheme);
+    enabled->AccessName("Noise gate on");
     enabled->onClick = [gateNode, &commands] {
         const auto* node = gateNode();
         commands.SetGlobalChainToggle("gate.enabled", node == nullptr || !node->enabled);

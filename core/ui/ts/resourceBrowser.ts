@@ -20,6 +20,7 @@ import { DEFAULT_RESOURCE_CONTEXT_KEY, RESOURCE_FAVORITES_SETTING } from "./reso
 import { LibraryPackGrouping } from "./resourceBrowser/libraryPacks.js";
 import { NavigationLists } from "./resourceBrowser/navigationListing.js";
 import { renderLibraryItemDetailsPanel } from "./resourceBrowser/libraryDetails.js";
+import { libraryThumbnailAttr, libraryThumbnailImage } from "./resourceBrowser/libraryThumbnails.js";
 import { TONE3000_IR_GEAR_OPTIONS, slotImportCategory, slotLibraryCategoryHint, slotStateKey, slotTitle, slotTone3000IrGear } from "./resourceBrowser/slot.js";
 import { Tone3000Tab } from "./resourceBrowser/tone3000Tab.js";
 import type { LibraryFilterSnapshot, NavigationCacheOptions, PersistedResourceBrowserState, PreviewLoadingState, PreviewState, ResourceBrowserOptions, ResourceBrowserTab, ResourceImportedDetail, ResourceNavigationResult, ResourceNavigationState, ResourceType } from "./resourceBrowser/types.js";
@@ -1218,7 +1219,6 @@ export class ResourceBrowserModal {
     
     const resourceType = this.options.resourceType;
     const resources = uiState.resourceLibrary[resourceType] ?? [];
-    
     // Deduplicate resources by hash and file path
     const dedupResult = deduplicateResourcesByHashAndPath(resources, {
       preferredResourceIds: this.selectedResourceId ? [this.selectedResourceId] : [],
@@ -1315,7 +1315,7 @@ export class ResourceBrowserModal {
     }
 
     // Usage info is queried lazily as items scroll into view (see observeVisibleUsage).
-    const packOptions = { selectedId: resolveResourceIdAlias(currentId, this.libraryResourceAliases.get(resourceType) ?? new Map()), openAll: Boolean(query) || this.libraryFavoritesOnly, isFavorite: (id: string) => this.isResourceFavorite(id) };
+    const packOptions = { selectedId: resolveResourceIdAlias(currentId, this.libraryResourceAliases.get(resourceType) ?? new Map()), openAll: Boolean(query) || this.libraryFavoritesOnly, isFavorite: (id: string) => this.isResourceFavorite(id), resourceType };
     this.libraryList.innerHTML = this.packGrouping.render(this.libraryList, filtered, packOptions, (res, titleInPack) => {
         const title = titleInPack ?? (res.name?.trim() || res.id);
         const categoryLabel = (res.category ?? "").trim() || "Uncategorized";
@@ -1362,7 +1362,7 @@ export class ResourceBrowserModal {
         const entryClass = `resource-browser-library-entry${isDetailsExpanded ? " is-details-expanded" : ""}`;
         return `
           <div class="${escapeHtml(entryClass)}" data-source="library">
-            <div class="${selectedClass} resource-browser-item-row" data-resource-id="${escapeHtml(res.id)}">
+            <div class="${selectedClass} resource-browser-item-row" data-resource-id="${escapeHtml(res.id)}"${libraryThumbnailAttr(resourceType, res)}>${libraryThumbnailImage(resourceType, res)}
               <div class="results-item-main resource-browser-item-info">
                 <div class="results-item-title resource-browser-item-title">${escapeHtml(title)}</div>
                 <div class="results-item-meta resource-browser-item-meta">${metaParts}</div>

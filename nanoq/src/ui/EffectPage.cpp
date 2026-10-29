@@ -410,6 +410,7 @@ Ptr Shell::BuildEffectPage()
             // A long list: its current choice on a chip; a tap opens the list.
             auto picker = std::make_shared<IconButton>(mTheme, mIcons, "", IconButton::Look::Chip);
             picker->Size(kPickerWidth, 26).Caret(true);
+            picker->AccessName(info.name);
             picker->onClick = [this, nodeId, info] { OpenEnumPicker(nodeId, info); };
             picker->onMenu = menu;
             mLive.Bind(
@@ -462,6 +463,12 @@ Ptr Shell::BuildEffectPage()
                 knob, [valueOf, info] { return valueOf(info); },
                 [info](ParamKnob& k, double v) { k.Update(ParamValueToPosition(info, v), FormatParamValue(info, v)); });
             const bool stepped = IsEnumParam(info);
+
+            if (stepped)
+            {
+                knob->KeySteps(static_cast<int>(info.labels.size()));
+            }
+
             knob->onChange = [this, nodeId, info, stepped, k = knob.get()](double position) {
                 const double value = SnapParamValue(info, ParamPositionToValue(info, position));
                 k->SetValueText(FormatParamValue(info, value));
@@ -483,27 +490,23 @@ Ptr Shell::BuildEffectPage()
 
             if (!stepped)
             {
-                knob->onEdit = [this, nodeId, info] {
+                // A value typed in where its value text is, as the web UI's knob does.
+                knob->editText = [this, info] {
                     const auto* n = SelectedNode();
+                    return n != nullptr ? EditableParamText(info, NodeParamValue(*n, info)) : std::string();
+                };
+                knob->onTyped = [this, nodeId, info](const std::string& entered) {
+                    const auto typed = ParseTypedNumber(entered);
 
-                    if (n == nullptr)
+                    if (!typed)
                     {
+                        Mark(kValues); // the value text comes back as it was
                         return;
                     }
 
-                    OpenPrompt(info.name, EditableParamText(info, NodeParamValue(*n, info)), "Set",
-                               [this, nodeId, info](const std::string& entered) {
-                                   const auto typed = ParseTypedNumber(entered);
-
-                                   if (!typed)
-                                   {
-                                       return;
-                                   }
-
-                                   mSession.Commands().SetNodeParam(nodeId, info.key, SnapParamValue(info, *typed));
-                                   NoteChainEdit();
-                                   Mark(kValues);
-                               });
+                    mSession.Commands().SetNodeParam(nodeId, info.key, SnapParamValue(info, *typed));
+                    NoteChainEdit();
+                    Mark(kValues);
                 };
             }
 

@@ -96,6 +96,32 @@ place instead, so a drag is never interrupted by the value it just set coming ba
 - **Tile layout traps.** A column is as wide as its narrowest child's *maximum* width, and a
   scroller reports its content's height as its maximum. `Row`, `Col`, `VScroll` and `HScroll`
   in `ui/Layout.h` correct for both.
+- **No keyboard focus for drawn controls, and Tab that leaks.** Elements gives keys only along
+  its focus chain, and its own Tab walks every child of a composite, shown or not, and runs off
+  the end of a dialog into the page under it. Each control Nano Q draws derives from
+  `Focusable` (`ui/Focus.h`) and wants focus only while the keyboard is in use, so a click still
+  leaves none on a button and Space keeps its shortcut for a pointer user. `KeyRouter` (one per
+  layer: the page, a dialog, a drop-down) does Tab and Shift+Tab itself over the controls it
+  collects in layout order, round within its layer; the arrows move along a list, the chain or a
+  row of tabs; it draws the focus ring (2 px, 2 px out, the accent) and, after a rebuild replaced
+  the focused control, finds the new one by its role and name. Closing a dialog gives focus
+  back to the control that opened it. Keys per control: Enter or Space presses a button or
+  switch; a knob or slider turns with the arrows (Shift finely), Page Up and Down, Home and End,
+  and Delete resets it; a chain card opens with Enter, bypasses with Space, goes with Delete,
+  and Ctrl+Enter swaps it; the Menu key or Shift+F10 opens a control's context menu.
+- **No number field in place.** A knob's value (and the tuner's reference pitch, the metronome's
+  tempo) is typed where its value text is (`ui/InlineEdit.h`): a double click on the text,
+  Enter, F2, or just typing a digit opens the field; Enter or leaving it commits, Esc cancels.
+- **No accessibility.** Elements tells the platform nothing about what it draws.
+  `ui/AccessBridge.*` is a UI Automation provider for the view's window on Windows: every
+  control of the layer in front, with its role, name, value and state (`Focusable::Describe`),
+  focus and value changes raised as events, and Invoke, Toggle, range values and SetFocus
+  queued for the UI thread. Not done: macOS (NSAccessibility) and iOS (UIAccessibility), static
+  text and headings (only controls are exposed), and the bars added over the page (the tone
+  preview's, the Jam player's), which Tab does not reach.
+- **No transitions.** Switches slide (0.2 s) by redrawing their own area each tick
+  (`ui/SwitchMotion.*`); one rebuilt by its own tap slides from where the old one was. With
+  Windows' "Show animations" off they jump.
 
 ## Building
 
@@ -156,6 +182,8 @@ click 590 157          left click              double 395 170     double click
 right 590 157          right click             move 380 165       pointer moves (hover)
 drag 10 10 200 10      press, move, release    scroll 600 500 -40 wheel (negative: down)
 shot C:\t\view.png     draws the view offscreen into a PNG: works while the window is hidden or the PC is locked
+key ctrl+z             a key: tab, enter, escape, space, arrows, home, end, pageup, pagedown, menu, f1-f9, a-z, 0-9
+type -6.5              characters, as typed into what has focus
 ```
 
 **How much it draws: `SOUNDSHED_NANOQ_DRAWSTATS=<file>`** wraps the view in a probe

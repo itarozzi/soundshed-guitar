@@ -63,11 +63,13 @@ enum class Topic
     Looper,          // the looper's state, layers, waveforms and projects
     EffectLayouts,   // the custom effect layout library and its images
     PracticeTool,    // the Practice Tool's backing track and transport
+    Thumbnails,      // the resource browser's tone pictures (ResourceThumbnails.h)
     Count
 };
 
 class UiClient;
 class Analysis;
+class ResourceThumbnails;
 
 /// Unsubscribes when destroyed, so a view that goes away cannot be called back.
 class Subscription
@@ -137,6 +139,12 @@ class UiClient
     [[nodiscard]] Analysis& GetAnalysis()
     {
         return *mAnalysis;
+    }
+
+    /// The engine's answers about the resource browser's tone pictures (resourceThumbnails).
+    [[nodiscard]] ResourceThumbnails& Thumbnails()
+    {
+        return *mThumbnails;
     }
 
     /// Marks a topic changed; its listeners run at the end of the current drain, or right
@@ -230,5 +238,6 @@ class UiClient
     double mLastRosterRequest = -1.0e9;
     std::shared_ptr<bool> mAlive = std::make_shared<bool>(true);
     std::unique_ptr<Analysis> mAnalysis;
+    std::unique_ptr<ResourceThumbnails> mThumbnails;
 };
 } // namespace guitarfx::uiclient

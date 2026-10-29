@@ -156,6 +156,8 @@ set(TEST_SOURCES
     SynthSawEffectTests.cpp
     TestWavLoad.cpp
     Tone3000ResourceWorkflowTests.cpp
+    ResourceThumbnailTests.cpp
+    ResourceThumbnailClientTests.cpp
     TonePreviewTests.cpp
     ToneSharingLinkTests.cpp
     JamPracticeToolTests.cpp
@@ -298,6 +300,8 @@ target_sources(MixerInstanceLockTests PRIVATE MixerInstanceLockSupport.cpp Mixer
 
 # Soundshed Nano Q's client library (core/src/uiclient) against a real headless controller.
 target_link_libraries(UiClientTests PRIVATE SoundshedUiClient)
+# The native UIs' half of the resource browser's thumbnails (uiclient/ResourceThumbnails.h).
+target_link_libraries(ResourceThumbnailClientTests PRIVATE SoundshedUiClient)
 # Custom effect layouts as the native UIs read them, checked against the web UI's own fixtures.
 target_link_libraries(UiClientLayoutTests PRIVATE SoundshedUiClient)
 target_compile_definitions(UiClientLayoutTests PRIVATE GUITARFX_UI_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../ui")

@@ -7,6 +7,8 @@
 // gestures through a callback. Layout - rows, columns, margins, scrolling - is Elements' own.
 
 #include "ui/Drawn.h"
+#include "ui/Focus.h"
+#include "ui/InlineEdit.h"
 #include "ui/Theme.h"
 #include "ui/TextDraw.h"
 
@@ -77,7 +79,7 @@ class Paragraph : public el::element
 };
 
 /// A push button or, with Toggle(), a switch. Text, or text with a leading dot for a state.
-class Button : public el::element, public Drawn
+class Button : public el::element, public Drawn, public Focusable
 {
   public:
     enum class Style
@@ -93,11 +95,31 @@ class Button : public el::element, public Drawn
     void draw(const el::context& ctx) override;
     bool click(const el::context& ctx, el::mouse_button btn) override;
     bool cursor(const el::context& ctx, el::point p, el::cursor_tracking status) override;
+    bool key(const el::context& ctx, el::key_info k) override;
 
     bool wants_control() const override
     {
         return true;
     }
+
+    bool wants_focus() const override
+    {
+        return FocusWanted(mEnabled && mOnClick != nullptr);
+    }
+
+    void begin_focus(focus_request) override
+    {
+        NoteFocus(true);
+    }
+
+    bool end_focus() override
+    {
+        NoteFocus(false);
+        return true;
+    }
+
+    [[nodiscard]] AccessInfo Describe() const override;
+    bool Activate(const el::rect& at) override;
 
     Button& Set(std::string text);
 
@@ -144,7 +166,9 @@ class Button : public el::element, public Drawn
 
 /// One effect parameter: its name, its value as text, and a track to drag. The value is
 /// normalised 0..1 (the control does not know the parameter's range); the owner formats it.
-class ParamSlider : public el::element, public Drawn
+/// With focus the arrows move it (Shift finely), Page Up and Down by a tenth, Home and End to
+/// its ends, Delete to its default.
+class ParamSlider : public el::element, public Drawn, public Focusable
 {
   public:
     ParamSlider(const Theme& theme, std::string name);
@@ -155,11 +179,31 @@ class ParamSlider : public el::element, public Drawn
     void drag(const el::context& ctx, el::mouse_button btn) override;
     bool cursor(const el::context& ctx, el::point p, el::cursor_tracking status) override;
     bool scroll(const el::context& ctx, el::point dir, el::point p) override;
+    bool key(const el::context& ctx, el::key_info k) override;
 
     bool wants_control() const override
     {
         return true;
     }
+
+    bool wants_focus() const override
+    {
+        return FocusWanted(true);
+    }
+
+    void begin_focus(focus_request) override
+    {
+        NoteFocus(true);
+    }
+
+    bool end_focus() override
+    {
+        NoteFocus(false);
+        return true;
+    }
+
+    [[nodiscard]] AccessInfo Describe() const override;
+    bool SetPosition(double normalised) override;
 
     /// Moves the thumb to a value the engine reports. Ignored while the user is dragging it.
     void Update(double normalised, std::string valueText);
@@ -190,7 +234,11 @@ class ParamSlider : public el::element, public Drawn
 /// One effect parameter as a rotary knob, as the web app draws it: the name over the knob, the
 /// value text under it. Drag up or down to turn (200 px for the full travel), wheel to nudge,
 /// double click to reset. The value is normalised 0..1, as for ParamSlider.
-class ParamKnob : public el::element, public Drawn
+///
+/// With focus the arrows turn it (Shift finely), Page Up and Down by a tenth, Home and End to its
+/// ends, Delete to its default. A value is typed in place, where its value text is: a double click
+/// on that text, Enter, F2, or just typing a number opens the field (InlineEdit).
+class ParamKnob : public el::element, public Drawn, public Focusable
 {
   public:
     ParamKnob(const Theme& theme, std::string name);
@@ -201,10 +249,41 @@ class ParamKnob : public el::element, public Drawn
     void drag(const el::context& ctx, el::mouse_button btn) override;
     bool cursor(const el::context& ctx, el::point p, el::cursor_tracking status) override;
     bool scroll(const el::context& ctx, el::point dir, el::point p) override;
+    bool key(const el::context& ctx, el::key_info k) override;
+    bool text(const el::context& ctx, el::text_info info) override;
 
     bool wants_control() const override
     {
         return true;
+    }
+
+    // Focus while a value is typed into it, even from a pointer's double click.
+    bool wants_focus() const override
+    {
+        return FocusWanted(true) || mEdit.Active();
+    }
+
+    void begin_focus(focus_request) override
+    {
+        NoteFocus(true);
+    }
+
+    bool end_focus() override;
+
+    [[nodiscard]] AccessInfo Describe() const override;
+    bool SetPosition(double normalised) override;
+
+    [[nodiscard]] bool Editing() const override
+    {
+        return mEdit.Active();
+    }
+
+    /// How many positions it has (an enum's choices), so one arrow is one step; 0 for a smooth
+    /// control, where one is a hundredth.
+    ParamKnob& KeySteps(int steps)
+    {
+        mKeySteps = steps;
+        return *this;
     }
 
     /// Moves the knob to a value the engine reports. Ignored while the user is dragging it.
@@ -248,15 +327,23 @@ class ParamKnob : public el::element, public Drawn
     /// A right click (a long press on a touch screen), at a point in view coordinates: the
     /// knob's context menu, MIDI Learn.
     std::function<void(el::point at)> onMenu;
-    /// A double click on the value text: the owner asks for a value to type in, as the web
-    /// UI's knob opens its number field. Without it, that double click resets too.
-    std::function<void()> onEdit;
+    /// A value can be typed in: `editText` is what the field opens with (the value without its
+    /// unit), and `onTyped` hears what was entered. Without them a double click on the value
+    /// text resets too.
+    std::function<std::string()> editText;
+    std::function<void(const std::string& typed)> onTyped;
 
     /// Whether a wheel over a knob or slider turns it: the shared ui.mouseWheelAdjustsControls,
     /// on unless turned off, kept current by the shell.
     static inline bool sWheelAdjusts = true;
 
   private:
+    /// Turns it to `normalised` as a drag would, and redraws it.
+    void Turn(const el::context& ctx, double normalised);
+    void BeginEdit(std::string text);
+    void FinishEdit(bool commit);
+    [[nodiscard]] el::rect ValueBox(const el::rect& b) const;
+
     const Theme& mTheme;
     std::string mName;
     std::string mValueText;
@@ -264,6 +351,8 @@ class ParamKnob : public el::element, public Drawn
     double mDefault = 0.0;
     float mBare = 0.0f; // the diameter of a bare knob; 0 for the named one
     bool mLarge = false;
+    int mKeySteps = 0;
+    InlineEdit mEdit;
     double mDragStartValue = 0.0;
     float mDragStartY = 0.0f;
     bool mDragging = false;
@@ -312,7 +401,7 @@ class MeterBar : public el::element, public Drawn
 
 /// One row of a list: text at the left, a muted secondary text at the right. With `heading` it
 /// is a caption and does nothing when tapped.
-class ListRow : public el::element
+class ListRow : public el::element, public Focusable
 {
   public:
     ListRow(const Theme& theme, std::string text, std::string secondary, bool selected, bool heading,
@@ -322,11 +411,31 @@ class ListRow : public el::element
     void draw(const el::context& ctx) override;
     bool click(const el::context& ctx, el::mouse_button btn) override;
     bool cursor(const el::context& ctx, el::point p, el::cursor_tracking status) override;
+    bool key(const el::context& ctx, el::key_info k) override;
 
     bool wants_control() const override
     {
         return !mHeading;
     }
+
+    bool wants_focus() const override
+    {
+        return FocusWanted(!mHeading && mOnClick != nullptr);
+    }
+
+    void begin_focus(focus_request) override
+    {
+        NoteFocus(true);
+    }
+
+    bool end_focus() override
+    {
+        NoteFocus(false);
+        return true;
+    }
+
+    [[nodiscard]] AccessInfo Describe() const override;
+    bool Activate(const el::rect& at) override;
 
     /// A right click (a long press on touch screens, later) asks for the row's own menu.
     std::function<void()> onMenu;

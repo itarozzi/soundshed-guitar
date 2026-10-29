@@ -22,6 +22,7 @@
 #include "controller/MetronomeService.h"
 #include "controller/PresetLevelMeter.h"
 #include "controller/ResourceFolderScanner.h"
+#include "controller/ResourceThumbnailService.h"
 #include "controller/SignalTestService.h"
 #include "controller/TelemetryPublisher.h"
 #include "controller/TunerService.h"
@@ -70,6 +71,8 @@ PluginController::PluginController(IPluginHost& host) : mHost(host)
     mSignalTest = std::make_unique<SignalTestService>(sendToUI);
     mResourceFolderScanner = std::make_unique<ResourceFolderScanner>(sendToUI, mResourceLibrary);
     mResourceFolderScanner->RegisterMessageHandlers(mMessageHandlers);
+    mResourceThumbnails = std::make_unique<ResourceThumbnailService>(sendToUI, mResourceLibrary);
+    mResourceThumbnails->RegisterMessageHandlers(mMessageHandlers);
     mPresetLevelMeter = std::make_unique<PresetLevelMeter>(
         mHost, sendToUI, [this](const nlohmann::json& payload, nlohmann::json& failure) {
             return BuildPresetLevelJob(payload, failure);

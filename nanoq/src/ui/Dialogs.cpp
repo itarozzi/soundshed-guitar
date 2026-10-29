@@ -844,6 +844,7 @@ void Shell::OpenPresetDetails(bool asNew)
 
     // ── Save Folder ──
     auto folder = std::make_shared<PickerField>(mTheme, mIcons);
+    folder->AccessName("Save Folder");
     folder->Set(current != nullptr ? current->name : std::string("No folder"));
     folder->onClick = [this, st, weak = std::weak_ptr<PickerField>(folder)] {
         const auto picker = weak.lock();

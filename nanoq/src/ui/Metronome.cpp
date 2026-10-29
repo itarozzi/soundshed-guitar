@@ -101,6 +101,7 @@ void Shell::OpenMetronome()
 
     // ── Volume, time signature, sound and pan ──
     auto volume = std::make_shared<ParamKnob>(mTheme, "Volume");
+    volume->AccessName("Click volume");
     volume->DefaultPosition((kDefaultVolumeDb - kMinVolumeDb) / (kMaxVolumeDb - kMinVolumeDb));
     volume->onChange = [&commands, volume](double v) {
         const double db = std::round((kMinVolumeDb + v * (kMaxVolumeDb - kMinVolumeDb)) * 10.0) / 10.0;
@@ -121,6 +122,7 @@ void Shell::OpenMetronome()
     // The meter: simple meters in one column, compound ones and the odd meters' groupings in the
     // other, as the web UI's.
     auto meter = std::make_shared<PickerField>(mTheme, mIcons);
+    meter->AccessName("Time signature");
     meter->onClick = [this, meter] {
         std::vector<std::vector<MenuItem>> columns(2);
 
@@ -139,6 +141,7 @@ void Shell::OpenMetronome()
     };
 
     auto sound = std::make_shared<PickerField>(mTheme, mIcons);
+    sound->AccessName("Sound");
     sound->onClick = [this, sound] {
         std::vector<MenuItem> items;
 
@@ -154,17 +157,17 @@ void Shell::OpenMetronome()
     // ── The tempo, TAP, the rhythm and the transport ──
     auto readout = std::make_shared<TempoReadout>(mTheme);
     readout->onWheel = [this, setBpm](int steps) { setBpm(mState.metronome.bpm + steps); };
-    readout->onEdit = [this, setBpm](el::rect at) {
-        OpenInlinePrompt(at, "Tempo (BPM)", Fixed(mState.metronome.bpm, 1), [setBpm](const std::string& text) {
-            try
-            {
-                setBpm(std::stod(text));
-            }
-            catch (...)
-            {
-                // Not a number: the tempo stays as it was.
-            }
-        });
+    // A tempo typed in where it shows, as the web UI's number field takes one.
+    readout->editText = [this] { return Fixed(mState.metronome.bpm, 1); };
+    readout->onTyped = [setBpm](const std::string& text) {
+        try
+        {
+            setBpm(std::stod(text));
+        }
+        catch (...)
+        {
+            // Not a number: the tempo stays as it was.
+        }
     };
 
     auto up = std::make_shared<TempoArrow>(mTheme, true);
@@ -182,6 +185,7 @@ void Shell::OpenMetronome()
     };
 
     auto rhythm = std::make_shared<PickerField>(mTheme, mIcons);
+    rhythm->AccessName("Rhythm");
     rhythm->onClick = [this, rhythm] {
         std::vector<MenuItem> items;
 

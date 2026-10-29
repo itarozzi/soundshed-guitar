@@ -34,6 +34,13 @@ class TempoArrow final : public Pressable
     /// Called on a click, with whether Shift was held.
     std::function<void(bool fine)> onStep;
 
+    [[nodiscard]] AccessInfo Describe() const override
+    {
+        AccessInfo info = Pressable::Describe();
+        info.name = NameOr(mUp ? "Tempo up" : "Tempo down");
+        return info;
+    }
+
     el::view_limits limits(const el::basic_context&) const override
     {
         return {{28.0f, 24.0f}, {28.0f, 24.0f}};
@@ -95,6 +102,14 @@ class RoundButton final : public Pressable
         mActive = active;
     }
 
+    [[nodiscard]] AccessInfo Describe() const override
+    {
+        AccessInfo info = Pressable::Describe();
+        info.name = NameOr(mLabel.empty() ? IconButton::IconMeaning(mIcon) : mLabel);
+        info.selected = mActive;
+        return info;
+    }
+
     el::view_limits limits(const el::basic_context&) const override
     {
         return {{mDiameter, mDiameter}, {mDiameter, mDiameter}};
@@ -138,9 +153,10 @@ class RoundButton final : public Pressable
     bool mActive = false;
 };
 
-/// The tempo in large figures (.metronome-bpm-input). The wheel steps it; a double click asks
-/// for a tempo to type, as the web UI's number field takes one.
-class TempoReadout final : public el::element, public Drawn
+/// The tempo in large figures (.metronome-bpm-input). The wheel and, with focus, the arrow keys
+/// step it; a double click (or Enter, or a digit) types a tempo in its place, as the web UI's
+/// number field takes one.
+class TempoReadout final : public el::element, public Drawn, public Focusable
 {
   public:
     explicit TempoReadout(const Theme& theme) : mTheme(theme)
@@ -148,7 +164,89 @@ class TempoReadout final : public el::element, public Drawn
     }
 
     std::function<void(int steps)> onWheel;
-    std::function<void(el::rect at)> onEdit;
+    /// What the field opens with, and what was typed into it.
+    std::function<std::string()> editText;
+    std::function<void(const std::string& typed)> onTyped;
+
+    [[nodiscard]] AccessInfo Describe() const override
+    {
+        AccessInfo info;
+        info.role = mEdit.Active() ? AccessRole::Edit : AccessRole::Slider;
+        info.name = NameOr("Tempo, BPM");
+        info.value = mEdit.Active() ? mEdit.Value() : mText;
+        info.enabled = mEnabled;
+        return info;
+    }
+
+    [[nodiscard]] bool Editing() const override
+    {
+        return mEdit.Active();
+    }
+
+    bool wants_focus() const override
+    {
+        return FocusWanted(mEnabled) || mEdit.Active();
+    }
+
+    void begin_focus(focus_request) override
+    {
+        NoteFocus(true);
+    }
+
+    bool end_focus() override
+    {
+        if (mEdit.Active())
+        {
+            const auto typed = mEdit.Value();
+            mEdit.End();
+            RepaintSoon(DrawnArea());
+
+            if (onTyped)
+            {
+                const auto typedTo = onTyped;
+                typedTo(typed);
+            }
+        }
+
+        NoteFocus(false);
+        return true;
+    }
+
+    bool key(const el::context& ctx, el::key_info k) override
+    {
+        bool changed = false;
+        const bool used = InlineEdit::FieldKey(mEdit, k, editText, onTyped, changed);
+
+        if (changed)
+        {
+            ctx.view.refresh(ctx);
+        }
+
+        if (used || mEdit.Active())
+        {
+            return used;
+        }
+
+        if ((k.action == el::key_action::press || k.action == el::key_action::repeat) && onWheel &&
+            (k.key == el::key_code::up || k.key == el::key_code::down))
+        {
+            onWheel(k.key == el::key_code::up ? 1 : -1);
+            return true;
+        }
+
+        return false;
+    }
+
+    bool text(const el::context& ctx, el::text_info info) override
+    {
+        if (!mEdit.Char(info))
+        {
+            return false;
+        }
+
+        ctx.view.refresh(ctx);
+        return true;
+    }
 
     void Set(std::string text, bool enabled)
     {
@@ -164,14 +262,30 @@ class TempoReadout final : public el::element, public Drawn
     void draw(const el::context& ctx) override
     {
         NoteDrawn(ctx);
+
+        if (mEdit.Active())
+        {
+            mEdit.Draw(ctx.canvas, ctx.bounds, mTheme, Font(Weight::SemiBold).size(40.0f));
+            return;
+        }
+
         FillText(ctx.canvas, mText, Font(Weight::SemiBold).size(48.0f), mTheme.Text(), ctx.bounds, HAlign::Left);
     }
 
     bool click(const el::context& ctx, el::mouse_button btn) override
     {
-        if (mEnabled && btn.down && btn.state == el::mouse_button::left && btn.num_clicks == 2 && onEdit)
+        if (mEnabled && btn.down && btn.state == el::mouse_button::left && btn.num_clicks == 2 && editText && onTyped)
         {
-            onEdit(ctx.bounds);
+            // The tempo turns into a field where it is, and takes focus for the keys once this
+            // click is done with.
+            mEdit.Begin(editText());
+            ctx.view.refresh(ctx);
+            ctx.view.post([self = weak_from_this(), &view = ctx.view] {
+                if (const auto readout = self.lock())
+                {
+                    FocusInView(view, *readout);
+                }
+            });
         }
 
         return mEnabled;
@@ -197,6 +311,7 @@ class TempoReadout final : public el::element, public Drawn
     const Theme& mTheme;
     std::string mText = "120.0";
     bool mEnabled = true;
+    InlineEdit mEdit;
 };
 
 /// The beat strip (.metro-beats): a dot per beat, sized and shaded by its accent, ticks under

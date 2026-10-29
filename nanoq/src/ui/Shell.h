@@ -20,6 +20,7 @@
 // drop a drag.
 
 #include "WebView.h"
+#include "ui/AccessBridge.h"
 #include "ui/Bindings.h"
 #include "ui/Graphics.h"
 #include "ui/KeyRouter.h"
@@ -522,6 +523,14 @@ class Shell
     Ptr BuildPresetListContent();
     void RebuildPresetList();
     void LoadWithConfirm(const std::string& presetId);
+    /// Runs `proceed` (a switch to another preset), asking first when the one playing has unsaved
+    /// changes, as the web UI does for every switch it makes: `what` names it ("Load Clean Amp").
+    void ConfirmDiscardThen(const std::string& what, std::function<void()> proceed);
+    /// The preset selector's previous and next, asking first about unsaved changes.
+    void StepPresetWithConfirm(int direction);
+    /// Plays a slot of the active setlist (a pad, a setlist row), asking first about unsaved
+    /// changes when that loads another preset.
+    void SelectSetlistSlot(int index);
     void DeleteWithConfirm(const std::string& presetId);
     void OpenPresetRowMenu(const guitarfx::uiclient::PresetSummary& preset);
     void OpenFolderMenu(const std::string& folderId);
@@ -667,7 +676,8 @@ class Shell
     void ToggleLooper();
     [[nodiscard]] std::string LooperShape() const;
     Ptr BuildLooperStrip();
-    std::vector<Ptr> BuildCaptureButtons(float size);
+    /// `labelled`: each spelt out beside its icon, as the full footer does when it is wide.
+    std::vector<Ptr> BuildCaptureButtons(float size, bool labelled = false);
     void SyncLooper();
     void SyncLooperLive();
     void RepaintLooperLive();
@@ -723,6 +733,10 @@ class Shell
 
     Ptr mRoot;
     std::shared_ptr<KeyRouter> mKeys;
+    /// What a screen reader sees (AccessBridge.h): made at the first tick, once the view has its
+    /// window.
+    std::unique_ptr<AccessBridge> mAccess;
+    bool mAccessTried = false;
     /// The last click picked a chain card: Space bypasses it and Delete removes it, as when
     /// a card has focus in the web UI. Any other click clears it.
     bool mChainFocused = false;

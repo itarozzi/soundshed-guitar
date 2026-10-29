@@ -60,6 +60,16 @@ class MenuRow final : public Pressable
         Enabled(!heading);
     }
 
+    [[nodiscard]] AccessInfo Describe() const override
+    {
+        AccessInfo info = Pressable::Describe();
+        info.role = AccessRole::MenuItem;
+        info.name = NameOr(mLabel);
+        info.value = mSubtitle;
+        info.selected = mSelected;
+        return info;
+    }
+
     /// An icon at the left (the input modes' routing pictures), 30 by 20 in its own tile.
     void Icon(Icons* icons, std::string icon)
     {
@@ -228,10 +238,10 @@ Ptr Shell::BuildTopBar()
 
     auto prev = std::make_shared<IconButton>(mTheme, mIcons, "ui-prev", IconButton::Look::Soft);
     prev->Size(28, 28).IconSize(16);
-    prev->onClick = [&commands] { commands.StepPreset(-1); };
+    prev->onClick = [this] { StepPresetWithConfirm(-1); };
     auto next = std::make_shared<IconButton>(mTheme, mIcons, "ui-next", IconButton::Look::Soft);
     next->Size(28, 28).IconSize(16);
-    next->onClick = [&commands] { commands.StepPreset(1); };
+    next->onClick = [this] { StepPresetWithConfirm(1); };
 
     // The name opens the presets; the heart in it favourites the preset.
     auto pill = std::make_shared<PresetPill>(mTheme, mIcons, PresetTitle(mState), favourite, dirty);
