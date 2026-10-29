@@ -266,22 +266,27 @@ void TelemetryPublisher::SendSpectrum()
         return;
     }
 
-    SpectrumTap::Bins bins{};
+    WatchedSpectrum spectrum;
 
     // Nothing is sent for a node that is not there. The UI fades out a spectrum that stops
     // arriving, and a node that comes back under the same id is picked up again on its own.
-    if (!mPresetMixer.ReadNodeSpectrum(mSpectrumWatch->scope, mSpectrumWatch->presetId, mSpectrumWatch->nodeId, bins))
+    if (!mPresetMixer.ReadNodeSpectrum(mSpectrumWatch->scope, mSpectrumWatch->presetId, mSpectrumWatch->nodeId,
+                                       spectrum))
     {
         return;
     }
 
     // Whole dB, as the analyzer's bands are: a background fill cannot show finer.
-    nlohmann::json values = nlohmann::json::array();
+    const auto wholeDb = [](const SpectrumTap::Bins& bins) {
+        nlohmann::json values = nlohmann::json::array();
 
-    for (const float value : bins)
-    {
-        values.push_back(static_cast<int>(std::lround(value)));
-    }
+        for (const float value : bins)
+        {
+            values.push_back(static_cast<int>(std::lround(value)));
+        }
+
+        return values;
+    };
 
     nlohmann::json msg;
     msg["type"] = "sldS";
@@ -297,7 +302,27 @@ void TelemetryPublisher::SendSpectrum()
     // the frequency range, endpoints included.
     msg["r"] = nlohmann::json::array(
         {SpectrumTap::kMinFrequencyHz, SpectrumTap::kMaxFrequencyHz, SpectrumTap::kFloorDb, SpectrumTap::kCeilingDb});
-    msg["s"] = std::move(values);
+    msg["s"] = wholeDb(spectrum.input);
+
+    // A multi-band effect's output, on the same range, and its bands: [lowHz, highHz,
+    // gainReductionDb, levelDb] each, low band first, a range end of 0 meaning open.
+    if (spectrum.hasOutput)
+    {
+        msg["o"] = wholeDb(spectrum.output);
+        nlohmann::json bands = nlohmann::json::array();
+        const auto tenth = [](double value) { return std::round(value * 10.0) / 10.0; };
+
+        for (int band = 0; band < spectrum.bandCount; ++band)
+        {
+            const BandMeter& meter = spectrum.bands[static_cast<std::size_t>(band)];
+            bands.push_back(
+                nlohmann::json::array({std::round(meter.lowHz), std::round(meter.highHz), tenth(meter.gainReductionDb),
+                                       tenth(std::max(meter.levelDb, -120.0f))}));
+        }
+
+        msg["b"] = std::move(bands);
+    }
+
     Send(msg.dump());
 }
 

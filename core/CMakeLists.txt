@@ -645,7 +645,9 @@ set(GUITARFX_CORE_SOURCES
     src/dsp/IRWavLoader.h
     src/dsp/NAMFactoryForce.cpp
     src/dsp/BiquadFrequency.h
+    src/dsp/BandMeter.h
     src/dsp/BiquadDesign.h
+    src/dsp/LinkwitzRileyCrossover.h
     src/dsp/HalfBandIir.h
     src/dsp/LinearRamp.h
     src/dsp/Loudness.h
@@ -668,6 +670,8 @@ set(GUITARFX_CORE_SOURCES
     src/dsp/effects/NoiseGateLearn.h
     src/dsp/effects/MultibandGateEffect.h
     src/dsp/effects/MultibandGateSupport.h
+    src/dsp/effects/MultibandCompressorEffect.h
+    src/dsp/effects/MultibandCompressorSupport.h
     src/dsp/effects/ParametricEQEffect.h
     src/dsp/effects/DelayEffect.h
     src/dsp/effects/ReverbEffect.h

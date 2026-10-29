@@ -610,6 +610,10 @@ class MultiPresetMixer
     bool ReadNodeSpectrum(std::string_view scope, const std::string& presetId, const std::string& nodeId,
                           SpectrumTap::Bins& out);
 
+    /// The same, with the output spectrum and band meters of a node that has them.
+    bool ReadNodeSpectrum(std::string_view scope, const std::string& presetId, const std::string& nodeId,
+                          WatchedSpectrum& out);
+
     /// Detaches every spectrum tap, in every executor including retiring ones.
     void ClearSpectrumTaps();
 

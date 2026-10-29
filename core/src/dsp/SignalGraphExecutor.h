@@ -1,6 +1,7 @@
 #pragma once
 
 #include "presets/PresetTypes.h"
+#include "dsp/BandMeter.h"
 #include "dsp/ChannelLayout.h"
 #include "dsp/DeferredRebuild.h"
 #include "dsp/LoudnessTap.h"
@@ -31,6 +32,19 @@ class MixerEffect;
 class SplitterEffect;
 class ResourceLibrary;
 struct NoteBlock;
+
+/// What SignalGraphExecutor::ReadWatchedSpectrum reads of the watched node: its input's spectrum
+/// and, for an effect with band meters, its output's spectrum and the bands.
+struct WatchedSpectrum
+{
+    static constexpr int kMaxBands = 8;
+
+    SpectrumTap::Bins input{};
+    SpectrumTap::Bins output{};
+    bool hasOutput = false;
+    std::array<BandMeter, kMaxBands> bands{};
+    int bandCount = 0;
+};
 
 /// Classifies a graph's node types (SignalGraphExecutor::GetNodeTypesDeep()) for the silence
 /// gate. Asks the effect registry, so message thread only.
@@ -356,6 +370,11 @@ class SignalGraphExecutor
     bool ReadWatchedSpectrum(SpectrumTap::Bins& out,
                              std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now());
 
+    /// The same, plus, for a node whose effect has band meters (a multi-band compressor), the
+    /// spectrum of what it puts out and its bands' meters.
+    bool ReadWatchedSpectrum(WatchedSpectrum& out,
+                             std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now());
+
     // Loudness of one node's output, for the DSP status readout. Like the spectrum: at most one
     // node per executor, only while the UI is showing it, and message thread only.
 
@@ -485,6 +504,9 @@ class SignalGraphExecutor
         /// The executor's spectrum tap while this is the watched node, else null. The tap
         /// outlives every node that points at it; see mSpectrumTap.
         std::atomic<SpectrumTap*> spectrumTap{nullptr};
+        /// The executor's output spectrum tap while this is the watched node and its effect has
+        /// band meters, else null. Outlives every node that points at it, as spectrumTap does.
+        std::atomic<SpectrumTap*> outputSpectrumTap{nullptr};
         /// The executor's loudness tap while this is the node the DSP status readout watches, else
         /// null. Outlives every node that points at it, as the spectrum tap does.
         std::atomic<LoudnessTap*> loudnessTap{nullptr};
@@ -612,8 +634,9 @@ class SignalGraphExecutor
     [[nodiscard]] NodeState* FindNodeState(const std::string& id);
     [[nodiscard]] const NodeState* FindNodeState(const std::string& id) const;
     void ProcessPlannedNode(PlannedNode& planned, int numSamples, bool diagnosticsEnabled, bool collectLevels);
-    /// Points the watched node, and only that node, at mSpectrumTap. Rerun whenever node
-    /// states are created, since a new one starts out untapped.
+    /// Points the watched node, and only that node, at mSpectrumTap, and at mOutputSpectrumTap
+    /// too when its effect has band meters. Rerun whenever node states are created, since a new
+    /// one starts out untapped.
     void ApplySpectrumWatch();
     /// The same for mLoudnessTap.
     void ApplyLoudnessWatch();
@@ -726,6 +749,8 @@ class SignalGraphExecutor
     /// Created on the first watch and kept for the executor's lifetime, so the audio thread
     /// can never be left holding a pointer to a freed tap.
     std::unique_ptr<SpectrumTap> mSpectrumTap;
+    /// The watched node's output, for a node with band meters only. Kept like mSpectrumTap.
+    std::unique_ptr<SpectrumTap> mOutputSpectrumTap;
     std::string mSpectrumWatchNodeId;
     /// The same, for the loudness of the node the DSP status readout shows.
     std::unique_ptr<LoudnessTap> mLoudnessTap;

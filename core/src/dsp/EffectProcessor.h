@@ -10,6 +10,7 @@
 #include <utility>
 #include <vector>
 
+#include "dsp/BandMeter.h"
 #include "dsp/ChannelLayout.h"
 #include "dsp/DeferredRebuild.h"
 #include "presets/PresetTypes.h"
@@ -251,6 +252,22 @@ class EffectProcessor
     [[nodiscard]] virtual std::vector<std::pair<std::string, double>> DescribeSettings() const
     {
         return {};
+    }
+
+    /// Bands a multi-band effect meters for its node panel, drawn over the live spectrum; 0 for
+    /// everything else. A node with band meters is tapped after it runs as well as before it
+    /// while the UI watches its spectrum (SignalGraphExecutor::WatchNodeSpectrum).
+    [[nodiscard]] virtual int BandMeterCount() const
+    {
+        return 0;
+    }
+
+    /// Fills up to `out.size()` bands, low band first, and returns how many. The message thread
+    /// reads while the audio thread runs the effect, so it reads atomics and allocates nothing.
+    /// Reading starts the next gain-reduction hold.
+    virtual int ReadBandMeters(std::span<BandMeter> /*out*/)
+    {
+        return 0;
     }
 
     // Notes (dsp/NoteEvents.h). A node that makes notes from its input exposes them here, and

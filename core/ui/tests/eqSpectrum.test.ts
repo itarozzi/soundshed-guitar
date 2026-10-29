@@ -100,6 +100,34 @@ describe("the spectrum watch", () => {
     expect((listener.mock.calls[0][0] as EqSpectrum).binsDb[3]).toBe(-96);
   });
 
+  it("reads a multi-band node's output bins and band meters", () => {
+    const listener = vi.fn();
+    spectrum.subscribeEqSpectrum({ scope: "preset", nodeId: "mbc" }, listener);
+    const bands = [[0, 200, 6.5, -12], [200, 800, 0, -30.2], [800, 3000, 0, -40], [3000, 0, 1.2, -55]];
+    spectrum.applyEqSpectrumFrame(frame("mbc", "preset", -30, { o: new Array(BIN_COUNT).fill(-36), b: bands }));
+    const delivered = listener.mock.calls[0][0] as EqSpectrum;
+    expect(delivered.outputBinsDb).toHaveLength(BIN_COUNT);
+    expect(delivered.outputBinsDb?.[0]).toBe(-36);
+    expect(delivered.bands).toEqual([
+      { lowHz: null, highHz: 200, gainReductionDb: 6.5, levelDb: -12 },
+      { lowHz: 200, highHz: 800, gainReductionDb: 0, levelDb: -30.2 },
+      { lowHz: 800, highHz: 3000, gainReductionDb: 0, levelDb: -40 },
+      { lowHz: 3000, highHz: null, gainReductionDb: 1.2, levelDb: -55 },
+    ]);
+  });
+
+  it("keeps the input spectrum when the band meters are malformed", () => {
+    const listener = vi.fn();
+    spectrum.subscribeEqSpectrum({ scope: "preset", nodeId: "mbc" }, listener);
+    spectrum.applyEqSpectrumFrame(frame("mbc", "preset", -30, { o: [1, 2], b: [[0, 200, 1, -10]] }));
+    spectrum.applyEqSpectrumFrame(frame("mbc", "preset", -30, { o: new Array(BIN_COUNT).fill(-36), b: [[0, "x"]] }));
+    for (const [delivered] of listener.mock.calls as Array<[EqSpectrum]>) {
+      expect(delivered.binsDb).toHaveLength(BIN_COUNT);
+      expect(delivered.outputBinsDb).toBeUndefined();
+      expect(delivered.bands).toBeUndefined();
+    }
+  });
+
   it("hands the feed to the newest subscriber and back again", () => {
     const panel = vi.fn();
     const modal = vi.fn();

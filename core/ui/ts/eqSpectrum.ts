@@ -26,6 +26,17 @@ export interface EqSpectrumSource {
   presetId?: string;
 }
 
+/** One band of a multi-band effect, as the engine meters it with its spectrum. */
+export interface EqSpectrumBand {
+  /** Where the band starts and ends; null for the open end of the lowest and highest. */
+  lowHz: number | null;
+  highHz: number | null;
+  /** The deepest cut since the last frame, 0 or more. */
+  gainReductionDb: number;
+  /** The band detector's level, dBFS. */
+  levelDb: number;
+}
+
 export interface EqSpectrum {
   /** dB per bin, log-spaced from minFrequencyHz to maxFrequencyHz, both included. */
   binsDb: readonly number[];
@@ -33,6 +44,10 @@ export interface EqSpectrum {
   maxFrequencyHz: number;
   floorDb: number;
   ceilingDb: number;
+  /** A node with band meters (the Multi-band Compressor): what it puts out, on the same bins. */
+  outputBinsDb?: readonly number[];
+  /** And its bands, low band first. */
+  bands?: readonly EqSpectrumBand[];
 }
 
 /** Called with a fresh spectrum, or null when there is none to show. */
@@ -195,6 +210,40 @@ function finiteNumber(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
+/** A frame's output bins ("o") and bands ("b", [lowHz, highHz, gainReductionDb, levelDb] each,
+ * a range end of 0 meaning open), when it has them. */
+function parseBandMeters(
+  payload: Record<string, unknown>,
+  binCount: number,
+  floorDb: number,
+): Pick<EqSpectrum, "outputBinsDb" | "bands"> {
+  const output = payload.o;
+  const bands = payload.b;
+  if (!Array.isArray(output) || output.length !== binCount || !Array.isArray(bands)) {
+    return {};
+  }
+  const parsed: EqSpectrumBand[] = [];
+  for (const entry of bands) {
+    if (!Array.isArray(entry) || entry.length < 4) {
+      return {};
+    }
+    const [lowHz, highHz, gainReductionDb, levelDb] = entry.map(finiteNumber);
+    if (lowHz === null || highHz === null || gainReductionDb === null || levelDb === null) {
+      return {};
+    }
+    parsed.push({
+      lowHz: lowHz > 0 ? lowHz : null,
+      highHz: highHz > 0 ? highHz : null,
+      gainReductionDb: Math.max(0, gainReductionDb),
+      levelDb,
+    });
+  }
+  return {
+    outputBinsDb: output.map((value) => finiteNumber(value) ?? floorDb),
+    bands: parsed,
+  };
+}
+
 /** Handles an "sldS" frame. Returns false for a frame nobody asked for. */
 export function applyEqSpectrumFrame(payload: Record<string, unknown>): boolean {
   const target = watched;
@@ -224,6 +273,7 @@ export function applyEqSpectrumFrame(payload: Record<string, unknown>): boolean 
     maxFrequencyHz,
     floorDb,
     ceilingDb,
+    ...parseBandMeters(payload, bins.length, floorDb),
   };
 
   clearStaleTimer();

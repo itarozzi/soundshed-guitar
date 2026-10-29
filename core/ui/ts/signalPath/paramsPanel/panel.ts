@@ -29,6 +29,7 @@ import { bindSelectedNodeDspStatusToggle, isDspStatusVisible, resetDspStatusAver
 import { getEffectVisualizationEquipmentImage, getEffectVisualizationStockImage, updateEffectVisualization } from "../visualization.js";
 import { bindCabResponseControls, buildCabResponseSectionHtml } from "./cabResponse.js";
 import { bindGateLearnSection, buildGateLearnSectionHtml } from "./gateLearnPanel.js";
+import { buildMultibandCompressorSectionHtml } from "./multibandCompressorPanel.js";
 import { bindGraphicEqControls } from "./eq.js";
 import { bindHostedPluginActionControls, bindHostedPluginListControls } from "./hostedPlugins.js";
 import { bindIrAlignmentControls, buildIrAlignmentSectionHtml, IR_ALIGNMENT_PARAM_KEYS, isIrCabNode } from "./irAlignmentPanel.js";
@@ -363,7 +364,7 @@ export function showNodeParamsPanel(node: GraphNode, preset: Preset): void {
   ` : "";
 
   const cabResponseSection = buildCabResponseSectionHtml(node) + buildPickupResponseSectionHtml(node)
-    + buildGateLearnSectionHtml(node);
+    + buildGateLearnSectionHtml(node) + buildMultibandCompressorSectionHtml(node);
   // Under the Main and Advanced tabs rather than in either, so it is in view whichever is open.
   const irAlignmentSection = buildIrAlignmentSectionHtml(node)
     + buildPickupDesignSectionHtml(node, typeInfo?.parameters ?? [], buildParamControls);

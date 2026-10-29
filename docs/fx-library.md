@@ -806,6 +806,50 @@ Standard (default; attack / release 1 / 120 ms, -40 dB), Subtle (1 / 150 ms, -12
 (2 / 250 ms, -20 dB), Tight (0.5 / 50 ms, -60 dB), Staccato (0.2 / 25 ms, -70 dB) and Slow
 Fade (2 / 500 ms, -30 dB).
 
+### Multi-band Compressor (`dynamics_multiband_compressor`)
+A compressor in four frequency bands, each compressed on its own level with its own threshold,
+ratio and makeup. It holds down a boomy low string without squashing the pick attack above it,
+or tames fizz without thinning the body. Engine: `MultibandCompressorEffect.h`, with the
+parameter table, crossover ordering and gain curve in `MultibandCompressorSupport.h`. Plan:
+docs/plans/multiband-compressor.md. No latency.
+
+- **Bands.** Low, Low Mid, High Mid and High, split at three crossovers the player moves
+  (defaults 200, 800 and 3000 Hz). The split is the Multi-band Gate's, shared in
+  `dsp/LinkwitzRileyCrossover.h`: fourth-order Linkwitz-Riley with all-pass compensation, so
+  below every threshold the bands add up to a flat all-pass. Each crossover is kept a third of
+  an octave above the one below, and the top one under 0.45 × the sample rate.
+- **Detectors.** Each band's mean square over 8, 4, 2 and 1 ms (low band first). Linked across
+  channels (the louder side), separate in dual mono.
+- **Gain.** A 6 dB soft knee, then (1 − 1/ratio) of the overshoot. The reduction is smoothed in
+  dB by `attack` and `release`, stretched 2× in the low band and 1.5× in the low mid (a fast
+  release on a low note pumps and distorts it). Worked out every 16 samples; the applied gain
+  ramps per sample.
+- **Mix** blends each band with itself uncompressed, so dry and wet share the crossover's
+  phase and a half-way Mix does not comb. Makeup is on the compressed part; `output` trims the
+  sum. Makeup, Mix and Output glide over 20 ms.
+
+| Param | Range | Default | Notes |
+|---|---|---|---|
+| `crossover1`..`crossover3` | 40..1000, 150..5000, 600..12000 Hz | 200, 800, 3000 Hz | Group Crossovers, log taper |
+| `threshold1`..`threshold4` | -60..0 dB | -24 dB | Groups Low, Low Mid, High Mid, High |
+| `ratio1`..`ratio4` | 1..20 | 3 | Log taper; 1 leaves the band alone |
+| `gain1`..`gain4` | -12..+12 dB | 0 | Makeup |
+| `attack` | 0.1..100 ms | 10 ms | Log taper |
+| `release` | 10..1000 ms | 120 ms | Log taper |
+| `mix` | 0..1 | 1 | Per band, in phase |
+| `output` | -18..+18 dB | 0 | |
+
+**The node panel** draws the bands over the spectrum: the input shaded, the output as a line,
+each band's gain reduction hanging from the top with its number, and under the plot each band's
+level against its threshold. The crossovers can be dragged. The engine side is the EQ's spectrum
+tap plus `EffectProcessor::BandMeterCount`/`ReadBandMeters`: a watched node with band meters is
+also tapped after it runs, and `sldS` carries its output bins and bands (docs/user-interface.md).
+
+**Factory presets:** Standard (default), Tame the Boom (low band only, -30 dB 4:1), Tight Low
+End (lows 6:1 from 150 Hz, fast), Even Out (all bands 2.5:1 at -30 dB, +3 dB), Smooth Top (above
+3.5 kHz, 4:1, fast), Glassy Clean (body held, top open), Parallel Squash (8:1 at -40 dB, +8 dB,
+Mix 0.5) and Gentle Glue (1.8:1 at -18 dB, slow).
+
 ### Noise Reduction (`noise_reduction`)
 Noise reduction for guitar and bass pickups: mains hum and single-coil buzz taken out by
 cancellation, hiss by a band-split downward expander. No latency, and not a gate: the hum is

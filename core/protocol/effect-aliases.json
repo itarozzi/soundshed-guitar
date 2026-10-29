@@ -60,6 +60,10 @@
       "guid": "51e2f89c-c174-4c1b-aa40-2e5a08dc745c",
       "aliases": ["dynamics_multiband_gate"]
     },
+    "kMultibandCompressor": {
+      "guid": "2bdf5236-8d4a-485c-9302-3a0479c3614d",
+      "aliases": ["dynamics_multiband_compressor"]
+    },
     "kOverdrive": {
       "guid": "fa9e05a8-168a-4293-aa91-6b770de3da1d",
       "aliases": ["overdrive"]
@@ -83,6 +87,10 @@
     "kPickupMatch": {
       "guid": "df1f4ed4-5d84-4a21-9474-ad6ab014fca5",
       "aliases": ["pickup_match"]
+    },
+    "kEqPitchTracking": {
+      "guid": "b8b9922c-72d0-4a5b-a387-4ebd13789e37",
+      "aliases": ["eq_pitch_tracking"]
     },
     "kDelayDigital": {
       "guid": "673d3e7a-e9ef-4c5d-a4c4-619dff3355ed",

@@ -1319,6 +1319,12 @@ bool SignalGraphExecutor::WatchNodeSpectrum(const std::string& nodeId)
         mSpectrumTap = std::make_unique<SpectrumTap>();
     }
 
+    // Created before the node can be pointed at it, and kept, as mSpectrumTap is.
+    if (!mOutputSpectrumTap && state->processor && state->processor->BandMeterCount() > 0)
+    {
+        mOutputSpectrumTap = std::make_unique<SpectrumTap>();
+    }
+
     const bool movedNode = nodeId != mSpectrumWatchNodeId;
     mSpectrumWatchNodeId = nodeId;
     ApplySpectrumWatch();
@@ -1328,6 +1334,11 @@ bool SignalGraphExecutor::WatchNodeSpectrum(const std::string& nodeId)
     if (movedNode)
     {
         mSpectrumTap->Restart();
+
+        if (mOutputSpectrumTap)
+        {
+            mOutputSpectrumTap->Restart();
+        }
     }
 
     return true;
@@ -1355,12 +1366,36 @@ bool SignalGraphExecutor::ReadWatchedSpectrum(SpectrumTap::Bins& out, std::chron
     return true;
 }
 
+bool SignalGraphExecutor::ReadWatchedSpectrum(WatchedSpectrum& out, std::chrono::steady_clock::time_point now)
+{
+    if (!ReadWatchedSpectrum(out.input, now))
+    {
+        return false;
+    }
+
+    out.hasOutput = false;
+    out.bandCount = 0;
+    NodeState* state = FindNodeState(mSpectrumWatchNodeId);
+
+    if (state && state->processor && state->outputSpectrumTap.load(std::memory_order_acquire) != nullptr)
+    {
+        mOutputSpectrumTap->Analyze(mSampleRate, out.output, now);
+        out.hasOutput = true;
+        out.bandCount = state->processor->ReadBandMeters(out.bands);
+    }
+
+    return true;
+}
+
 void SignalGraphExecutor::ApplySpectrumWatch()
 {
     for (auto& [id, state] : mNodeStates)
     {
         const bool watched = !mSpectrumWatchNodeId.empty() && id == mSpectrumWatchNodeId;
         state.spectrumTap.store(watched ? mSpectrumTap.get() : nullptr, std::memory_order_release);
+        // Only a node with band meters is tapped after it runs: nothing else draws its output.
+        const bool metered = watched && mOutputSpectrumTap && state.processor && state.processor->BandMeterCount() > 0;
+        state.outputSpectrumTap.store(metered ? mOutputSpectrumTap.get() : nullptr, std::memory_order_release);
     }
 }
 

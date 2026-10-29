@@ -337,6 +337,62 @@ bool TestExecutorTapsTheNodeInput()
     return ok;
 }
 
+/// in -> mbc (a Multi-band Compressor squashing its low band) -> out.
+SignalGraph MakeMultibandGraph()
+{
+    SignalGraph graph;
+    graph.nodes.push_back({"in", kNodeTypeInput, "", "Input", true});
+    graph.nodes.push_back({"mbc", EffectGuids::kMultibandCompressor, "mbc", "Multi-band Compressor", true});
+    graph.nodes.back().params["threshold1"] = -40.0;
+    graph.nodes.back().params["ratio1"] = 20.0;
+    graph.nodes.push_back({"out", kNodeTypeOutput, "", "Output", true});
+    graph.edges.push_back({"in", "mbc", 0, 0, 1.0});
+    graph.edges.push_back({"mbc", "out", 0, 0, 1.0});
+    return graph;
+}
+
+bool TestBandMeteredNodeShowsItsOutput()
+{
+    std::cout << "\nA node with band meters shows its output and its bands\n";
+    bool ok = true;
+
+    SignalGraphExecutor executor;
+    executor.SetInputLayout(ChannelLayout::Mono);
+    executor.SetGraph(MakeMultibandGraph());
+    executor.Prepare(kSampleRate, 128);
+    SineSource sine(80.0, 0.5); // -6 dBFS peak, in the low band
+
+    ok &= Report("The compressor node can be watched", executor.WatchNodeSpectrum("mbc"));
+    RunExecutor(executor, sine, 1.0);
+
+    static auto now = Clock::now();
+    now += std::chrono::seconds(1);
+    WatchedSpectrum spectrum;
+    ok &= Report("It reads", executor.ReadWatchedSpectrum(spectrum, now));
+    ok &= Report("Its output is tapped", spectrum.hasOutput);
+    ok &= Report("Its four bands come with it", spectrum.bandCount == 4, std::to_string(spectrum.bandCount));
+
+    const auto bin = static_cast<std::size_t>(NearestBin(80.0));
+    const double cut = spectrum.input[bin] - spectrum.output[bin];
+    ok &= Report("The output shows the low band turned down", cut > 20.0, Db(cut));
+    ok &= Report("The low band's meter shows the cut", spectrum.bands[0].gainReductionDb > 20.0,
+                 Db(spectrum.bands[0].gainReductionDb));
+    ok &= Report("The meters carry the crossovers",
+                 spectrum.bands[0].highHz == 200.0 && spectrum.bands[3].lowHz == 3000.0);
+
+    // An EQ draws only its input, so it is not tapped after it runs.
+    SignalGraphExecutor eqExecutor;
+    eqExecutor.SetInputLayout(ChannelLayout::Mono);
+    eqExecutor.SetGraph(MakeEqGraph());
+    eqExecutor.Prepare(kSampleRate, 128);
+    eqExecutor.WatchNodeSpectrum("eq");
+    RunExecutor(eqExecutor, sine, 0.2);
+    WatchedSpectrum eq;
+    ok &= Report("An EQ reads", eqExecutor.ReadWatchedSpectrum(eq, now));
+    ok &= Report("without an output or bands", !eq.hasOutput && eq.bandCount == 0);
+    return ok;
+}
+
 bool TestMixerFindsTheNodeByScope()
 {
     std::cout << "\nThe mixer finds the node by scope\n";
@@ -399,8 +455,9 @@ int main()
 
     bool allPassed = true;
 
-    for (const auto& test : {TestWindowSizing, TestSineLandsInItsBinAtItsLevel, TestLowFrequenciesResolveAtTinyBlocks,
-                             TestSilenceAndGaps, TestExecutorTapsTheNodeInput, TestMixerFindsTheNodeByScope})
+    for (const auto& test :
+         {TestWindowSizing, TestSineLandsInItsBinAtItsLevel, TestLowFrequenciesResolveAtTinyBlocks, TestSilenceAndGaps,
+          TestExecutorTapsTheNodeInput, TestBandMeteredNodeShowsItsOutput, TestMixerFindsTheNodeByScope})
     {
         if (!test())
         {

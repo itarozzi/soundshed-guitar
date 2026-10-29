@@ -732,6 +732,12 @@ void SignalGraphExecutor::ProcessPlannedNode(PlannedNode& planned, int numSample
         tap->Push(state->bufferLeft.data(), state->outputStereo ? state->bufferRight.data() : nullptr, numSamples);
     }
 
+    // A multi-band compressor's panel draws what comes out over what went in.
+    if (auto* tap = state->outputSpectrumTap.load(std::memory_order_acquire))
+    {
+        tap->Push(state->bufferLeft.data(), state->outputStereo ? state->bufferRight.data() : nullptr, numSamples);
+    }
+
     if (collectLevels)
     {
         const auto levelStats = ComputeLevelStats(state->bufferLeft.data(), state->bufferRight.data(), numSamples);

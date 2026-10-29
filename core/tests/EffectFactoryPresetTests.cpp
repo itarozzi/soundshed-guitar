@@ -35,9 +35,11 @@
 #include "dsp/effects/DelayEffect.h"
 #include "dsp/effects/FlangerEffect.h"
 #include "dsp/effects/HarmonizerEffect.h"
+#include "dsp/effects/MultibandCompressorEffect.h"
 #include "dsp/effects/MultibandGateEffect.h"
 #include "dsp/effects/NoiseGateEffect.h"
 #include "dsp/effects/NoiseReductionEffect.h"
+#include "dsp/effects/PitchTrackingEqEffect.h"
 #include "dsp/effects/ParametricEQEffect.h"
 #include "dsp/effects/PitchShiftEffect.h"
 #include "dsp/effects/RotaryEffect.h"
@@ -108,7 +110,9 @@ const std::vector<Effect>& Effects()
          EffectGuids::kMultibandGate,
          {"threshold1", "threshold2", "threshold3", "threshold4", "threshold5", "threshold6", "offset"},
          {}},
+        {"Multi-band Compressor", EffectGuids::kMultibandCompressor, {}, {}},
         {"Parametric EQ", EffectGuids::kEqParametric, {}, {}},
+        {"Pitch Tracking EQ", EffectGuids::kEqPitchTracking, {"level", "lowestNote"}, {}},
         {"Digital Delay", EffectGuids::kDelayDigital, {"syncDivision"}, {kDivisionWhenSynced}},
         {"Chorus", EffectGuids::kChorus, {"syncDivision"}, {kDivisionWhenSynced}},
         {"Flanger", EffectGuids::kFlanger, {"syncDivision"}, {kDivisionWhenSynced}},
@@ -363,7 +367,9 @@ int main()
     guitarfx::RegisterNoiseGateEffect();
     guitarfx::RegisterNoiseReductionEffect();
     guitarfx::RegisterMultibandGateEffect();
+    guitarfx::RegisterMultibandCompressorEffect();
     guitarfx::RegisterParametricEQEffect();
+    guitarfx::RegisterPitchTrackingEqEffect();
     guitarfx::RegisterDelayEffect();
     guitarfx::RegisterChorusEffect();
     guitarfx::RegisterFlangerEffect();

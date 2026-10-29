@@ -41,6 +41,7 @@ constexpr const char* kCompressorOpto = "9651c79e-6530-4c23-9150-aa4c0ff2f1d8";
 constexpr const char* kLimiterBrickwall = "f4094126-b5de-4c5d-8d05-d56bd8c312d1";
 constexpr const char* kNoiseReduction = "b29b11b4-79ee-4e90-84f0-8a8ae5c6350b";
 constexpr const char* kMultibandGate = "51e2f89c-c174-4c1b-aa40-2e5a08dc745c";
+constexpr const char* kMultibandCompressor = "2bdf5236-8d4a-485c-9302-3a0479c3614d";
 
 // ── Distortion / drive ────────────────────────────────────────────────
 constexpr const char* kOverdrive = "fa9e05a8-168a-4293-aa91-6b770de3da1d";
@@ -51,6 +52,7 @@ constexpr const char* kFuzz = "3a38b19c-1d97-4989-b5bb-12bcc59d1e6b";
 constexpr const char* kEqParametric = "4b4025ca-64cd-4180-be79-81873b618dba";
 constexpr const char* kEqGraphic = "ef8240ba-c973-4e09-ab65-4faf56a8ecbf";
 constexpr const char* kPickupMatch = "df1f4ed4-5d84-4a21-9474-ad6ab014fca5";
+constexpr const char* kEqPitchTracking = "b8b9922c-72d0-4a5b-a387-4ebd13789e37";
 
 // ── Delay ─────────────────────────────────────────────────────────────
 constexpr const char* kDelayDigital = "673d3e7a-e9ef-4c5d-a4c4-619dff3355ed";

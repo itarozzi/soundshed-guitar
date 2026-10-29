@@ -98,6 +98,7 @@ set(TEST_SOURCES
     NodeTelemetryHoldTests.cpp
     NoiseGateTests.cpp
     MultibandGateEffectTests.cpp
+    MultibandCompressorEffectTests.cpp
     NoiseGateLearnTests.cpp
     NoiseReductionEffectTests.cpp
     NonAsciiPathWorkflowTests.cpp
@@ -134,6 +135,7 @@ set(TEST_SOURCES
     RiffCaptureNoticeTests.cpp
     RiffRecorderTests.cpp
     RingModEffectTests.cpp
+    PitchTrackingEqEffectTests.cpp
     RotaryVibeEffectTests.cpp
     NamResamplerLatencyTests.cpp
     SampleRateConverterTests.cpp

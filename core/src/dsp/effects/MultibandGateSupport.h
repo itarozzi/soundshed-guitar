@@ -1,8 +1,7 @@
 #pragma once
 
-#include "dsp/BiquadDesign.h"
 #include "dsp/EffectParamSpec.h"
-#include "dsp/FiniteCheck.h"
+#include "dsp/LinkwitzRileyCrossover.h"
 
 #include <algorithm>
 #include <array>
@@ -76,86 +75,9 @@ inline constexpr std::array<EffectParamSpec, kParamCount> kParams = {{
 }};
 // clang-format on
 
-/// What the crossover's channels share: per split, one Butterworth section of the
-/// Linkwitz-Riley low-pass and high-pass (each runs it twice) and the all-pass the two add up to.
-struct CrossoverDesign
-{
-    std::array<BiquadCoefficients, kSplits> lowPass;
-    std::array<BiquadCoefficients, kSplits> highPass;
-    std::array<BiquadCoefficients, kSplits> allPass;
-
-    void Prepare(double sampleRate)
-    {
-        for (int split = 0; split < kSplits; ++split)
-        {
-            const double hz = kSplitHz[static_cast<std::size_t>(split)];
-            lowPass[static_cast<std::size_t>(split)] = biquad::LowPass(hz, biquad::kButterworthQ, sampleRate);
-            highPass[static_cast<std::size_t>(split)] = biquad::HighPass(hz, biquad::kButterworthQ, sampleRate);
-            allPass[static_cast<std::size_t>(split)] = biquad::AllPass(hz, biquad::kButterworthQ, sampleRate);
-        }
-    }
-};
-
-/**
- * One channel of the six-band split: fourth-order Linkwitz-Riley crossovers in a cascade, each
- * taking the lowest band off what the last left. A band that leaves early skips the crossovers
- * above it, so it runs through their all-passes instead, and the six then add up to a single
- * all-pass of the input: flat in level, whatever is played, when every band is open.
- */
-class Crossover
-{
-  public:
-    /// Low band first.
-    void Split(const CrossoverDesign& design, double input, std::array<double, kBands>& bands)
-    {
-        double rest = input;
-
-        for (std::size_t split = 0; split < kSplits; ++split)
-        {
-            auto& low = mLowPass[split];
-            auto& high = mHighPass[split];
-            bands[split] = low[1].Process(design.lowPass[split], low[0].Process(design.lowPass[split], rest));
-            rest = high[1].Process(design.highPass[split], high[0].Process(design.highPass[split], rest));
-        }
-
-        bands[kSplits] = rest;
-        std::size_t allPass = 0;
-
-        for (std::size_t band = 0; band + 1 < kSplits; ++band)
-        {
-            for (std::size_t split = band + 1; split < kSplits; ++split)
-            {
-                bands[band] = mAllPass[allPass++].Process(design.allPass[split], bands[band]);
-            }
-        }
-    }
-
-    void Reset()
-    {
-        *this = Crossover{};
-    }
-
-    [[nodiscard]] bool IsFinite() const
-    {
-        for (const auto& sections : mLowPass)
-        {
-            if (!guitarfx::IsFinite(sections[1].s1) || !guitarfx::IsFinite(sections[1].s2))
-            {
-                return false;
-            }
-        }
-
-        return guitarfx::IsFinite(mHighPass[kSplits - 1][1].s1) && guitarfx::IsFinite(mAllPass[0].s1);
-    }
-
-  private:
-    /// Band b needs the all-passes of every split above it: 4 + 3 + 2 + 1.
-    static constexpr std::size_t kAllPasses = kSplits * (kSplits - 1) / 2;
-
-    std::array<std::array<biquad::State, 2>, kSplits> mLowPass{};
-    std::array<std::array<biquad::State, 2>, kSplits> mHighPass{};
-    std::array<biquad::State, kAllPasses> mAllPass{};
-};
+/// The six-band split (dsp/LinkwitzRileyCrossover.h) at the fixed kSplitHz.
+using CrossoverDesign = lr_crossover::Design<kBands>;
+using Crossover = lr_crossover::Crossover<kBands>;
 
 /**
  * A band's gain, in dB, for its level `belowDb` under its threshold (0 or less: at or above

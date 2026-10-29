@@ -36,7 +36,7 @@ namespace guitarfx
  * there is no hysteresis or hold to set.
  *
  * - The split is fourth-order Linkwitz-Riley crossovers with all-pass compensation
- *   (multiband_gate::Crossover): open, the bands add up to a flat all-pass of the input.
+ *   (dsp/LinkwitzRileyCrossover.h): open, the bands add up to a flat all-pass of the input.
  * - One detector per band drives both channels, so a stereo image cannot pull apart, except
  *   in dual mono, where each side has its own.
  * - Learn listens to the six detectors with the strings muted and suggests a threshold per
@@ -264,7 +264,7 @@ class MultibandGateEffect : public EffectProcessor, public NoiseLearnHost
 
     void PrepareRate()
     {
-        mDesign.Prepare(mSampleRate);
+        mDesign.Prepare(multiband_gate::kSplitHz, mSampleRate);
 
         for (std::size_t band = 0; band < kBands; ++band)
         {

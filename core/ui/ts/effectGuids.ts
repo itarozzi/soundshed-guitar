@@ -28,6 +28,7 @@ export const EffectGuids = {
   kLimiterBrickwall:     "f4094126-b5de-4c5d-8d05-d56bd8c312d1",
   kNoiseReduction:       "b29b11b4-79ee-4e90-84f0-8a8ae5c6350b",
   kMultibandGate:        "51e2f89c-c174-4c1b-aa40-2e5a08dc745c",
+  kMultibandCompressor:  "2bdf5236-8d4a-485c-9302-3a0479c3614d",
 
   // Drive
   kOverdrive:            "fa9e05a8-168a-4293-aa91-6b770de3da1d",
@@ -38,6 +39,7 @@ export const EffectGuids = {
   kEqParametric:         "4b4025ca-64cd-4180-be79-81873b618dba",
   kEqGraphic:            "ef8240ba-c973-4e09-ab65-4faf56a8ecbf",
   kPickupMatch:          "df1f4ed4-5d84-4a21-9474-ad6ab014fca5",
+  kEqPitchTracking:      "b8b9922c-72d0-4a5b-a387-4ebd13789e37",
 
   // Delay
   kDelayDigital:         "673d3e7a-e9ef-4c5d-a4c4-619dff3355ed",
@@ -112,12 +114,14 @@ export const EFFECT_ALIAS_MAP: Record<string, string> = {
   limiter_brickwall:     EffectGuids.kLimiterBrickwall,
   noise_reduction:       EffectGuids.kNoiseReduction,
   dynamics_multiband_gate: EffectGuids.kMultibandGate,
+  dynamics_multiband_compressor: EffectGuids.kMultibandCompressor,
   overdrive:             EffectGuids.kOverdrive,
   distortion:            EffectGuids.kDistortion,
   fuzz:                  EffectGuids.kFuzz,
   eq_parametric:         EffectGuids.kEqParametric,
   eq_graphic:            EffectGuids.kEqGraphic,
   pickup_match:          EffectGuids.kPickupMatch,
+  eq_pitch_tracking:     EffectGuids.kEqPitchTracking,
   delay_digital:         EffectGuids.kDelayDigital,
   delay_doubler:         EffectGuids.kDelayDoubler,
   delay_tape:            EffectGuids.kDelayTape,

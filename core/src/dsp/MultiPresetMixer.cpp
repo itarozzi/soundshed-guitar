@@ -1821,6 +1821,14 @@ bool MultiPresetMixer::ReadNodeSpectrum(std::string_view scope, const std::strin
     return executor && executor->WatchNodeSpectrum(nodeId) && executor->ReadWatchedSpectrum(out);
 }
 
+bool MultiPresetMixer::ReadNodeSpectrum(std::string_view scope, const std::string& presetId, const std::string& nodeId,
+                                        WatchedSpectrum& out)
+{
+    const PresetVoicePool::ReadScope readScope(mVoices);
+    SignalGraphExecutor* executor = FindTapExecutor(scope, presetId);
+    return executor && executor->WatchNodeSpectrum(nodeId) && executor->ReadWatchedSpectrum(out);
+}
+
 void MultiPresetMixer::ClearSpectrumTaps()
 {
     const PresetVoicePool::ReadScope readScope(mVoices);

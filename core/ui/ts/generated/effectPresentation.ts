@@ -136,6 +136,7 @@ export const EFFECTS: Readonly<Record<string, EffectPresentation>> = {
   [EffectGuids.kEqParametric]: { icon: "sliders" },
   [EffectGuids.kEqGraphic]: { icon: "sliders" },
   [EffectGuids.kPickupMatch]: { icon: "sliders" },
+  [EffectGuids.kEqPitchTracking]: { icon: "note" },
   [EffectGuids.kChorus]: { icon: "wave" },
   [EffectGuids.kFlanger]: { icon: "wave" },
   [EffectGuids.kPhaser]: { icon: "wave" },
@@ -167,6 +168,7 @@ export const EFFECTS: Readonly<Record<string, EffectPresentation>> = {
   [EffectGuids.kLimiterBrickwall]: { icon: "bolt" },
   [EffectGuids.kNoiseReduction]: { icon: "guitar" },
   [EffectGuids.kMultibandGate]: { icon: "sliders" },
+  [EffectGuids.kMultibandCompressor]: { icon: "sliders" },
   [EffectGuids.kPluginHost]: { equipmentImage: "images/equipment/fx/studio-rack-multifx.png" },
   [EffectGuids.kWasmHost]: { equipmentImage: "images/equipment/pedals/colourful-pedal2.png" },
 };

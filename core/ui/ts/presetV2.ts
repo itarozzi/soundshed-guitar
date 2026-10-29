@@ -365,6 +365,7 @@ const EFFECT_STUBS: EffectStub[] = [
   { type: EffectGuids.kLimiterBrickwall },
   { type: EffectGuids.kNoiseReduction },
   { type: EffectGuids.kMultibandGate },
+  { type: EffectGuids.kMultibandCompressor },
   // Drive
   { type: EffectGuids.kOverdrive },
   { type: EffectGuids.kDistortion },
@@ -380,6 +381,7 @@ const EFFECT_STUBS: EffectStub[] = [
   // EQ
   { type: EffectGuids.kEqParametric },
   { type: EffectGuids.kEqGraphic },
+  { type: EffectGuids.kEqPitchTracking },
   // Only the global chain's (the input calibration flyout's Pickup Match tab) for now; presets
   // that already hold one still load and edit it.
   { type: EffectGuids.kPickupMatch, catalogHidden: true },

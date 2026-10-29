@@ -4,11 +4,13 @@
 #include "dsp/EffectProcessor.h"
 #include "dsp/EffectGuids.h"
 #include "dsp/effects/GainEffect.h"
+#include "dsp/effects/MultibandCompressorEffect.h"
 #include "dsp/effects/MultibandGateEffect.h"
 #include "dsp/effects/NoiseGateEffect.h"
 #include "dsp/effects/NoiseReductionEffect.h"
 #include "dsp/effects/ParametricEQEffect.h"
 #include "dsp/effects/PickupMatchEffect.h"
+#include "dsp/effects/PitchTrackingEqEffect.h"
 #include "dsp/effects/GraphicEQEffect.h"
 #include "dsp/effects/DelayEffect.h"
 #include "dsp/effects/TapeDelayEffect.h"
@@ -102,6 +104,7 @@ inline void RegisterAllEffects()
     RegisterNoiseReductionEffect();
     RegisterMultibandGateEffect();
     RegisterCompressorEffects(); // VCA and Opto compressors
+    RegisterMultibandCompressorEffect();
     RegisterLimiterEffect();
     RegisterOverdriveEffect();
     RegisterDistortionEffect();
@@ -111,6 +114,7 @@ inline void RegisterAllEffects()
     RegisterParametricEQEffect();
     RegisterGraphicEQEffect();
     RegisterPickupMatchEffect();
+    RegisterPitchTrackingEqEffect();
 
     // Amp models
     RegisterBuiltinAmpEffect();

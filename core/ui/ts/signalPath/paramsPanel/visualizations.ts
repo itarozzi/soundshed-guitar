@@ -11,6 +11,7 @@ import { updateCabResponseVisualization } from "./cabResponse.js";
 import { updateEqVisualization } from "./eq.js";
 import { updateGateLearnVisualization } from "./gateLearnPanel.js";
 import { updateIrAlignmentVisualization } from "./irAlignmentPanel.js";
+import { updateMultibandCompressorVisualization } from "./multibandCompressorPanel.js";
 import { updatePickupResponseVisualization } from "./pickupResponse.js";
 import { updateSpatialVisualization } from "./spatial.js";
 
@@ -21,4 +22,5 @@ export function refreshNodeVisualizations(node: GraphNode): void {
   updateIrAlignmentVisualization(node);
   updatePickupResponseVisualization(node);
   updateGateLearnVisualization(node);
+  updateMultibandCompressorVisualization(node);
 }

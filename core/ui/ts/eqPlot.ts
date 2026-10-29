@@ -126,7 +126,7 @@ export function getEqCurveThemeColors(canvas: HTMLCanvasElement): {
 }
 
 /** Traces the spectrum's top edge, smoothed through the midpoints between bins. */
-function traceSpectrum(ctx: CanvasRenderingContext2D, points: Array<{ x: number; y: number }>): void {
+export function traceSpectrum(ctx: CanvasRenderingContext2D, points: Array<{ x: number; y: number }>): void {
   ctx.moveTo(points[0].x, points[0].y);
   for (let i = 1; i < points.length - 1; i += 1) {
     const next = points[i + 1];
@@ -136,7 +136,7 @@ function traceSpectrum(ctx: CanvasRenderingContext2D, points: Array<{ x: number;
   ctx.lineTo(last.x, last.y);
 }
 
-function drawSpectrum(
+export function drawSpectrum(
   ctx: CanvasRenderingContext2D,
   spectrum: EqSpectrum,
   axis: EqFrequencyAxis,
