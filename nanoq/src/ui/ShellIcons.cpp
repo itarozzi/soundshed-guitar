@@ -132,6 +132,31 @@ void AddShellIcons(Icons& icons)
     icons.Add("ui-speaker",
               Svg("0 0 24 24", 1.8f, R"(<path d="M11 5 6 9H3v6h3l5 4V5z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/>)"));
 
+    // The input modes' routing (inputModeIcons.ts): the inputs at the left (filled when used),
+    // the chain as a box, the two sides leaving at the right.
+    {
+        const std::string open = R"(<svg viewBox="0 0 30 20" fill="none" stroke="currentColor" stroke-width="1.7" )"
+                                 R"(stroke-linecap="round" stroke-linejoin="round">)";
+        const std::string in1 = R"(<circle cx="3" cy="5" r="2.2" fill="currentColor" stroke="none"/>)";
+        const std::string in2 = R"(<circle cx="3" cy="15" r="2.2" fill="currentColor" stroke="none"/>)";
+        const std::string in1Unused = R"(<circle cx="3" cy="5" r="1.7" stroke-width="1.3"/>)";
+        const std::string in2Unused = R"(<circle cx="3" cy="15" r="1.7" stroke-width="1.3"/>)";
+        const std::string from1 = R"(<path d="M5.2 5c3.3 0 3 5 6.3 5"/>)";
+        const std::string from2 = R"(<path d="M5.2 15c3.3 0 3-5 6.3-5"/>)";
+        const std::string monoChain = R"(<rect x="11.5" y="6.5" width="7" height="7" rx="1.8"/>)"
+                                      R"(<path d="M18.5 10c2.6 0 2.6-5 5.2-5H27M18.5 10c2.6 0 2.6 5 5.2 5H27"/>)";
+        const std::string lanes = R"(<path d="M5.2 5h6.3M18.5 5H27M5.2 15h6.3M18.5 15H27"/>)";
+        const std::string stereoChain = R"(<rect x="11.5" y="1.5" width="7" height="17" rx="2"/>)";
+        const std::string dualChains = R"(<rect x="11.5" y="1.5" width="7" height="7" rx="1.8"/>)"
+                                       R"(<rect x="11.5" y="11.5" width="7" height="7" rx="1.8"/>)";
+        const std::string close = "</svg>";
+        icons.Add("input-mono1", open + in1 + in2Unused + from1 + monoChain + close);
+        icons.Add("input-mono2", open + in1Unused + in2 + from2 + monoChain + close);
+        icons.Add("input-monoSum", open + in1 + in2 + from1 + from2 + monoChain + close);
+        icons.Add("input-stereo", open + in1 + in2 + lanes + stereoChain + close);
+        icons.Add("input-dualMono", open + in1 + in2 + lanes + dualChains + close);
+    }
+
     // The chain (signal-path-bar.html).
     icons.Add(
         "ui-wrap",

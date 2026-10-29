@@ -60,9 +60,27 @@ class MenuRow final : public Pressable
         Enabled(!heading);
     }
 
+    /// An icon at the left (the input modes' routing pictures), 30 by 20 in its own tile.
+    void Icon(Icons* icons, std::string icon)
+    {
+        mIcons = icons;
+        mIcon = std::move(icon);
+    }
+
+    /// A second, muted line under the label: the row is a two-line one.
+    void Subtitle(std::string subtitle)
+    {
+        mSubtitle = std::move(subtitle);
+    }
+
+    [[nodiscard]] static float Height(bool heading, bool emptyHeading, bool twoLine)
+    {
+        return heading ? (emptyHeading ? 9.0f : 24.0f) : (twoLine ? 44.0f : 31.0f);
+    }
+
     el::view_limits limits(const el::basic_context&) const override
     {
-        const float h = mHeading ? (mLabel.empty() ? 9.0f : 24.0f) : 31.0f;
+        const float h = Height(mHeading, mLabel.empty(), !mSubtitle.empty());
         return {{60.0f, h}, {el::full_extent, h}};
     }
 
@@ -91,9 +109,37 @@ class MenuRow final : public Pressable
             cnv.fill_round_rect(b, 6.0f);
         }
 
+        float left = b.left + 12.0f;
+
+        if (mIcons != nullptr && !mIcon.empty())
+        {
+            // The icon on a tile of its own (.input-mode-option-icon).
+            const float cy = b.top + b.height() * 0.5f;
+            const el::rect tile{b.left + 8.0f, cy - 15.0f, b.left + 48.0f, cy + 15.0f};
+            cnv.fill_style(mSelected ? mTheme.Accent().opacity(0.14f) : mTheme.Text().opacity(0.06f));
+            cnv.fill_round_rect(tile, 6.0f);
+            mIcons->Draw(cnv, mIcon, el::rect{tile.left + 5.0f, cy - 10.0f, tile.left + 35.0f, cy + 10.0f},
+                         mSelected ? mTheme.Accent() : mTheme.TextSecondary());
+            left = tile.right + 10.0f;
+        }
+
         const auto font = Font(Weight::SemiBold).size(12.0f);
-        FillText(cnv, Ellipsize(cnv, mLabel, font, b.width() - 34.0f), font, mSelected ? mTheme.Accent() : mInk,
-                 el::rect{b.left + 12.0f, b.top, b.right - 22.0f, b.bottom}, HAlign::Left);
+        const el::color labelInk = mSelected ? mTheme.Accent() : mInk;
+
+        if (mSubtitle.empty())
+        {
+            FillText(cnv, Ellipsize(cnv, mLabel, font, b.right - 22.0f - left), font, labelInk,
+                     el::rect{left, b.top, b.right - 22.0f, b.bottom}, HAlign::Left);
+        }
+        else
+        {
+            const float mid = b.top + b.height() * 0.5f;
+            const auto small = Font(Weight::Regular).size(10.5f);
+            FillText(cnv, Ellipsize(cnv, mLabel, font, b.right - 22.0f - left), font, labelInk,
+                     el::rect{left, mid - 16.0f, b.right - 22.0f, mid}, HAlign::Left);
+            FillText(cnv, Ellipsize(cnv, mSubtitle, small, b.right - 22.0f - left), small, mTheme.TextMuted(),
+                     el::rect{left, mid, b.right - 22.0f, mid + 14.0f}, HAlign::Left);
+        }
 
         if (mSelected)
         {
@@ -113,6 +159,9 @@ class MenuRow final : public Pressable
     std::string mLabel;
     bool mSelected, mHeading;
     el::color mInk;
+    Icons* mIcons = nullptr;
+    std::string mIcon;
+    std::string mSubtitle;
 };
 } // namespace
 
@@ -850,6 +899,13 @@ void Shell::OpenDropdown(el::rect anchor, std::vector<MenuItem> items, float wid
         const bool heading = item.heading || !item.onChoose;
         const el::color ink = item.tint != 0 ? Theme::Argb(item.tint) : mTheme.Ink();
         auto row = std::make_shared<MenuRow>(mTheme, item.label, item.selected, heading, ink);
+
+        if (!item.icon.empty())
+        {
+            row->Icon(&mIcons, item.icon);
+        }
+
+        row->Subtitle(item.subtitle);
         auto choose = item.onChoose;
         row->onClick = [this, choose] {
             // Close first: the choice may open another dialog. Only the list closes: a list
@@ -861,7 +917,7 @@ void Shell::OpenDropdown(el::rect anchor, std::vector<MenuItem> items, float wid
                 choose();
             }
         };
-        height += heading ? (item.label.empty() ? 9.0f : 24.0f) : 31.0f;
+        height += MenuRow::Height(heading, item.label.empty(), !item.subtitle.empty());
         rows.push_back(row);
     }
 

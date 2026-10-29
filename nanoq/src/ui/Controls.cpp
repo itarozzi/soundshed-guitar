@@ -150,7 +150,7 @@ Shell::ControlCells Shell::BuildControlCells()
             return std::string(mState.environment.standalone ? "Stereo" : "Track");
         }
 
-        return std::string(c.inputChannel == 1 ? "Mono In 2" : c.inputChannel == 2 ? "Mono In 1+2" : "Mono In 1");
+        return std::string(c.inputChannel == 1 ? "Mono In 2" : c.inputChannel == 2 ? "Mono 1+2" : "Mono In 1");
     };
     auto mode = std::make_shared<IconButton>(mTheme, mIcons, "");
     mode->Size(70, 16).Label(inputModeLabel(), 10.0f).Caret(true).Ink(mTheme.TextSecondary());
@@ -159,28 +159,41 @@ Shell::ControlCells Shell::BuildControlCells()
             return [this, mono, channel, dual] { mSession.Commands().SetInputMode(mono, channel, dual); };
         };
         const auto& c = chain();
-        std::vector<MenuItem> items;
+        // As the web UI's input mode flyout (inputMode.ts): each mode with its routing icon, its
+        // name and what it does.
+        const auto mode = [](std::string name, std::string description, std::string icon, bool chosen,
+                             std::function<void()> choose) {
+            MenuItem item{std::move(name), chosen, false, std::move(choose)};
+            item.icon = std::move(icon);
+            item.subtitle = std::move(description);
+            return item;
+        };
+        std::vector<MenuItem> items{{"Input mode", false, true, {}}};
 
         // In the standalone app the player picks mono (input 1, input 2 or both summed), stereo or
         // dual mono; in a DAW the track decides mono or stereo, and dual mono is the one choice left.
         if (mState.environment.standalone)
         {
-            items.push_back(
-                {"Mono In 1", c.monoMode && !c.dualMono && c.inputChannel == 0, false, set(true, 0, false)});
-            items.push_back(
-                {"Mono In 2", c.monoMode && !c.dualMono && c.inputChannel == 1, false, set(true, 1, false)});
-            items.push_back(
-                {"Mono In 1+2", c.monoMode && !c.dualMono && c.inputChannel == 2, false, set(true, 2, false)});
-            items.push_back({"Stereo", !c.monoMode && !c.dualMono, false, set(false, c.inputChannel, false)});
+            const bool mono = c.monoMode && !c.dualMono;
+            items.push_back(mode("Mono In 1", "Input 1 on both sides", "input-mono1", mono && c.inputChannel == 0,
+                                 set(true, 0, false)));
+            items.push_back(mode("Mono In 2", "Input 2 on both sides", "input-mono2", mono && c.inputChannel == 1,
+                                 set(true, 1, false)));
+            items.push_back(mode("Mono 1+2", "Inputs 1 and 2 summed", "input-monoSum", mono && c.inputChannel == 2,
+                                 set(true, 2, false)));
+            items.push_back(mode("Stereo", "Input 1 left, input 2 right", "input-stereo", !c.monoMode && !c.dualMono,
+                                 set(false, c.inputChannel, false)));
         }
         else
         {
-            items.push_back({"As the track", !c.dualMono, false, set(c.monoMode, c.inputChannel, false)});
+            items.push_back(
+                mode("Track", "As the track is", "input-stereo", !c.dualMono, set(c.monoMode, c.inputChannel, false)));
         }
 
         // Dual mono needs both inputs kept apart, so it turns mono off.
-        items.push_back({"Dual mono", c.dualMono, false, set(false, c.inputChannel, true)});
-        OpenDropdown(m->Bounds(), std::move(items), 150.0f);
+        items.push_back(mode("Dual mono", "A separate rig per input", "input-dualMono", c.dualMono,
+                             set(false, c.inputChannel, true)));
+        OpenDropdown(m->Bounds(), std::move(items), 250.0f);
     };
     mLive.Bind(mode, inputModeLabel, [](IconButton& m, const std::string& label) { m.Label(label, 10.0f); });
 
