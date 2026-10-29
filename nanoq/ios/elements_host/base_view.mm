@@ -30,6 +30,7 @@
 #include <infra/filesystem.hpp>
 #import <UIKit/UIKit.h>
 #import <CoreText/CoreText.h>
+#include <cmath>
 #include <map>
 #include <vector>
 
@@ -200,6 +201,9 @@ namespace
    // apart, or the whole view.
    std::vector<CGRect>              _pending_rects;
    bool                             _pending_full;
+
+   // The window as last drawn (see drawRect:).
+   CGContextRef                     _backing;
 }
 
 - (void) on_tick;
@@ -237,8 +241,7 @@ namespace
    self.contentScaleFactor = _scale;
    self.contentMode = UIViewContentModeRedraw;
    self.opaque = YES;
-   // drawRect: may paint only parts of the area it is given (the separate
-   // areas invalidated): the rest keeps what the backing store holds.
+   // drawRect: covers all of the area it is given, from its own bitmap.
    self.clearsContextBeforeDrawing = NO;
    _pending_full = true;
    self.backgroundColor = [UIColor blackColor];
@@ -276,6 +279,7 @@ namespace
    [_link invalidate];
    [_long_press invalidate];
    _view = nullptr;
+   CGContextRelease(_backing);
 }
 
 - (void) on_tick
@@ -358,13 +362,58 @@ namespace
    return YES;
 }
 
+// The window as last drawn, at the screen's pixels, with UIKit's top-left
+// origin in points. Made again (and all of it drawn) when the size or scale
+// changes. False if there is nothing to make it for.
+- (bool) ensure_backing
+{
+   auto const size = self.bounds.size;
+   auto const w = size_t(std::ceil(size.width * _scale));
+   auto const h = size_t(std::ceil(size.height * _scale));
+   if (_backing && CGBitmapContextGetWidth(_backing) == w && CGBitmapContextGetHeight(_backing) == h)
+      return true;
+
+   CGContextRelease(_backing);
+   _backing = nullptr;
+   if (w == 0 || h == 0)
+      return false;
+   auto space = CGColorSpaceCreateDeviceRGB();
+   _backing = CGBitmapContextCreate(
+      nullptr, w, h, 8, 0, space, uint32_t(kCGImageAlphaNoneSkipFirst) | uint32_t(kCGBitmapByteOrder32Little));
+   CGColorSpaceRelease(space);
+   if (!_backing)
+      return false;
+   CGContextTranslateCTM(_backing, 0, CGFloat(h));
+   CGContextScaleCTM(_backing, CGFloat(w) / size.width, -CGFloat(h) / size.height);
+   _pending_full = true;
+   return true;
+}
+
+// Draws an area of the window into the backing bitmap, clipped to it
+// (Elements draws only what meets the clip).
+- (void) draw_backing : (CGRect) area
+{
+   CGContextSaveGState(_backing);
+   CGContextClipToRect(_backing, area);
+   CGContextSetFillColorWithColor(_backing, [UIColor blackColor].CGColor);
+   CGContextFillRect(_backing, area);
+   {
+      auto cnv = canvas{(cycfi::artist::canvas_impl*) _backing};
+      _view->draw(cnv);
+   }
+   CGContextRestoreGState(_backing);
+}
+
 // UIKit merges every area invalidated in a frame into one rectangle, so a
 // meter at each end of the window and a light in the middle cost a band
 // across all of it; Quartz draws on the CPU, and the time that takes is time
 // the touches wait. So each area invalidated is drawn apart, clipped to
-// itself (Elements draws only what meets the clip), and what lies between
-// them is left as it was. More than a few, or the whole view, or a draw
-// UIKit asks for itself (the first, a resize), draws the area given once.
+// itself, into a bitmap that keeps the window, and the rectangle UIKit asks
+// for is copied from it. The backing store cannot keep what lies between the
+// areas: Core Animation double-buffers a layer and copies back only what is
+// outside that rectangle, so inside it anything not drawn comes out black or
+// stale. More than a few areas, or a draw UIKit asks for itself, draws the
+// rectangle given; the whole view, a resize or a scale change draws it all.
 - (void) drawRect : (CGRect) dirty
 {
    if (!_view)
@@ -372,28 +421,57 @@ namespace
    auto context = UIGraphicsGetCurrentContext();
    auto rects = std::move(_pending_rects);
    _pending_rects.clear();
-   bool const full = _pending_full || rects.empty() || rects.size() > 8;
-   _pending_full = false;
 
-   if (full)
+   if (![self ensure_backing])
    {
+      _pending_full = false;
       auto cnv = canvas{(cycfi::artist::canvas_impl*) context};
       _view->draw(cnv);
       return;
    }
-   for (auto const& r : rects)
+
+   UIGraphicsPushContext(_backing);
+   if (_pending_full)
+      [self draw_backing : self.bounds];
+   else if (rects.empty() || rects.size() > 8)
+      [self draw_backing : dirty];
+   else
+      for (auto const& r : rects)
+         [self draw_backing : r];
+   UIGraphicsPopContext();
+   _pending_full = false;
+
+   // Copy the rectangle UIKit asks for, pixel for pixel. The image shares
+   // the bitmap's memory until the bitmap is next drawn into; it is released
+   // before then, so nothing is copied but what is drawn here.
+   auto const height = self.bounds.size.height;
+   auto image = CGBitmapContextCreateImage(_backing);
+   if (!image)
+      return;
+   auto const pixels = CGRectIntersection(
+      CGRectIntegral(CGRectMake(
+         dirty.origin.x * _scale, dirty.origin.y * _scale,
+         dirty.size.width * _scale, dirty.size.height * _scale)),
+      CGRectMake(0, 0, CGImageGetWidth(image), CGImageGetHeight(image)));
+   auto part = CGRectIsEmpty(pixels) ? nullptr : CGImageCreateWithImageInRect(image, pixels);
+   if (part)
    {
-      auto const area = CGRectIntersection(r, dirty);
-      if (CGRectIsNull(area) || CGRectIsEmpty(area))
-         continue;
+      auto const to = CGRectMake(
+         pixels.origin.x / _scale, pixels.origin.y / _scale,
+         pixels.size.width / _scale, pixels.size.height / _scale);
       CGContextSaveGState(context);
-      CGContextClipToRect(context, area);
-      {
-         auto cnv = canvas{(cycfi::artist::canvas_impl*) context};
-         _view->draw(cnv);
-      }
+      CGContextSetBlendMode(context, kCGBlendModeCopy);
+      CGContextSetInterpolationQuality(context, kCGInterpolationNone);
+      // UIKit's context is flipped; an image draws upright in an unflipped one.
+      CGContextTranslateCTM(context, 0, height);
+      CGContextScaleCTM(context, 1, -1);
+      CGContextDrawImage(
+         context, CGRectMake(to.origin.x, height - CGRectGetMaxY(to), to.size.width, to.size.height),
+         part);
       CGContextRestoreGState(context);
+      CGImageRelease(part);
    }
+   CGImageRelease(image);
 }
 
 - (void) invalidate_all
