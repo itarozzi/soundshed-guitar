@@ -9,8 +9,10 @@ arrow keys, the voice-led chord-box strip, and the player's own progressions in 
 `scaleGuide.progressions` app setting, built-ins edited as copies) followed the same day, then
 phase 4 (LISTEN: `tuner {action: "listen"}` reads the input without turning the tuner on, so a
 muting tuner never silences the player; Scales mode follows the played note, Chords mode matches
-a chroma vector from `dsp/ChromaAnalyzer.h` and a clean strum steps a progression). Phases 5-6 not
-started. `ScaleGuideTests --dump <tuning> <key 0-11> <chord>` prints the shapes found, for tuning
+a chroma vector from `dsp/ChromaAnalyzer.h` and a clean strum steps a progression), then phase 5
+(Nano Q: `nanoq/src/ui/ScaleGuidePage.cpp` and `ScaleGuideDraw.cpp` draw the same view model,
+with the web UI's settings and LISTEN rules ported to `core/src/uiclient/ScaleGuide.h`; the Scales
+web view is gone from Nano Q). Phase 6 not started. `ScaleGuideTests --dump <tuning> <key 0-11> <chord>` prints the shapes found, for tuning
 the search's scoring.
 
 ## Why

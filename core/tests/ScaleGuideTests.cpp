@@ -6,6 +6,7 @@
 #include "MessageHandlerRegistry.h"
 #include "controller/ScaleGuideMessages.h"
 #include "music/ScaleGuideView.h"
+#include "uiclient/ScaleGuide.h"
 
 #include <chrono>
 #include <cstdlib>
@@ -612,6 +613,87 @@ void TestMessages()
            "no action or request draws the default scale");
 }
 
+/// The native UIs' half (uiclient/ScaleGuide.h), held to the web UI's state.ts, progressions.ts and
+/// listen.ts: the same settings, the same request, the same LISTEN rules.
+void TestUiClient()
+{
+    namespace sg = guitarfx::uiclient::scaleguide;
+
+    const auto defaults = sg::ParseSettings(nullptr);
+    Expect(defaults.mode == "scale" && defaults.key == 4 && defaults.scale == "minpent" && !defaults.listen,
+           "settings default as the web UI's");
+    const auto parsed = sg::ParseSettings({{"key", 15},
+                                           {"mode", "piano"},
+                                           {"scale", "<x>"},
+                                           {"capo", -3},
+                                           {"labels", "interval"},
+                                           {"progression", "b:pop"}});
+    Expect(parsed.key == 11 && parsed.mode == "scale" && parsed.scale == "minpent" && parsed.capo == 0 &&
+               parsed.labels == "interval" && parsed.progression == "b:pop",
+           "bad settings fall back and numbers clamp");
+    Expect(sg::ParseSettings(sg::SettingsJson(parsed)).progression == "b:pop", "settings round-trip");
+
+    nlohmann::json app = {{sg::kProgressionsSetting,
+                           {{{"id", "p1"}, {"name", " "}, {"chords", {"I", "bVII", "<script>"}}},
+                            {{"id", "p1"}, {"chords", {"I"}}},
+                            {{"id", "bad id"}, {"chords", {"I"}}},
+                            {{"id", "p2"}, {"chords", nlohmann::json::array()}}}}};
+    const auto mine = sg::LoadProgressions(app);
+    Expect(mine.size() == 1 && mine[0].chords == std::vector<std::string>({"I", "bVII"}),
+           "only well-formed saved progressions load");
+
+    auto settings = defaults;
+    settings.mode = "chord";
+    settings.progression = "u:p1";
+    auto request = sg::ViewRequest(settings, mine, 2, {0, 2, 2, 1, 0, 0});
+    Expect(request["progressionChords"] == nlohmann::json({"I", "bVII"}) && request["step"] == 2 &&
+               request["previousFrets"].size() == 6,
+           "a player's progression goes as numerals, with the step and the shape to lead from");
+    settings.progression = "b:blues12";
+    request = sg::ViewRequest(settings, mine, 0);
+    Expect(request["progression"] == "blues12" && !request.contains("previousFrets"), "a built-in goes by id");
+    const auto view = music::BuildScaleGuideView(music::ParseScaleGuideRequest(request));
+    Expect(view["title"] == "E7", "the request is one the engine answers");
+
+    Expect(sg::ReadingMidi("A", 4) == 69 && sg::ReadingMidi("C#/Db", 3) == 49 && !sg::ReadingMidi("", 3),
+           "the tuner's note as MIDI");
+
+    const std::vector<sg::ChordTone> cMajor = {{0, "R"}, {4, "3"}, {7, "5"}};
+    std::array<float, 12> chroma{};
+    chroma.fill(0.005f);
+    chroma[0] = 0.4f;
+    chroma[4] = 0.3f;
+    chroma[7] = 0.25f;
+    Expect(sg::MatchChord(chroma, 0, cMajor, "normal").ok, "a clean C major matches");
+    chroma[4] = 0.005f;
+    const auto noThird = sg::MatchChord(chroma, 0, cMajor, "normal");
+    Expect(!noThird.ok && noThird.missing == std::vector<int>({4}), "a missing third is named");
+    chroma[3] = 0.3f;
+    Expect(!sg::MatchChord(chroma, 0, cMajor, "easy").ok, "C minor is not C major");
+
+    sg::StrumGate gate;
+    int hits = 0;
+
+    for (int i = 0; i < 12; ++i)
+    {
+        hits += gate.Push(i == 0 ? -20.0 : -22.0 - i * 0.2, true) ? 1 : 0;
+    }
+
+    Expect(hits == 1, "one strum counts once");
+
+    sg::NoteFollower follower;
+    Expect(!follower.Push(57) && follower.Push(57) && follower.Current() == 57, "a note shows once read twice");
+    follower.Push(60);
+    follower.Push(60);
+
+    for (int i = 0; i < sg::NoteFollower::kReleaseReadings; ++i)
+    {
+        follower.Push(std::nullopt);
+    }
+
+    Expect(!follower.Current() && follower.Trail() == std::vector<int>({60, 57}), "silence leaves a trail");
+}
+
 /// `--dump <tuning> <key 0-11> <chord>`: the shapes found, with fingers, for tuning the search.
 int Dump(const char* tuning, int key, const char* quality)
 {
@@ -649,6 +731,7 @@ int main(int argc, char** argv)
     TestVoiceLeading();
     TestView();
     TestMessages();
+    TestUiClient();
 
     if (gFailures > 0)
     {

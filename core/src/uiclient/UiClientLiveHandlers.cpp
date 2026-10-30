@@ -177,6 +177,16 @@ void UiClient::RegisterLiveHandlers()
         tuner.frequency = m.value("frequency", 0.0);
         tuner.centOffset = m.value("centOffset", 0.0);
         tuner.confidence = m.value("confidence", 0.0);
+        tuner.levelDb = m.value("levelDb", -120.0);
+        const auto chroma = m.find("chroma");
+        tuner.hasChroma = chroma != m.end() && chroma->is_array() && chroma->size() == tuner.chroma.size();
+
+        for (std::size_t i = 0; tuner.hasChroma && i < tuner.chroma.size(); ++i)
+        {
+            tuner.chroma[i] = (*chroma)[i].is_number() ? (*chroma)[i].get<float>() : 0.0f;
+        }
+
+        ++tuner.readings;
         Notify(Topic::Tuner);
     });
 

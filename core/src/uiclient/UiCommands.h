@@ -203,6 +203,9 @@ class UiCommands
     void SetTunerActive(bool active);
     void SetTunerLiveMode(bool liveMode);
     void SetTunerReference(double frequency);
+    /// The Scale Guide's LISTEN: tuner readings without turning the tuner on, with a chroma vector
+    /// each when `chroma` is set.
+    void SetTunerListening(bool listening, bool chroma);
     void SetMetronomeEnabled(bool enabled);
     void SetMetronomeBpm(double bpm);
     void SetMetronomeVolume(double volumeDb);

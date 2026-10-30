@@ -317,6 +317,8 @@ target_link_libraries(SplitterRoutingTests PRIVATE SoundshedUiClient)
 target_link_libraries(ToneSharingLinkTests PRIVATE SoundshedUiClient)
 # The Jam tab's backing tracks and Practice Tool (uiclient/Jam.h, uiclient/PracticeTool.h).
 target_link_libraries(JamPracticeToolTests PRIVATE SoundshedUiClient)
+# The Scale Guide's engine half and the native UIs' half (uiclient/ScaleGuide.h).
+target_link_libraries(ScaleGuideTests PRIVATE SoundshedUiClient)
 # The save dialog's preset inspector (uiclient/PresetInspect.h), against the web UI's validate.ts.
 target_link_libraries(PresetInspectTests PRIVATE SoundshedUiClient)
 # The settings flyouts' parameter rows (uiclient/ParamFormat.h), against flyoutParamControls.ts.

@@ -355,6 +355,13 @@ struct TunerState
     double frequency = 0.0;
     double centOffset = 0.0;
     double confidence = 0.0;
+    /// The input level over the reading, and, while the Scale Guide listens for chords, the
+    /// input's energy per pitch class (C first). `readings` counts every update, so a view can
+    /// tell a new reading from the same one.
+    double levelDb = -120.0;
+    bool hasChroma = false;
+    std::array<float, 12> chroma{};
+    std::uint64_t readings = 0;
 };
 
 struct MetronomeState
