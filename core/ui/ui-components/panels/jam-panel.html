@@ -25,14 +25,82 @@
                 </div>
               </div>
               <div class="jam-section-panel jam-scales-panel" id="jam-section-panel-scales" hidden>
-                <iframe
-                  class="jam-scales-frame"
-                  src="https://scalex.soundshed.com?src=soundshed-guitar"
-                  title="Scales"
-                  loading="lazy"
-                  allow="clipboard-read; clipboard-write; fullscreen"
-                  referrerpolicy="strict-origin-when-cross-origin">
-                </iframe>
+                <!-- The Scale Guide (ts/scaleGuide/panel.ts): drawn from the engine's
+                     scaleGuideView model; docs/plans/scale-guide.md. -->
+                <div class="scale-guide" id="scale-guide">
+                  <div class="sg-tabs" role="group" aria-label="Scales or chords">
+                    <button type="button" class="sg-tab" data-sg-mode="scale">Scales</button>
+                    <button type="button" class="sg-tab" data-sg-mode="chord">Chords</button>
+                    <span class="sg-title" id="sg-title"></span>
+                  </div>
+                  <div class="sg-card sg-controls">
+                    <div class="sg-controls-row sg-controls-pickers">
+                      <span class="sg-field sg-field-key">
+                        <label class="sg-label" for="sg-key" id="sg-key-label">Key</label>
+                        <select class="sg-select sg-select-accent" id="sg-key"></select>
+                      </span>
+                      <span class="sg-field sg-field-wide" id="sg-scale-field">
+                        <label class="sg-label" for="sg-scale">Scale</label>
+                        <select class="sg-select" id="sg-scale"></select>
+                      </span>
+                      <span class="sg-field sg-field-wide" id="sg-chord-field" hidden>
+                        <label class="sg-label" for="sg-chord">Chord</label>
+                        <select class="sg-select" id="sg-chord"></select>
+                      </span>
+                      <span class="sg-field sg-field-wide">
+                        <label class="sg-label" for="sg-tuning">Tuning</label>
+                        <select class="sg-select" id="sg-tuning"></select>
+                      </span>
+                      <span class="sg-field">
+                        <label class="sg-label" for="sg-capo">Capo</label>
+                        <select class="sg-select" id="sg-capo"></select>
+                      </span>
+                    </div>
+                    <div class="sg-controls-row sg-controls-view">
+                      <span class="sg-inline">
+                        <span class="sg-label" id="sg-labels-label">View</span>
+                        <span class="sg-segmented" role="group" aria-labelledby="sg-labels-label">
+                          <button type="button" class="sg-segment" data-sg-labels="name">Notes</button>
+                          <button type="button" class="sg-segment" data-sg-labels="interval">Intervals</button>
+                          <button type="button" class="sg-segment" data-sg-labels="degree">Degrees</button>
+                        </span>
+                      </span>
+                      <span class="sg-inline">
+                        <span class="sg-label" id="sg-position-label">Position</span>
+                        <span class="sg-segmented" id="sg-positions" role="group" aria-labelledby="sg-position-label"></span>
+                      </span>
+                      <label class="sg-check"><input type="checkbox" id="sg-left-handed" /> Left-handed</label>
+                    </div>
+                  </div>
+                  <div class="sg-neck" id="sg-neck"><p class="sg-note">Loading the neck…</p></div>
+                  <div class="sg-boxes" id="sg-boxes" hidden></div>
+                  <div class="sg-card sg-summary">
+                    <div class="sg-summary-main">
+                      <span class="sg-root-badge" id="sg-root-badge" aria-hidden="true"></span>
+                      <span class="sg-summary-text">
+                        <span class="sg-label" id="sg-summary-label">Scale</span>
+                        <span class="sg-summary-name" id="sg-summary-name"></span>
+                        <span class="sg-summary-notes" id="sg-tones"></span>
+                      </span>
+                    </div>
+                    <div class="sg-summary-section">
+                      <span class="sg-label" id="sg-info-label">Chords</span>
+                      <div class="sg-info" id="sg-info"></div>
+                    </div>
+                    <div class="sg-summary-section sg-reference">
+                      <svg class="sg-reference-icon" viewBox="0 0 24 40" aria-hidden="true">
+                        <path d="M7 2h10l1 14H6z" />
+                        <path d="M10.5 16h3v22h-3z" />
+                        <circle cx="4.5" cy="6" r="1.4" /><circle cx="4.5" cy="10" r="1.4" /><circle cx="4.5" cy="14" r="1.4" />
+                        <circle cx="19.5" cy="6" r="1.4" /><circle cx="19.5" cy="10" r="1.4" /><circle cx="19.5" cy="14" r="1.4" />
+                      </svg>
+                      <span>
+                        <span class="sg-label">Quick reference</span>
+                        <span class="sg-reference-text" id="sg-reference"></span>
+                      </span>
+                    </div>
+                  </div>
+                </div>
               </div>
               <div class="jam-section-panel" id="jam-section-panel-riffs" hidden>
                 <div class="jam-riff-panel">

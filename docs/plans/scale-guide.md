@@ -1,8 +1,10 @@
 # Scale Guide: our own scale and chord diagrams
 
 Status: phase 1 (the engine) built 2026-10-30, in `core/src/music/` (MusicTheory, MusicCatalog,
-Fretboard + ChordShapes, ScaleGuideView) with `core/tests/ScaleGuideTests.cpp`. Phases 2-6 not
-started. `ScaleGuideTests --dump <tuning> <key 0-11> <chord>` prints the shapes found, for tuning
+Fretboard + ChordShapes, ScaleGuideView) with `core/tests/ScaleGuideTests.cpp`. Phase 2 (the web
+Scales and single-chord view, `core/ui/ts/scaleGuide/`, answered by `scaleGuide` in
+`controller/ScaleGuideMessages.cpp`) replaced the web iframe on 2026-10-30; Nano Q still shows
+scalex.soundshed.com until phase 5. Phases 3-6 not started. `ScaleGuideTests --dump <tuning> <key 0-11> <chord>` prints the shapes found, for tuning
 the search's scoring.
 
 ## Why

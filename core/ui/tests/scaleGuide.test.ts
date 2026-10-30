@@ -1,0 +1,264 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { ScaleGuideShape, ScaleGuideView } from "../ts/scaleGuide/types";
+
+const { postMessage } = vi.hoisted(() => ({ postMessage: vi.fn() }));
+const { settingsStore } = vi.hoisted(() => ({ settingsStore: new Map<string, unknown>() }));
+vi.mock("../ts/bridge.js", () => ({ postMessage, setAppSetting: vi.fn() }));
+vi.mock("../ts/appSettingsStore.js", () => ({
+  getAppSetting: (key: string) => settingsStore.get(key) ?? null,
+  updateAppSetting: (key: string, value: unknown) => settingsStore.set(key, value),
+}));
+
+import { boxBaseFret, renderChordBoxSvg } from "../ts/scaleGuide/chordBox";
+import { dotLabel, noteX, renderNeckSvg } from "../ts/scaleGuide/neck";
+import { onScaleGuideCatalog, onScaleGuideView, renderScaleGuidePanel, resetScaleGuideForTests } from "../ts/scaleGuide/panel";
+import { DEFAULT_SETTINGS, normalizeSettings, SCALE_GUIDE_SETTING } from "../ts/scaleGuide/state";
+
+const OPEN_C: ScaleGuideShape = { frets: [0, 0, 0, 3], fingers: [0, 0, 0, 1], barres: [], position: 3, caged: "" };
+
+function ukuleleView(overrides: Partial<ScaleGuideView> = {}): ScaleGuideView {
+  return {
+    mode: "chord",
+    key: 0,
+    instrument: "ukulele",
+    tuning: { id: "uke", name: "Ukulele" },
+    frets: 12,
+    capo: 0,
+    strings: [
+      { openMidi: 67, name: "G" },
+      { openMidi: 60, name: "C" },
+      { openMidi: 64, name: "E" },
+      { openMidi: 69, name: "A" },
+    ],
+    title: "C",
+    position: 0,
+    flats: false,
+    tones: [
+      { name: "C", interval: "R", degree: 1, pitchClass: 0, root: true },
+      { name: "E", interval: "3", degree: 3, pitchClass: 4, root: false },
+      { name: "G", interval: "5", degree: 5, pitchClass: 7, root: false },
+    ],
+    dots: [
+      { string: 0, fret: 0, tone: 2, name: "G", interval: "5", degree: 5, root: false, inPosition: true },
+      { string: 1, fret: 0, tone: 0, name: "C", interval: "R", degree: 1, root: true, inPosition: true },
+      { string: 3, fret: 3, tone: 0, name: "C", interval: "R", degree: 1, root: true, inPosition: true },
+      { string: 3, fret: 7, tone: 1, name: "E", interval: "3", degree: 3, root: false, inPosition: false },
+    ],
+    shapes: [OPEN_C],
+    chord: { id: "maj", name: "C", quality: "Major", formula: "R 3 5" },
+    ...overrides,
+  };
+}
+
+describe("scale guide neck", () => {
+  it("draws a dot per tone, the root marked and out-of-position ones dimmed", () => {
+    const svg = renderNeckSvg(ukuleleView(), { labels: "name", leftHanded: false });
+    expect(svg.match(/class="sg-dot[ "]/g)?.length).toBe(4);
+    expect(svg.match(/sg-dot-root/g)?.length).toBe(2);
+    expect(svg).toContain("sg-dot-dim");
+    expect(svg.match(/class="sg-string[ "]/g)?.length).toBe(4);
+  });
+
+  it("labels dots by name, interval, degree or not at all", () => {
+    const dot = ukuleleView().dots[3];
+    expect(dotLabel(dot, "name")).toBe("E");
+    expect(dotLabel(dot, "interval")).toBe("3");
+    expect(dotLabel(dot, "degree")).toBe("3");
+    expect(dotLabel(dot, "none")).toBe("");
+  });
+
+  it("puts the lowest string at the bottom and mirrors a left-handed neck", () => {
+    const right = renderNeckSvg(ukuleleView(), { labels: "none", leftHanded: false });
+    const left = renderNeckSvg(ukuleleView(), { labels: "none", leftHanded: true });
+    const x = noteX(3, 12);
+    expect(right).toContain(`cx="${Math.round(x * 10) / 10}"`);
+    expect(left).toContain(`cx="${Math.round((1000 - x) * 10) / 10}"`);
+  });
+
+  it("marks a chord shape's muted strings and leaves their open dots out", () => {
+    const shape: ScaleGuideShape = { frets: [-1, 0, 0, 3], fingers: [0, 0, 0, 1], barres: [], position: 3, caged: "" };
+    const svg = renderNeckSvg(ukuleleView({ position: 1, shapes: [shape] }), { labels: "name", leftHanded: false });
+    expect(svg).toContain("sg-mute");
+    expect(svg.match(/class="sg-dot[ "]/g)?.length).toBe(3);
+  });
+
+  it("escapes text from the model", () => {
+    const view = ukuleleView({ title: '"><img src=x>' });
+    view.strings[0].name = "<b>";
+    const svg = renderNeckSvg(view, { labels: "name", leftHanded: false });
+    expect(svg).not.toContain("<b>");
+    expect(svg).not.toContain("<img");
+  });
+});
+
+describe("scale guide chord box", () => {
+  it("starts at the nut when the shape fits, else at its lowest fret", () => {
+    expect(boxBaseFret(OPEN_C, 0)).toBe(1);
+    expect(boxBaseFret({ ...OPEN_C, frets: [7, 9, 9, 8] }, 0)).toBe(7);
+    expect(boxBaseFret({ ...OPEN_C, frets: [2, 2, 2, 4] }, 2)).toBe(3);
+  });
+
+  it("draws open and muted strings, finger numbers, a barre and the starting fret", () => {
+    const open = renderChordBoxSvg(OPEN_C, ukuleleView(), { leftHanded: false });
+    expect(open.match(/sg-box-open/g)?.length).toBe(3);
+    expect(open).toContain('class="sg-box-nut"');
+    expect(open).toContain(">1</text>");
+
+    const barre: ScaleGuideShape = {
+      frets: [-1, 8, 10, 10, 10, 8],
+      fingers: [0, 1, 3, 3, 3, 1],
+      barres: [{ fret: 8, fromString: 1, toString: 5, finger: 1 }, { fret: 10, fromString: 2, toString: 4, finger: 3 }],
+      position: 8,
+      caged: "A",
+    };
+    const sixString = ukuleleView({
+      strings: [40, 45, 50, 55, 59, 64].map((openMidi) => ({ openMidi, name: "" })),
+    });
+    const svg = renderChordBoxSvg(barre, sixString, { leftHanded: false });
+    expect(svg.match(/sg-box-barre/g)?.length).toBe(2);
+    expect(svg).toContain("sg-box-mute");
+    expect(svg).toContain('class="sg-box-base"');
+    expect(svg).toContain("A shape");
+    expect(svg).not.toContain('class="sg-box-nut"');
+  });
+});
+
+describe("scale guide settings", () => {
+  it("falls back to the defaults for anything missing or malformed", () => {
+    expect(normalizeSettings(null)).toEqual(DEFAULT_SETTINGS);
+    expect(normalizeSettings({ key: 15, mode: "piano", scale: "<x>", capo: -3, labels: "interval", leftHanded: true })).toEqual({
+      ...DEFAULT_SETTINGS,
+      key: 11,
+      capo: 0,
+      labels: "interval",
+      leftHanded: true,
+    });
+  });
+});
+
+describe("scale guide panel", () => {
+  beforeEach(() => {
+    resetScaleGuideForTests();
+    postMessage.mockClear();
+    settingsStore.clear();
+    document.body.innerHTML = `
+      <div class="scale-guide" id="scale-guide">
+        <button data-sg-mode="scale"></button><button data-sg-mode="chord"></button>
+        <span id="sg-title"></span><span id="sg-key-label"></span><select id="sg-key"></select>
+        <select id="sg-scale"></select><select id="sg-chord"></select><select id="sg-tuning"></select><select id="sg-capo"></select>
+        <button data-sg-labels="name"></button><input type="checkbox" id="sg-left-handed" />
+        <span id="sg-position-label"></span><div id="sg-positions"></div>
+        <div id="sg-neck"></div><div id="sg-boxes" hidden></div>
+        <span id="sg-root-badge"></span><span id="sg-summary-label"></span><span id="sg-summary-name"></span><span id="sg-tones"></span>
+        <span id="sg-info-label"></span><div id="sg-info"></div><span id="sg-reference"></span>
+      </div>`;
+  });
+
+  function lastViewRequest(): { requestId: number; request: Record<string, unknown> } {
+    const calls = postMessage.mock.calls.map(([message]) => message as Record<string, unknown>);
+    const views = calls.filter((message) => message.type === "scaleGuide" && message.action === "view");
+    return views[views.length - 1] as unknown as { requestId: number; request: Record<string, unknown> };
+  }
+
+  it("asks for the catalogue once and a view each time it is shown", () => {
+    renderScaleGuidePanel();
+    renderScaleGuidePanel();
+    const catalogs = postMessage.mock.calls.filter(([message]) => (message as { action?: string }).action === "catalog");
+    expect(catalogs).toHaveLength(1);
+    expect(lastViewRequest().request).toMatchObject({ mode: "scale", key: 4, scale: "minpent", tuning: "std" });
+    expect(document.querySelectorAll("#sg-key option")).toHaveLength(12);
+    expect((document.getElementById("sg-key") as HTMLSelectElement).value).toBe("4");
+  });
+
+  it("draws only the latest answer", () => {
+    renderScaleGuidePanel();
+    const first = lastViewRequest().requestId;
+    const key = document.getElementById("sg-key") as HTMLSelectElement;
+    key.value = "9";
+    key.dispatchEvent(new Event("change"));
+    const second = lastViewRequest().requestId;
+    expect(second).toBeGreaterThan(first);
+    expect(lastViewRequest().request.key).toBe(9);
+
+    onScaleGuideView({ type: "scaleGuideView", requestId: first, view: ukuleleView({ title: "Stale" }) });
+    expect(document.getElementById("sg-neck")?.innerHTML).toBe("");
+
+    onScaleGuideView({ type: "scaleGuideView", requestId: second, view: ukuleleView() });
+    expect(document.getElementById("sg-neck")?.innerHTML).toContain("sg-neck-svg");
+    expect(document.getElementById("sg-title")?.textContent).toBe("C · Ukulele");
+    expect(document.querySelectorAll("#sg-boxes [data-sg-position]")).toHaveLength(1);
+    expect(document.getElementById("sg-root-badge")?.textContent).toBe("C");
+    expect(document.getElementById("sg-summary-label")?.textContent).toBe("Chord");
+    expect(document.getElementById("sg-summary-name")?.textContent).toBe("C · Major");
+    expect(document.querySelectorAll("#sg-info .sg-pill")).toHaveLength(3);
+  });
+
+  it("sums up a scale with its notes to the octave and its chords", () => {
+    renderScaleGuidePanel();
+    const scale = ukuleleView({
+      mode: "scale",
+      title: "C Major (Ionian)",
+      shapes: undefined,
+      chord: undefined,
+      positions: [{ kind: "box", fretFrom: 7, fretTo: 10 }],
+      scale: {
+        id: "major",
+        name: "Major (Ionian)",
+        steps: "W W H W W W H",
+        formula: "R 2 3 4 5 6 7",
+        diatonic: [
+          { name: "C", numeral: "I", quality: "maj", rootPitchClass: 0 },
+          { name: "Dm", numeral: "ii", quality: "m", rootPitchClass: 2 },
+        ],
+      },
+    });
+    onScaleGuideView({ type: "scaleGuideView", requestId: lastViewRequest().requestId, view: scale });
+    expect(document.getElementById("sg-summary-name")?.textContent).toBe("Major (Ionian)");
+    expect(document.getElementById("sg-tones")?.textContent?.split(/\s+/)).toEqual(["C", "E", "G", "C"]);
+    expect(document.querySelectorAll("#sg-info [data-sg-chord-root]")).toHaveLength(2);
+    expect(document.querySelectorAll("#sg-positions [data-sg-position]")).toHaveLength(2);
+
+    (document.querySelector('#sg-info [data-sg-chord-root="2"]') as HTMLElement).click();
+    expect(lastViewRequest().request).toMatchObject({ mode: "chord", key: 2, chord: "m", position: 0 });
+  });
+
+  it("highlights a chosen position before the engine answers", () => {
+    renderScaleGuidePanel();
+    onScaleGuideView({ type: "scaleGuideView", requestId: lastViewRequest().requestId, view: ukuleleView() });
+    (document.querySelector('#sg-positions [data-sg-position="1"]') as HTMLElement).click();
+    expect(document.querySelector('#sg-positions [data-sg-position="1"]')?.classList.contains("active")).toBe(true);
+    expect(document.querySelector('#sg-positions [data-sg-position="0"]')?.classList.contains("active")).toBe(false);
+    expect(lastViewRequest().request.position).toBe(1);
+  });
+
+  it("saves a change, and a new mode starts on the whole neck", () => {
+    settingsStore.set(SCALE_GUIDE_SETTING, { ...DEFAULT_SETTINGS, position: 3 });
+    renderScaleGuidePanel();
+    (document.querySelector('[data-sg-mode="chord"]') as HTMLElement).click();
+    expect(settingsStore.get(SCALE_GUIDE_SETTING)).toMatchObject({ mode: "chord", position: 0 });
+    expect(lastViewRequest().request).toMatchObject({ mode: "chord", position: 0 });
+  });
+
+  it("redraws labels without asking the engine again", () => {
+    renderScaleGuidePanel();
+    onScaleGuideView({ type: "scaleGuideView", requestId: lastViewRequest().requestId, view: ukuleleView() });
+    const before = postMessage.mock.calls.length;
+    (document.querySelector('[data-sg-labels="name"]') as HTMLElement).click();
+    expect(postMessage.mock.calls.length).toBe(before);
+  });
+
+  it("fills the pickers from the catalogue", () => {
+    renderScaleGuidePanel();
+    onScaleGuideCatalog({
+      type: "scaleGuideCatalog",
+      keys: ["C", "C♯/D♭", "D", "D♯/E♭", "E", "F", "F♯/G♭", "G", "G♯/A♭", "A", "A♯/B♭", "B"],
+      scales: [{ id: "minpent", name: "Minor Pentatonic", group: "Common", formula: "R ♭3 4 5 ♭7" }],
+      chords: [{ id: "maj", name: "Major", symbol: "" }],
+      progressions: [],
+      tunings: [{ id: "std", name: "Standard E", instrument: "guitar", strings: [40, 45, 50, 55, 59, 64], stringNames: [] }],
+    });
+    expect((document.getElementById("sg-scale") as HTMLSelectElement).value).toBe("minpent");
+    expect(document.querySelector("#sg-tuning optgroup")?.getAttribute("label")).toBe("Guitar");
+    expect((document.getElementById("sg-capo") as HTMLSelectElement).options).toHaveLength(13);
+  });
+});

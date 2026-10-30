@@ -3,6 +3,8 @@
  * catalogue, scale positions, chord shapes and the view model, on every tuning it offers.
  */
 
+#include "MessageHandlerRegistry.h"
+#include "controller/ScaleGuideMessages.h"
 #include "music/ScaleGuideView.h"
 
 #include <chrono>
@@ -570,6 +572,31 @@ void TestView()
     Expect(catalogue["tunings"].size() == music::Tunings().size(), "every tuning listed");
 }
 
+void TestMessages()
+{
+    guitarfx::MessageHandlerRegistry registry;
+    std::vector<nlohmann::json> sent;
+    guitarfx::RegisterScaleGuideMessages(
+        registry, [&sent](const std::string& json) { sent.push_back(nlohmann::json::parse(json)); });
+
+    Expect(registry.Dispatch("scaleGuide", {{"type", "scaleGuide"}, {"action", "catalog"}}), "scaleGuide is handled");
+    Expect(sent.size() == 1 && sent[0]["type"] == "scaleGuideCatalog" && sent[0]["scales"].size() > 40,
+           "the catalogue answers scaleGuideCatalog");
+
+    registry.Dispatch("scaleGuide", {{"type", "scaleGuide"},
+                                     {"action", "view"},
+                                     {"requestId", 7},
+                                     {"request", {{"mode", "chord"}, {"key", 9}, {"chord", "m"}}}});
+    Expect(sent.size() == 2 && sent[1]["type"] == "scaleGuideView" && sent[1]["requestId"] == 7 &&
+               sent[1]["view"]["title"] == "Am",
+           "a view answers scaleGuideView with the request's id");
+
+    registry.Dispatch("scaleGuide", {{"type", "scaleGuide"}});
+    Expect(sent.size() == 3 && sent[2]["type"] == "scaleGuideView" && !sent[2].contains("requestId") &&
+               sent[2]["view"]["mode"] == "scale",
+           "no action or request draws the default scale");
+}
+
 /// `--dump <tuning> <key 0-11> <chord>`: the shapes found, with fingers, for tuning the search.
 int Dump(const char* tuning, int key, const char* quality)
 {
@@ -606,6 +633,7 @@ int main(int argc, char** argv)
     TestShapeRules();
     TestVoiceLeading();
     TestView();
+    TestMessages();
 
     if (gFailures > 0)
     {

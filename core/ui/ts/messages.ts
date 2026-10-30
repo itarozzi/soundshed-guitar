@@ -7,6 +7,7 @@
  * does not react to it.
  */
 
+import { onScaleGuideCatalog, onScaleGuideView } from "./scaleGuide/panel.js";
 import { Features, isFeatureEnabled } from "./featureFlags.js";
 import { onGateLearnStatus } from "./gateLearn.js";
 import { onAudioDeviceLevels, onAudioDeviceState } from "./messages/audioDeviceHandlers.js";
@@ -128,6 +129,8 @@ const MESSAGE_HANDLERS: Record<string, MessageHandler> = {
   "windowChromeState": onWindowChromeState,
   "tunerUpdate": onTunerUpdate,
   "tunerStarted": onTunerStarted,
+  "scaleGuideCatalog": onScaleGuideCatalog,
+  "scaleGuideView": onScaleGuideView,
   "gateLearnStatus": onGateLearnStatus,
   "tunerStopped": onTunerStopped,
   "tunerReferenceChanged": onTunerReferenceChanged,

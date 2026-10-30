@@ -23,6 +23,7 @@
 #include "controller/PresetLevelMeter.h"
 #include "controller/ResourceFolderScanner.h"
 #include "controller/ResourceThumbnailService.h"
+#include "controller/ScaleGuideMessages.h"
 #include "controller/SignalTestService.h"
 #include "controller/TelemetryPublisher.h"
 #include "controller/TunerService.h"
@@ -80,6 +81,7 @@ PluginController::PluginController(IPluginHost& host) : mHost(host)
     mPresetLevelMeter->RegisterMessageHandlers(mMessageHandlers);
     mTuner = std::make_unique<TunerService>(sendToUI, mPresetMixer, mDSPMutex);
     mTuner->RegisterMessageHandlers(mMessageHandlers);
+    RegisterScaleGuideMessages(mMessageHandlers, sendToUI);
     mGateLearn = std::make_unique<GateLearnService>(sendToUI, mPresetMixer, mDSPMutex, [this]() {
         return mActivePresetId.empty() ? std::string("p1") : mActivePresetId;
     });
