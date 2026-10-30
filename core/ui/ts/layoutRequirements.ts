@@ -24,6 +24,7 @@ export const LAYOUT_FEATURES = [
   "image-slider",
   "image-overlay",
   "control-shadow",
+  "default-controls-style",
 ] as const;
 export type LayoutFeature = (typeof LAYOUT_FEATURES)[number];
 
@@ -69,6 +70,9 @@ export function layoutRequirements(layout: EffectLayout): LayoutFeature[] {
     used.add("image-overlay");
   }
   if (usableControlShadow(layout.controlShadow)) used.add("control-shadow");
+  if (layout.useDefaultControls && (layout.defaultControlsMainOnly === true || layout.defaultControlsPanels === false)) {
+    used.add("default-controls-style");
+  }
 
   return LAYOUT_FEATURES.filter((feature) => used.has(feature));
 }

@@ -14,8 +14,9 @@ import { formatParamValue } from "./paramValueFormat.js";
 // Shared with the signal-path renderer and the designer preview, which import it from here.
 export { formatParamValue };
 import { backgroundImageDrawnWidth, ensureLayoutImagesLoaded, knobFaceDrawnWidth, layoutLargestScale, resolveLayoutImageUrl } from "./layoutImages.js";
-import { DEFAULT_KNOB_DIAMETER, applyKnobImageToKnobs, imageKnob, imageToggle, knobDiameter, layoutSize, overlayImageStyle, sliderAttributes, styledKnobSizeStyle, withLayoutKnobImage, type ImageCssResolver } from "./layoutControlImages.js";
-import { applyShadowsToControls, knobShadowSvg, toggleShadowSvg, usableControlShadow } from "./layoutShadows.js";
+import { DEFAULT_KNOB_DIAMETER, imageKnob, imageToggle, knobDiameter, layoutSize, overlayImageStyle, sliderAttributes, styledKnobSizeStyle, withLayoutKnobImage, type ImageCssResolver } from "./layoutControlImages.js";
+import { knobShadowSvg, toggleShadowSvg, usableControlShadow } from "./layoutShadows.js";
+import { defaultControlsPanelClass, layoutDefaultControlsHtml } from "./layoutDefaultControls.js";
 import { layoutCanGrow, scalingAttribute } from "./layoutScaling.js";
 import { isLibraryPickerType, libraryPickerControlsHtml, libraryPickerNavigation, librarySlotHasBrowseButton } from "./resourceSlotMarkup.js";
 import type {
@@ -366,8 +367,8 @@ export function renderCustomLayoutBackdrop(
         <div class="custom-layout-labels" style="position: absolute; inset: 0; z-index: 3; pointer-events: none; margin: 0; padding: 0;">
           ${labels}
         </div>
-        <div class="custom-layout-default-controls${escapeHtml(colors.classes)}" style="${escapeHtml(wrapperStyle + colors.style)}">
-          ${applyShadowsToControls(applyKnobImageToKnobs(innerHtml, layout.knobImage, imageResolverFor(layout)), layout.controlShadow)}
+        <div class="custom-layout-default-controls${escapeHtml(colors.classes + defaultControlsPanelClass(layout))}" style="${escapeHtml(wrapperStyle + colors.style)}">
+          ${layoutDefaultControlsHtml(innerHtml, layout, imageResolverFor(layout))}
         </div>
       </div>
     </div>

@@ -33,6 +33,21 @@ export class CanvasProperties {
 
     const backdropSections = isBackdrop ? `
       <div class="layout-property-group">
+        <div class="layout-property-group-title">Default Controls</div>
+        <div class="layout-property-row">
+          <span class="layout-property-label">Main Tab Only</span>
+          <div class="layout-property-input">
+            <input type="checkbox" id="prop-dc-main-only" ${layout.defaultControlsMainOnly === true ? "checked" : ""} title="Show only the Main tab's controls, with no tab bar and no Advanced tab">
+          </div>
+        </div>
+        <div class="layout-property-row">
+          <span class="layout-property-label">Group Panels</span>
+          <div class="layout-property-input">
+            <input type="checkbox" id="prop-dc-panels" ${layout.defaultControlsPanels !== false ? "checked" : ""} title="Draw each group's heading and panel; off, the controls sit straight on the background">
+          </div>
+        </div>
+      </div>
+      <div class="layout-property-group">
         <div class="layout-property-group-title">Default Controls — Position</div>
         <div class="layout-property-row">
           <span class="layout-property-label">Left (px)</span>
@@ -314,6 +329,24 @@ export class CanvasProperties {
     bindNum("prop-dc-scale-y", (v) => {
       if (!layout) return;
       layout.defaultControlsScale = { x: layout.defaultControlsScale?.x ?? 1, y: Math.max(0.1, v) };
+    });
+
+    const bindCheck = (id: string, apply: (checked: boolean) => void) => {
+      const el = document.getElementById(id) as HTMLInputElement | null;
+      el?.addEventListener("change", () => {
+        this.host.pushSidebarUndoOnce();
+        apply(el.checked);
+        this.host.renderCanvas();
+      });
+    };
+    // Each is stored only when it differs from what the panel draws by default.
+    bindCheck("prop-dc-main-only", (checked) => {
+      if (checked) layout.defaultControlsMainOnly = true;
+      else delete layout.defaultControlsMainOnly;
+    });
+    bindCheck("prop-dc-panels", (checked) => {
+      if (checked) delete layout.defaultControlsPanels;
+      else layout.defaultControlsPanels = false;
     });
 
     document.getElementById("prop-dc-scale-reset")?.addEventListener("click", () => {

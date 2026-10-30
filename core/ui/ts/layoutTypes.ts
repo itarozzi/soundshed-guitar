@@ -240,6 +240,13 @@ export interface EffectLayout {
    * wrapper (transform-origin: top left). Values < 1 shrink, > 1 enlarge.
    */
   defaultControlsScale?: { x: number; y: number };
+  /** When useDefaultControls is true: only the Main tab's controls, with no tab bar (layoutDefaultControls.ts). */
+  defaultControlsMainOnly?: boolean;
+  /**
+   * When useDefaultControls is true, false: the groups lose their titled panels, so the controls
+   * sit straight on the background. Unset or true: the panels the params panel draws.
+   */
+  defaultControlsPanels?: boolean;
   /**
    * Optional theme override for the visualisation container. When set, the corresponding
    * theme class (e.g. "theme-dark") is applied to the container div, scoping CSS colour

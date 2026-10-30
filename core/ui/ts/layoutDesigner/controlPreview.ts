@@ -7,8 +7,7 @@
  */
 
 import { GenericKnob } from "../knob.js";
-import { applyKnobImageToKnobs } from "../layoutControlImages.js";
-import { applyShadowsToControls } from "../layoutShadows.js";
+import { defaultControlsPanelClass, layoutDefaultControlsHtml } from "../layoutDefaultControls.js";
 import { defaultControlsColorAttrs, imageResolverFor, renderCustomLayoutPreviewLayers } from "../layoutRenderer.js";
 import type { LayoutResourceControlDef } from "../layoutRenderer.js";
 import type { EffectLayout, LayoutControl } from "../layoutTypes.js";
@@ -162,8 +161,8 @@ export function defaultControlsPreviewHtml(layout: EffectLayout, paramDefs: Para
   const colors = defaultControlsColorAttrs(layout);
 
   return `
-    <div class="layout-default-controls-preview custom-layout-backdrop${escapeHtml(themeClass)}${escapeHtml(colors.classes)}" style="${escapeHtml(wrapperStyle + colors.style)} pointer-events: none;">
-      ${applyShadowsToControls(applyKnobImageToKnobs(innerHtml, layout.knobImage, imageResolverFor(layout)), layout.controlShadow)}
+    <div class="layout-default-controls-preview custom-layout-backdrop${escapeHtml(themeClass)}${escapeHtml(colors.classes + defaultControlsPanelClass(layout))}" style="${escapeHtml(wrapperStyle + colors.style)} pointer-events: none;">
+      ${layoutDefaultControlsHtml(innerHtml, layout, imageResolverFor(layout))}
     </div>
   `;
 }

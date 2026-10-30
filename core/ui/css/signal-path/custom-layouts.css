@@ -41,6 +41,20 @@
   color: rgba(220, 227, 243, 0.68);
 }
 
+/* Default controls without their group panels (defaultControlsPanels: false): no heading, no
+   box, the padding kept so the controls stay where they were. Specific enough to beat the themes. */
+.custom-layout-backdrop .custom-layout-default-controls.no-group-panels .node-param-group-block,
+.layout-default-controls-preview.custom-layout-backdrop.no-group-panels .node-param-group-block {
+  border-color: transparent;
+  background: none;
+  box-shadow: none;
+}
+
+.custom-layout-backdrop .custom-layout-default-controls.no-group-panels .node-param-group-title,
+.layout-default-controls-preview.custom-layout-backdrop.no-group-panels .node-param-group-title {
+  display: none;
+}
+
 .custom-layout-backdrop .node-param-tabs {
   padding: 0;
 }
