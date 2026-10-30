@@ -40,6 +40,9 @@ function addLayoutUsage(layout: EffectLayout, usage: Map<string, LayoutImageCate
     use(knobImage?.baseImageId, "knob");
     use(knobImage?.glareImageId, "knob");
   }
+  use(layout.switchImage?.offImageId, "switch");
+  use(layout.switchImage?.onImageId, "switch");
+  use(layout.switchImage?.strip?.imageId, "switch");
   for (const control of layout.controls ?? []) {
     use(control.style?.knobImageId, "knob");
     use(control.style?.toggleImage?.onImageId, "switch");

@@ -1029,9 +1029,10 @@ bool TestImageControlReferencesAreCopiedOnSave()
 
     TestHost host(sandbox);
     guitarfx::PluginController controller(host);
-    const std::vector<std::string> ids = {"face_1", "face_base_1", "strip_1",       "skirt_1", "glare_1",
-                                          "on_1",   "off_1",       "switchstrip_1", "rail_1",  "cap_1",
-                                          "sliderstrip_1", "logo_1"};
+    const std::vector<std::string> ids = {"face_1",        "face_base_1", "switch_off_1", "switch_on_1",
+                                          "switch_strip_1", "strip_1",    "skirt_1",      "glare_1",
+                                          "on_1",          "off_1",       "switchstrip_1", "rail_1",
+                                          "cap_1",         "sliderstrip_1", "logo_1"};
 
     for (const auto& id : ids)
     {
@@ -1047,6 +1048,10 @@ bool TestImageControlReferencesAreCopiedOnSave()
         {"dimensions", {{"width", 400}, {"height", 280}}},
         {"backgrounds", nlohmann::json::array()},
         {"knobImage", {{"mode", "rotate"}, {"imageId", "face_1"}, {"baseImageId", "face_base_1"}}},
+        {"switchImage",
+         {{"offImageId", "switch_off_1"},
+          {"onImageId", "switch_on_1"},
+          {"strip", {{"imageId", "switch_strip_1"}, {"frames", 2}}}}},
         {"controls",
          {{{"paramKey", "a"},
            {"type", "knob"},

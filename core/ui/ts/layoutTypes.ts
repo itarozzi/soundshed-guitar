@@ -11,6 +11,22 @@ import type { LayoutScaling } from "./layoutScaling.js";
 
 export type { LayoutImageRendition, LayoutImageStrip, LayoutKnobImage, LayoutScaling };
 
+/** A toggle drawn from images: an off and an on picture, or a strip of frames, which wins. */
+export interface LayoutToggleImage {
+  onImageId?: string;
+  offImageId?: string;
+  strip?: LayoutImageStrip;
+  /** The off picture's height over its width, so the toggle takes the picture's shape. */
+  aspect?: number;
+}
+
+/** The switch every toggle in a layout is drawn from unless it has its own: images and a size. */
+export interface LayoutSwitchImage extends LayoutToggleImage {
+  /** The toggle's drawn size, px; unset: 36 wide and the picture's shape. */
+  width?: number;
+  height?: number;
+}
+
 /** The light of a layout's generated control shadows; every field is optional (CONTROL_SHADOW_DEFAULTS). */
 export interface LayoutControlShadow {
   /** Where the light comes from, degrees clockwise from the top: 315 is top left. */
@@ -134,7 +150,7 @@ export interface LayoutControl {
     /** A knob drawn from images: a turning face or a filmstrip (layoutKnobImages.ts). Wins over knobStyle. */
     knobImage?: LayoutKnobImage;
     /** A toggle drawn as two pictures, one for off and one for on, or from a strip, which wins. */
-    toggleImage?: { onImageId?: string; offImageId?: string; strip?: LayoutImageStrip };
+    toggleImage?: LayoutToggleImage;
     /** A slider drawn with a track picture and a thumb picture, or from a strip of frames, which wins. */
     sliderImage?: { trackImageId?: string; thumbImageId?: string; strip?: LayoutImageStrip };
     /** False: this knob or toggle casts no shadow under the layout's controlShadow light. */
@@ -285,6 +301,12 @@ export interface EffectLayout {
    * Older apps ignore it.
    */
   controlShadow?: LayoutControlShadow;
+  /**
+   * The switch every toggle in the layout is drawn from unless it has images of its own: the
+   * default controls' toggles (useDefaultControls) and each positioned toggle. Older apps ignore it
+   * and draw standard toggles.
+   */
+  switchImage?: LayoutSwitchImage;
   /** How the layout fits the params panel (layoutScaling.ts). Unset: the original fit-width rule. */
   scaling?: LayoutScaling;
   /** The designer's snap step (px), also used when the layout is imported. Unset: LAYOUT_GRID_SIZE. */
@@ -490,6 +512,9 @@ export function visitLayoutImageRefs(
   visitField(layout.knobImage, "imageId", `Layout knob: ${layout.knobImage?.mode === "filmstrip" ? "filmstrip" : "turning face"}`);
   visitField(layout.knobImage, "baseImageId", "Layout knob: base");
   visitField(layout.knobImage, "glareImageId", "Layout knob: glare");
+  visitField(layout.switchImage, "offImageId", "Layout switch: off");
+  visitField(layout.switchImage, "onImageId", "Layout switch: on");
+  visitField(layout.switchImage?.strip, "imageId", "Layout switch: strip");
   for (const control of layout.controls ?? []) {
     const style = control.style;
     const name = control.labelOverride || control.paramKey;

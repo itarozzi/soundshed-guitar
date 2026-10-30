@@ -130,6 +130,8 @@ export function applyShadowsToControls(html: string, light: unknown): string {
     element.parentElement?.classList.add("has-control-shadow");
   };
   template.content.querySelectorAll(".node-param-knob").forEach((knob) => add(knob, knobShadowSvg(usable, 38)));
-  template.content.querySelectorAll("label.toggle-switch").forEach((toggle) => add(toggle, toggleShadowSvg(usable, 36, 20)));
+  // A toggle drawn from the layout's switch carries its size; a standard one is 36 x 20.
+  template.content.querySelectorAll<HTMLElement>("label.toggle-switch").forEach((toggle) =>
+    add(toggle, toggleShadowSvg(usable, parseFloat(toggle.style.width) || 36, parseFloat(toggle.style.height) || 20)));
   return template.innerHTML;
 }

@@ -9,7 +9,7 @@
  * fields and draw what they understand (docs/plans/layout-designer-hires.md, rule 7).
  */
 
-import { usableKnobImage } from "./layoutControlImages.js";
+import { usableKnobImage, usableToggleImage } from "./layoutControlImages.js";
 import { usableStrip } from "./layoutKnobImages.js";
 import { usableControlShadow } from "./layoutShadows.js";
 import { LEGACY_DIMENSION_LIMITS, type EffectLayout } from "./layoutTypes.js";
@@ -26,6 +26,7 @@ export const LAYOUT_FEATURES = [
   "image-overlay",
   "control-shadow",
   "default-controls-style",
+  "switch-image",
 ] as const;
 export type LayoutFeature = (typeof LAYOUT_FEATURES)[number];
 
@@ -71,6 +72,7 @@ export function layoutRequirements(layout: EffectLayout): LayoutFeature[] {
     used.add("image-overlay");
   }
   if (usableControlShadow(layout.controlShadow)) used.add("control-shadow");
+  if (usableToggleImage(layout.switchImage)) used.add("switch-image");
   if (layout.useDefaultControls && (layout.defaultControlsMainOnly === true || layout.defaultControlsPanels === false)) {
     used.add("default-controls-style");
   }

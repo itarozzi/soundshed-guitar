@@ -11,6 +11,7 @@ import { getLayoutImageUrl } from "./images.js";
 import { bindLayoutAssetsGroup, renderLayoutAssetsGroup } from "./layoutAssets.js";
 import type { LayoutPropertiesHost } from "./propertiesHost.js";
 import { bindShadowGroup, renderShadowGroup } from "./shadowProperties.js";
+import { bindSwitchGroup, renderSwitchGroup } from "./switchProperties.js";
 import { openLayoutSizePreview } from "./sizePreview.js";
 import { colorInputValue } from "../layoutRenderer.js";
 import { escapeHtml } from "../utils.js";
@@ -147,7 +148,7 @@ export class CanvasProperties {
         <div class="layout-property-hint">
           The image every knob is drawn from${isBackdrop ? ", the default controls' included" : ""}, unless a knob sets its own image or a knob style other than Default.
         </div>${renderKnobImageRows(layout.knobImage, (_purpose, selected) => this.host.renderImageOptionsHtml("knob", selected), "prop-layout-knob", "Standard")}
-      </div>${renderShadowGroup(layout)}
+      </div>${renderSwitchGroup(layout, (purpose, selected) => this.host.renderImageOptionsHtml(purpose, selected), isBackdrop)}${renderShadowGroup(layout)}
       <div class="layout-property-group">
         <div class="layout-property-group-title">Fit to Panel</div>
         <div class="layout-property-row">
@@ -257,6 +258,7 @@ export class CanvasProperties {
       this.host.renderCanvas();
       if (rerenderSidebar) this.host.renderSidebar();
     });
+    bindSwitchGroup(layout, this.host);
     bindShadowGroup(layout, this.host);
 
     const fontInput = document.getElementById("prop-layout-font") as HTMLInputElement | null;

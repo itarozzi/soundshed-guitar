@@ -8,11 +8,11 @@
  * - `defaultControlsPanels: false`: the groups lose their titled panels (the heading and the themed
  *   box), so the controls sit straight on the layout's background, where they were.
  *
- * then its knob image (layoutControlImages.ts) and shadows (layoutShadows.ts). Older apps ignore
- * the two options and draw the tabs and panels as before.
+ * then its knob image and switch (layoutControlImages.ts) and shadows (layoutShadows.ts). Older
+ * apps ignore the two options and draw the tabs and panels as before.
  */
 
-import { applyKnobImageToKnobs, type ImageCssResolver } from "./layoutControlImages.js";
+import { applyKnobImageToKnobs, applySwitchImageToToggles, type ImageCssResolver } from "./layoutControlImages.js";
 import { applyShadowsToControls } from "./layoutShadows.js";
 import type { EffectLayout } from "./layoutTypes.js";
 
@@ -32,7 +32,8 @@ export function mainTabOnly(html: string): string {
 /** The default controls' markup as `layout` draws it. */
 export function layoutDefaultControlsHtml(html: string, layout: EffectLayout, resolve: ImageCssResolver): string {
   const controls = layout.defaultControlsMainOnly === true ? mainTabOnly(html) : html;
-  return applyShadowsToControls(applyKnobImageToKnobs(controls, layout.knobImage, resolve), layout.controlShadow);
+  const drawn = applySwitchImageToToggles(applyKnobImageToKnobs(controls, layout.knobImage, resolve), layout.switchImage, resolve);
+  return applyShadowsToControls(drawn, layout.controlShadow);
 }
 
 /** The class the default controls' wrapper takes for `layout`: no-group-panels, or none. */

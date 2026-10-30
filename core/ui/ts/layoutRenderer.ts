@@ -14,7 +14,7 @@ import { formatParamValue } from "./paramValueFormat.js";
 // Shared with the signal-path renderer and the designer preview, which import it from here.
 export { formatParamValue };
 import { backgroundImageDrawnWidth, ensureLayoutImagesLoaded, knobFaceDrawnWidth, layoutLargestScale, resolveLayoutImageUrl } from "./layoutImages.js";
-import { DEFAULT_KNOB_DIAMETER, imageKnob, imageToggle, imageToggleSize, knobDiameter, overlayImageStyle, sliderAttributes, stripSlider, styledKnobSizeStyle, withLayoutKnobImage, type ImageCssResolver } from "./layoutControlImages.js";
+import { DEFAULT_KNOB_DIAMETER, imageKnob, imageToggle, imageToggleSize, withLayoutSwitchImage, knobDiameter, overlayImageStyle, sliderAttributes, stripSlider, styledKnobSizeStyle, withLayoutKnobImage, type ImageCssResolver } from "./layoutControlImages.js";
 import { knobShadowSvg, toggleShadowSvg, usableControlShadow } from "./layoutShadows.js";
 import { defaultControlsPanelClass, layoutDefaultControlsHtml } from "./layoutDefaultControls.js";
 import { layoutCanGrow, scalingAttribute } from "./layoutScaling.js";
@@ -532,9 +532,11 @@ function renderControls(
         `;
       } else if (isToggle) {
         const checked = value >= 0.5;
-        const toggleImage = imageToggle(control.style, resolveImage);
+        // Its own images, else the layout's switch.
+        const toggleStyle = withLayoutSwitchImage(control.style, layout.switchImage);
+        const toggleImage = imageToggle(toggleStyle, resolveImage);
         // An image toggle is drawn at its own size; the standard switch is 36 x 20.
-        const toggleSize = toggleImage ? imageToggleSize(control.style) : { width: 36, height: 20 };
+        const toggleSize = toggleImage ? imageToggleSize(toggleStyle) : { width: 36, height: 20 };
         const shadow = castsShadow && light ? toggleShadowSvg(light, toggleSize.width, toggleSize.height) : "";
         shadowed = shadow !== "";
         controlHtml += `

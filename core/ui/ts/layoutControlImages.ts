@@ -146,7 +146,7 @@ interface ControlImageStyle {
   toggleWidth?: unknown;
   toggleHeight?: unknown;
   knobImage?: unknown;
-  toggleImage?: { onImageId?: unknown; offImageId?: unknown; strip?: unknown };
+  toggleImage?: { onImageId?: unknown; offImageId?: unknown; strip?: unknown; aspect?: unknown };
   sliderImage?: { trackImageId?: unknown; thumbImageId?: unknown; strip?: unknown };
 }
 
@@ -219,10 +219,55 @@ export function styledKnobSizeStyle(style: ControlImageStyle | undefined): strin
 /** An image toggle's drawn size: its own, else 36 wide and, from a strip, the frame's shape, else 20 high. */
 export function imageToggleSize(style: ControlImageStyle | undefined): { width: number; height: number } {
   const width = layoutSize(style?.toggleWidth, 8, 512) ?? 36;
-  const aspect = usableStrip(style?.toggleImage?.strip)?.aspect;
+  const strip = usableStrip(style?.toggleImage?.strip);
+  const aspect = strip ? strip.aspect : style?.toggleImage?.aspect;
   const height = layoutSize(style?.toggleHeight, 8, 512)
     ?? (typeof aspect === "number" && aspect > 0 ? Math.max(8, Math.min(512, Math.round(width * aspect))) : 20);
   return { width, height };
+}
+
+/** True when `value` can draw a toggle: a usable strip, or both an off and an on picture. */
+export function usableToggleImage(value: unknown): boolean {
+  if (!value || typeof value !== "object") return false;
+  const toggleImage = value as { onImageId?: unknown; offImageId?: unknown; strip?: unknown };
+  return usableStrip(toggleImage.strip) !== null
+    || (typeof toggleImage.onImageId === "string" && toggleImage.onImageId !== ""
+      && typeof toggleImage.offImageId === "string" && toggleImage.offImageId !== "");
+}
+
+/**
+ * `style` with the layout's switch in it when the toggle takes the layout's: it has no images of
+ * its own. The switch's size applies where the toggle sets none. Otherwise `style` unchanged.
+ */
+export function withLayoutSwitchImage<T extends ControlImageStyle>(style: T | undefined, layoutSwitch: unknown): T | undefined {
+  if (!usableToggleImage(layoutSwitch) || usableToggleImage(style?.toggleImage)) return style;
+  const switchImage = layoutSwitch as { width?: unknown; height?: unknown };
+  return {
+    ...(style ?? {}),
+    toggleImage: layoutSwitch,
+    ...(style?.toggleWidth === undefined && switchImage.width !== undefined ? { toggleWidth: switchImage.width } : {}),
+    ...(style?.toggleHeight === undefined && switchImage.height !== undefined ? { toggleHeight: switchImage.height } : {}),
+  } as T;
+}
+
+/**
+ * `html` with each standard toggle in it drawn from `switchImage`. The default controls of a
+ * useDefaultControls layout are built by the params panel, which knows nothing of layouts, so the
+ * switch goes in here, as the knob image does. `html` unchanged when `switchImage` is not usable.
+ */
+export function applySwitchImageToToggles(html: string, switchImage: unknown, resolve: ImageCssResolver): string {
+  if (!usableToggleImage(switchImage) || !html.includes("toggle-switch")) return html;
+  const parts = imageToggle(withLayoutSwitchImage(undefined, switchImage), resolve);
+  if (!parts) return html;
+  const template = document.createElement("template");
+  template.innerHTML = html;
+  template.content.querySelectorAll<HTMLElement>("label.toggle-switch:not(.custom-image-toggle)").forEach((label) => {
+    label.classList.add("custom-image-toggle");
+    label.setAttribute("style", parts.style);
+    label.querySelector(":scope > .toggle-slider")?.remove();
+    label.insertAdjacentHTML("beforeend", parts.children);
+  });
+  return template.innerHTML;
 }
 
 /** An image toggle's class, size and pictures, or null to draw the original switch. */

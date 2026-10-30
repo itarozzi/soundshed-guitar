@@ -578,6 +578,14 @@ panels:
     document `input` listener moves the frame for drags, the wheel and keys.
   - Switch and slider frames are seldom square, so their count is set by
     hand (Strip Frames); the picture gives the layout and frame shape.
+- **The layout's switch** (`layout.switchImage`, `layoutDesigner/switchProperties.ts`).
+  As the layout's knob image is for knobs: an off and an on picture, or a
+  strip, which wins, with an optional width and height (default 36 wide at
+  the off picture's or a frame's shape). Every toggle without images of its
+  own draws it: positioned toggles (`withLayoutSwitchImage`) and the default
+  controls', whose standard switch `applySwitchImageToToggles` replaces, the
+  input kept. Adds the `switch-image` requirement; older apps draw standard
+  toggles. Export, import and the copy on save include its images.
 - **Image licence and credit** (`layoutImageCredits.ts`). Each user image can
   record the licence it was shared under (CC0 and the CC 4.0 licences, own
   work, other) and a credit line, in Images in this Layout. The engine keeps

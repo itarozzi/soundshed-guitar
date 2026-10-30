@@ -719,6 +719,18 @@ std::vector<std::string> CollectLayoutImageIds(const nlohmann::json& layout)
         }
     }
 
+    // The switch the layout's toggles draw from when they have no images of their own.
+    if (const auto switchImage = layout.find("switchImage"); switchImage != layout.end() && switchImage->is_object())
+    {
+        add(StringField(*switchImage, "offImageId"));
+        add(StringField(*switchImage, "onImageId"));
+
+        if (const auto strip = switchImage->find("strip"); strip != switchImage->end() && strip->is_object())
+        {
+            add(StringField(*strip, "imageId"));
+        }
+    }
+
     if (const auto controls = layout.find("controls"); controls != layout.end() && controls->is_array())
     {
         for (const auto& control : *controls)
