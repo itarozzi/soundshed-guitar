@@ -10,6 +10,7 @@
 
 import type { EffectLayout, LayoutBackground, LayoutControl, LayoutImageRef, LayoutRectangleOverlay, LayoutTextLabel } from "../layoutTypes.js";
 import { DEFAULT_LAYOUT_DIMENSIONS, normalizeBackgroundLayers, renameLayoutImageIds, sanitizeLayout } from "../layoutTypes.js";
+import { cleanCredit, isLayoutImageLicense } from "../layoutImageCredits.js";
 import { arrayBufferToBase64 } from "../utils.js";
 
 /** Image types a layout takes, by extension, with the MIME type each is served as. */
@@ -32,6 +33,8 @@ export interface ImportedLayoutImage {
   dataUrl: string;
   base64: string;
   type?: LayoutImageRef["type"];
+  license?: string;
+  credit?: string;
 }
 
 /** Who the imported layout becomes: the layout open in the designer. */
@@ -250,6 +253,9 @@ export async function prepareLayoutImport(
     const type = isRecord(entry) && IMAGE_TYPES.has(entry.type as LayoutImageRef["type"])
       ? entry.type as LayoutImageRef["type"]
       : undefined;
+    // A licence the designer offers and a credit line, as the engine would keep them.
+    const license = isRecord(entry) && isLayoutImageLicense(entry.license) ? entry.license : undefined;
+    const credit = isRecord(entry) ? cleanCredit(entry.credit) || undefined : undefined;
     renamed.set(oldId, imageId);
     images.push({
       imageId,
@@ -257,6 +263,8 @@ export async function prepareLayoutImport(
       dataUrl: `data:${LAYOUT_IMAGE_MIME_TYPES[extension]};base64,${base64}`,
       base64,
       type,
+      license,
+      credit,
     });
   }
 

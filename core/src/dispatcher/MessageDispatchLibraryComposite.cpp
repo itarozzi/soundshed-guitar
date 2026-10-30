@@ -180,6 +180,12 @@ bool MessageDispatcher::DispatchLibraryAndComposite(PluginController& c, const n
         return true;
     }
 
+    if (type == "setLayoutImageCredit")
+    {
+        c.HandleSetLayoutImageCreditRequest(msg);
+        return true;
+    }
+
     if (type == "requestLayoutImages")
     {
         c.HandleRequestLayoutImagesRequest();

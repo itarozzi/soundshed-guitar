@@ -14,6 +14,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <cwctype>
 #include <memory>
@@ -40,7 +41,7 @@ constexpr const char* kAbiMigrationHint =
 // The shared engine's epoch advances once per tick; a deadline is a number of ticks.
 constexpr std::chrono::milliseconds kEpochTick{10};
 // Instantiation (the start function), the descriptor exports, prepare and the latency query run
-// off the audio thread and may do real work, such as reading a resource byte by byte.
+// off the audio thread and may do real work, such as parsing a resource.
 constexpr double kSetupBudgetSeconds = 5.0;
 // A block gets four times its own duration, and never less than this. Offline renders may run
 // slower than real time, so the budget is there to stop a hang, not to enforce real time.
@@ -97,19 +98,6 @@ bool IsAsciiDigit(char ch)
     return ch >= '0' && ch <= '9';
 }
 
-// A letter, then up to 31 letters, digits or underscores: safe in a preset key, a MIDI mapping and
-// a descriptor key, and never a number, so a numbered ABI 1 block can't pass for one.
-bool IsValidGuestId(std::string_view id)
-{
-    if (id.empty() || id.size() > WasmEffect::kMaxGuestIdLength || !IsAsciiLetter(id.front()))
-    {
-        return false;
-    }
-
-    return std::all_of(id.begin(), id.end(),
-                       [](char ch) { return IsAsciiLetter(ch) || IsAsciiDigit(ch) || ch == '_'; });
-}
-
 std::string TrimDescriptorToken(std::string value)
 {
     const auto notSpace = [](unsigned char ch) { return !std::isspace(ch); };
@@ -139,18 +127,6 @@ std::optional<double> ParseDoubleLike(const std::string& value)
     }
 }
 
-std::optional<std::size_t> ParseSizeTLike(const std::string& value)
-{
-    try
-    {
-        return static_cast<std::size_t>(std::stoul(value));
-    }
-    catch (...)
-    {
-        return std::nullopt;
-    }
-}
-
 std::vector<std::string> SplitLabels(const std::string& value)
 {
     std::vector<std::string> labels;
@@ -165,31 +141,67 @@ std::vector<std::string> SplitLabels(const std::string& value)
     return labels;
 }
 
-std::optional<std::pair<std::size_t, std::string>> ParseIndexedDescriptorKey(const std::string& key,
-                                                                             const std::string& prefix)
+// Params and resources each in the order their ids first appear, which is their order in the UI.
+struct IdKeyedBlocks
 {
-    const std::string stem = prefix + ".";
+    std::vector<std::pair<std::string, std::map<std::string, std::string>>> blocks;
+    std::unordered_map<std::string, std::size_t> order;
 
-    if (key.rfind(stem, 0) != 0)
+    void Set(const std::string& id, const std::string& field, const std::string& value)
     {
+        auto [orderIt, inserted] = order.try_emplace(id, blocks.size());
+
+        if (inserted)
+        {
+            blocks.emplace_back(id, std::map<std::string, std::string>{});
+        }
+
+        blocks[orderIt->second].second[field] = value;
+    }
+};
+
+// <prefix>.<id>.<field>, as ABI 2 keys params and resources; an id has no dots, so the field is
+// everything after the second. The key's id and field, or nothing with the reason in error: a
+// numbered ABI 1 block, a bad id, no field, or one of the fields ABI 1 numbered blocks with.
+std::optional<std::pair<std::string, std::string>> ParseIdKeyedDescriptorKey(const std::string& key,
+                                                                             std::string_view prefix,
+                                                                             std::string& error)
+{
+    const std::string noun(prefix);
+    const std::string_view rest = std::string_view(key).substr(prefix.size() + 1);
+    const std::size_t fieldSeparator = rest.find('.');
+    const std::string_view id = rest.substr(0, fieldSeparator);
+
+    if (!id.empty() && std::all_of(id.begin(), id.end(), IsAsciiDigit))
+    {
+        error = "WASM descriptor key '" + key + "' numbers its " + noun + ", as ABI 1 did; ABI 2 keys " + noun +
+                "s by id: " + noun + ".<id>.<field>." + kAbiMigrationHint;
         return std::nullopt;
     }
 
-    const std::size_t fieldSeparator = key.find('.', stem.size());
-
-    if (fieldSeparator == std::string::npos)
+    if (!WasmEffect::IsValidGuestId(id))
     {
+        error = "WASM descriptor " + noun + " id '" + std::string(id) +
+                "' must be a letter followed by up to 31 letters, digits or underscores.";
         return std::nullopt;
     }
 
-    const auto index = ParseSizeTLike(key.substr(stem.size(), fieldSeparator - stem.size()));
-
-    if (!index)
+    if (fieldSeparator == std::string_view::npos || fieldSeparator + 1 >= rest.size())
     {
+        error = "WASM descriptor key '" + key + "' names no field: use " + noun + ".<id>.<field>.";
         return std::nullopt;
     }
 
-    return std::make_pair(*index, key.substr(fieldSeparator + 1));
+    std::string field(rest.substr(fieldSeparator + 1));
+
+    if (field == "slot" || field == "id")
+    {
+        error = "WASM descriptor key '" + key + "': ABI 2 " + noun + "s have no '" + field +
+                "', the id in the key is all there is." + kAbiMigrationHint;
+        return std::nullopt;
+    }
+
+    return std::make_pair(std::string(id), std::move(field));
 }
 
 using FunctionTypePtr = std::unique_ptr<wasm_functype_t, decltype(&wasm_functype_delete)>;
@@ -261,10 +273,8 @@ std::optional<WasmModuleDescriptor> BuildDescriptorFromEntries(const std::vector
         return std::nullopt;
     };
 
-    // Params in the order their ids first appear, which is their order in the UI.
-    std::vector<std::pair<std::string, std::map<std::string, std::string>>> parameterFields;
-    std::unordered_map<std::string, std::size_t> parameterOrder;
-    std::map<std::size_t, std::map<std::string, std::string>> resourceFields;
+    IdKeyedBlocks parameterFields;
+    IdKeyedBlocks resourceFields;
     std::string thumbnailBase64;
     std::string thumbnailMimeType = "image/png";
 
@@ -326,64 +336,39 @@ std::optional<WasmModuleDescriptor> BuildDescriptorFromEntries(const std::vector
             continue;
         }
 
-        if (entry.key.rfind("param.", 0) == 0)
+        for (const std::string_view prefix : {std::string_view("param"), std::string_view("resource")})
         {
-            // param.<id>.<field>; an id has no dots, so the field is everything after the second.
-            const std::string_view rest = std::string_view(entry.key).substr(6);
-            const std::size_t fieldSeparator = rest.find('.');
-            const std::string_view id = rest.substr(0, fieldSeparator);
-
-            if (!id.empty() && std::all_of(id.begin(), id.end(), IsAsciiDigit))
+            if (entry.key.size() <= prefix.size() || entry.key.compare(0, prefix.size(), prefix) != 0 ||
+                entry.key[prefix.size()] != '.')
             {
-                return fail("WASM descriptor key '" + entry.key +
-                            "' numbers its param, as ABI 1 did; ABI 2 keys params by id: param.<id>.<field>." +
-                            kAbiMigrationHint);
+                continue;
             }
 
-            if (!IsValidGuestId(id))
+            std::string keyError;
+            const auto parsed = ParseIdKeyedDescriptorKey(entry.key, prefix, keyError);
+
+            if (!parsed)
             {
-                return fail("WASM descriptor param id '" + std::string(id) +
-                            "' must be a letter followed by up to 31 letters, digits or underscores.");
+                return fail(std::move(keyError));
             }
 
-            if (fieldSeparator == std::string_view::npos || fieldSeparator + 1 >= rest.size())
-            {
-                return fail("WASM descriptor key '" + entry.key + "' names no field: use param.<id>.<field>.");
-            }
-
-            const std::string field(rest.substr(fieldSeparator + 1));
-
-            if (field == "slot" || field == "id")
-            {
-                return fail("WASM descriptor key '" + entry.key + "': ABI 2 params have no '" + field +
-                            "', the id in the key is all there is." + kAbiMigrationHint);
-            }
-
-            auto [orderIt, inserted] = parameterOrder.try_emplace(std::string(id), parameterFields.size());
-
-            if (inserted)
-            {
-                parameterFields.emplace_back(std::string(id), std::map<std::string, std::string>{});
-            }
-
-            parameterFields[orderIt->second].second[field] = entry.value;
-            continue;
-        }
-
-        if (const auto parsed = ParseIndexedDescriptorKey(entry.key, "resource"))
-        {
-            resourceFields[parsed->first][parsed->second] = entry.value;
-            continue;
+            (prefix == "param" ? parameterFields : resourceFields).Set(parsed->first, parsed->second, entry.value);
         }
     }
 
-    if (parameterFields.size() > WasmEffect::kMaxGuestParams)
+    if (parameterFields.blocks.size() > WasmEffect::kMaxGuestParams)
     {
-        return fail("WASM descriptor declares " + std::to_string(parameterFields.size()) + " params; the limit is " +
-                    std::to_string(WasmEffect::kMaxGuestParams) + ".");
+        return fail("WASM descriptor declares " + std::to_string(parameterFields.blocks.size()) +
+                    " params; the limit is " + std::to_string(WasmEffect::kMaxGuestParams) + ".");
     }
 
-    for (const auto& [id, fields] : parameterFields)
+    if (resourceFields.blocks.size() > WasmEffect::kMaxGuestResources)
+    {
+        return fail("WASM descriptor declares " + std::to_string(resourceFields.blocks.size()) +
+                    " resources; the limit is " + std::to_string(WasmEffect::kMaxGuestResources) + ".");
+    }
+
+    for (const auto& [id, fields] : parameterFields.blocks)
     {
         if (WasmEffect::IsHostParamId(id))
         {
@@ -465,22 +450,16 @@ std::optional<WasmModuleDescriptor> BuildDescriptorFromEntries(const std::vector
         descriptor.parameters.push_back(std::move(paramDescriptor));
     }
 
-    for (const auto& [declIndex, fields] : resourceFields)
+    for (const auto& [id, fields] : resourceFields.blocks)
     {
-        const auto idIt = fields.find("id");
-
-        if (idIt == fields.end() || idIt->second.empty())
+        if (id == WasmEffect::kModuleResourceId)
         {
-            if (error)
-            {
-                *error = "WASM descriptor resource." + std::to_string(declIndex) + " is missing required 'id'.";
-            }
-
-            return std::nullopt;
+            return fail("WASM descriptor resource id '" + id +
+                        "' is the module's own resource; give the resource another.");
         }
 
         ExposedResource resource;
-        resource.resourceId = idIt->second;
+        resource.resourceId = id;
 
         if (const auto titleIt = fields.find("title"); titleIt != fields.end() && !titleIt->second.empty())
         {
@@ -492,24 +471,14 @@ std::optional<WasmModuleDescriptor> BuildDescriptorFromEntries(const std::vector
         }
         else
         {
-            resource.displayName = idIt->second;
+            resource.displayName = id;
         }
 
         resource.resourceType = fields.contains("type") ? fields.at("type") : "blob";
-        resource.resourceIndex = static_cast<int>(
-            fields.contains("slot") ? ParseSizeTLike(fields.at("slot")).value_or(declIndex + 1) : declIndex + 1);
+        // The node resource the UI's picker writes. Presets keep each file with its id
+        // (kResourceIdsConfigKey), so this place is only where the controller puts it.
+        resource.resourceIndex = static_cast<int>(descriptor.exposedResources.size()) + 1;
         resource.allowBrowseFile = !fields.contains("allowBrowseFile") || ParseBoolLike(fields.at("allowBrowseFile"));
-
-        if (resource.resourceIndex <= 0)
-        {
-            if (error)
-            {
-                *error = "WASM descriptor resource '" + resource.resourceId +
-                         "' must use a positive resource slot; slot 0 is reserved for the module itself.";
-            }
-
-            return std::nullopt;
-        }
 
         if (const auto parameterIdIt = fields.find("parameterId"); parameterIdIt != fields.end())
         {
@@ -596,6 +565,19 @@ FunctionTypePtr MakeFunctionType(wasm_functype_t* type)
     return FunctionTypePtr(type, wasm_functype_delete);
 }
 
+// (i32, i32, i32, i32) -> i32; the C API has no four-param shorthand.
+FunctionTypePtr MakeResourceReadType()
+{
+    wasm_valtype_vec_t params;
+    wasm_valtype_vec_t results;
+    std::array<wasm_valtype_t*, 4> paramTypes{wasm_valtype_new_i32(), wasm_valtype_new_i32(), wasm_valtype_new_i32(),
+                                              wasm_valtype_new_i32()};
+    std::array<wasm_valtype_t*, 1> resultTypes{wasm_valtype_new_i32()};
+    wasm_valtype_vec_new(&params, paramTypes.size(), paramTypes.data());
+    wasm_valtype_vec_new(&results, resultTypes.size(), resultTypes.data());
+    return MakeFunctionType(wasm_functype_new(&params, &results));
+}
+
 wasmtime_val_t MakeI32Value(int32_t value)
 {
     wasmtime_val_t result{};
@@ -612,11 +594,17 @@ wasmtime_val_t MakeF32Value(float value)
     return result;
 }
 
-// The guest's bytes at [pointer, pointer + length) in its exported memory, valid until it next runs.
-std::optional<std::string_view> ReadGuestString(wasmtime_caller_t* caller, int32_t pointer, int32_t length,
-                                                std::size_t maxLength)
+struct GuestMemoryView
 {
-    if (!caller || pointer < 0 || length <= 0 || static_cast<std::size_t>(length) > maxLength)
+    std::uint8_t* data = nullptr;
+    std::size_t size = 0;
+};
+
+// The calling guest's exported memory, valid until it next runs. Looked up on every call:
+// memory.grow can move it.
+std::optional<GuestMemoryView> GuestMemory(wasmtime_caller_t* caller)
+{
+    if (!caller)
     {
         return std::nullopt;
     }
@@ -634,21 +622,45 @@ std::optional<std::string_view> ReadGuestString(wasmtime_caller_t* caller, int32
         return std::nullopt;
     }
 
-    // Looked up on every call: memory.grow can move it.
     wasmtime_context_t* context = wasmtime_caller_context(caller);
-    const std::size_t memorySize = wasmtime_memory_data_size(context, &memoryItem.of.memory);
-    const std::uint8_t* memoryData = wasmtime_memory_data(context, &memoryItem.of.memory);
+    GuestMemoryView view{wasmtime_memory_data(context, &memoryItem.of.memory),
+                         wasmtime_memory_data_size(context, &memoryItem.of.memory)};
     wasmtime_extern_delete(&memoryItem);
 
-    const auto offset = static_cast<std::size_t>(pointer);
-    const auto size = static_cast<std::size_t>(length);
-
-    if (!memoryData || offset > memorySize || size > memorySize - offset)
+    if (!view.data)
     {
         return std::nullopt;
     }
 
-    return std::string_view(reinterpret_cast<const char*>(memoryData + offset), size);
+    return view;
+}
+
+// The guest's bytes at [pointer, pointer + length) in its exported memory, valid until it next runs.
+std::optional<std::string_view> ReadGuestString(wasmtime_caller_t* caller, int32_t pointer, int32_t length,
+                                                std::size_t maxLength)
+{
+    if (pointer < 0 || length <= 0 || static_cast<std::size_t>(length) > maxLength)
+    {
+        return std::nullopt;
+    }
+
+    const auto memory = GuestMemory(caller);
+    const auto offset = static_cast<std::size_t>(pointer);
+    const auto size = static_cast<std::size_t>(length);
+
+    if (!memory || offset > memory->size || size > memory->size - offset)
+    {
+        return std::nullopt;
+    }
+
+    return std::string_view(reinterpret_cast<const char*>(memory->data + offset), size);
+}
+
+wasm_trap_t* BadHandleTrap(const char* import, const char* lookup, int32_t handle)
+{
+    const std::string message =
+        std::string(import) + " was given handle " + std::to_string(handle) + ", which " + lookup + " did not return";
+    return wasmtime_trap_new(message.data(), message.size());
 }
 
 // param_handle(idPtr, idLen) -> handle, or -1 for an id the descriptor doesn't declare.
@@ -694,9 +706,7 @@ extern "C" wasm_trap_t* HostParamValueRaw(void* env, wasmtime_caller_t* caller, 
 
     if (!static_cast<WasmEffect*>(env)->ReadGuestParamHandle(args[0].of.i32, value))
     {
-        const std::string message =
-            "param_value was given handle " + std::to_string(args[0].of.i32) + ", which param_handle did not return";
-        return wasmtime_trap_new(message.data(), message.size());
+        return BadHandleTrap("param_value", "param_handle", args[0].of.i32);
     }
 
     results[0] = MakeF32Value(value);
@@ -719,8 +729,31 @@ extern "C" wasm_trap_t* HostTempoBpmRaw(void* env, wasmtime_caller_t* caller, co
     return nullptr;
 }
 
-extern "C" wasm_trap_t* HostReadResourceSizeRaw(void* env, wasmtime_caller_t* caller, const wasmtime_val_t* args,
-                                                size_t nargs, wasmtime_val_t* results, size_t nresults)
+// resource_handle(idPtr, idLen) -> handle, or -1 for an id the descriptor doesn't declare.
+extern "C" wasm_trap_t* HostResourceHandleRaw(void* env, wasmtime_caller_t* caller, const wasmtime_val_t* args,
+                                              size_t nargs, wasmtime_val_t* results, size_t nresults)
+{
+    if (nresults > 0)
+    {
+        results[0] = MakeI32Value(-1);
+    }
+
+    if (!env || nargs < 2 || nresults < 1)
+    {
+        return nullptr;
+    }
+
+    if (const auto id = ReadGuestString(caller, args[0].of.i32, args[1].of.i32, WasmEffect::kMaxGuestIdLength))
+    {
+        results[0] = MakeI32Value(static_cast<WasmEffect*>(env)->GuestResourceHandle(*id));
+    }
+
+    return nullptr;
+}
+
+// resource_size(handle) -> bytes, 0 when no file is chosen. A bad handle traps, as in param_value.
+extern "C" wasm_trap_t* HostResourceSizeRaw(void* env, wasmtime_caller_t* caller, const wasmtime_val_t* args,
+                                            size_t nargs, wasmtime_val_t* results, size_t nresults)
 {
     (void)caller;
 
@@ -734,28 +767,58 @@ extern "C" wasm_trap_t* HostReadResourceSizeRaw(void* env, wasmtime_caller_t* ca
         return nullptr;
     }
 
-    auto* host = static_cast<WasmEffect*>(env);
-    results[0] = MakeI32Value(host->ReadGuestResourceSize(args[0].of.i32));
+    const auto* bytes = static_cast<WasmEffect*>(env)->GuestResourceBytes(args[0].of.i32);
+
+    if (!bytes)
+    {
+        return BadHandleTrap("resource_size", "resource_handle", args[0].of.i32);
+    }
+
+    // LoadResources refuses a file larger than guest memory can hold, so this fits an i32.
+    results[0] = MakeI32Value(static_cast<int32_t>(bytes->size()));
     return nullptr;
 }
 
-extern "C" wasm_trap_t* HostReadResourceByteRaw(void* env, wasmtime_caller_t* caller, const wasmtime_val_t* args,
-                                                size_t nargs, wasmtime_val_t* results, size_t nresults)
+// resource_read(handle, offset, dstPtr, len) -> bytes copied: the resource's bytes from offset, as
+// many as len, the rest of the resource and guest memory from dstPtr allow. 0 for a negative
+// argument or an offset past the end. A bad handle traps.
+extern "C" wasm_trap_t* HostResourceReadRaw(void* env, wasmtime_caller_t* caller, const wasmtime_val_t* args,
+                                            size_t nargs, wasmtime_val_t* results, size_t nresults)
 {
-    (void)caller;
-
     if (nresults > 0)
     {
         results[0] = MakeI32Value(0);
     }
 
-    if (!env || nargs < 2 || nresults < 1)
+    if (!env || nargs < 4 || nresults < 1)
     {
         return nullptr;
     }
 
-    auto* host = static_cast<WasmEffect*>(env);
-    results[0] = MakeI32Value(host->ReadGuestResourceByte(args[0].of.i32, args[1].of.i32));
+    const int32_t handle = args[0].of.i32;
+    const int32_t offset = args[1].of.i32;
+    const int32_t destination = args[2].of.i32;
+    const int32_t length = args[3].of.i32;
+    const auto* bytes = static_cast<WasmEffect*>(env)->GuestResourceBytes(handle);
+
+    if (!bytes)
+    {
+        return BadHandleTrap("resource_read", "resource_handle", handle);
+    }
+
+    const auto memory = GuestMemory(caller);
+
+    if (!memory || offset < 0 || destination < 0 || length <= 0 || static_cast<std::size_t>(offset) >= bytes->size() ||
+        static_cast<std::size_t>(destination) >= memory->size)
+    {
+        return nullptr;
+    }
+
+    const std::size_t count =
+        std::min({static_cast<std::size_t>(length), bytes->size() - static_cast<std::size_t>(offset),
+                  memory->size - static_cast<std::size_t>(destination)});
+    std::memcpy(memory->data + destination, bytes->data() + offset, count);
+    results[0] = MakeI32Value(static_cast<int32_t>(count));
     return nullptr;
 }
 } // namespace
@@ -1052,6 +1115,128 @@ std::string WasmEffect::SerializeDescriptorConfig(const std::vector<WasmMetadata
     return payload.dump();
 }
 
+std::vector<std::string> WasmEffect::ParseResourceIdsConfig(const std::string& configJson)
+{
+    std::vector<std::string> ids;
+
+    try
+    {
+        const auto parsed = nlohmann::json::parse(configJson);
+
+        if (!parsed.is_array())
+        {
+            return ids;
+        }
+
+        for (const auto& item : parsed)
+        {
+            ids.push_back(item.is_string() && IsValidGuestId(item.get<std::string>()) ? item.get<std::string>() : "");
+        }
+    }
+    catch (...)
+    {
+        ids.clear();
+    }
+
+    return ids;
+}
+
+std::string WasmEffect::SerializeResourceIdsConfig(const std::vector<std::string>& ids)
+{
+    return nlohmann::json(ids).dump();
+}
+
+std::vector<std::string> WasmEffect::RekeyNodeResources(GraphNode& node, const WasmModuleDescriptor& descriptor,
+                                                        const WasmModuleDescriptor& placedBy)
+{
+    if (node.resources.empty())
+    {
+        return {};
+    }
+
+    std::vector<std::string> savedIds;
+
+    if (const auto savedIt = node.config.find(kResourceIdsConfigKey); savedIt != node.config.end())
+    {
+        savedIds = ParseResourceIdsConfig(savedIt->second);
+    }
+
+    std::map<std::string, ResourceRef> filesById;
+    std::vector<std::string> dropped;
+
+    for (std::size_t slot = kModuleSlot + 1; slot < node.resources.size(); ++slot)
+    {
+        if (!node.resources[slot].IsValid())
+        {
+            continue;
+        }
+
+        std::string id = slot < savedIds.size() ? savedIds[slot] : std::string{};
+
+        if (id.empty() && slot - 1 < placedBy.exposedResources.size())
+        {
+            id = placedBy.exposedResources[slot - 1].resourceId;
+        }
+
+        if (id.empty() || !filesById.emplace(id, node.resources[slot]).second)
+        {
+            dropped.push_back(id.empty() ? "#" + std::to_string(slot) : id);
+        }
+    }
+
+    std::vector<ResourceRef> resources{node.resources[kModuleSlot]};
+    std::vector<std::string> ids{""};
+
+    for (const auto& resource : descriptor.exposedResources)
+    {
+        const auto fileIt = filesById.find(resource.resourceId);
+        resources.push_back(fileIt != filesById.end() ? fileIt->second : ResourceRef{});
+        ids.push_back(resource.resourceId);
+
+        if (fileIt != filesById.end())
+        {
+            filesById.erase(fileIt);
+        }
+    }
+
+    while (resources.size() > 1 && !resources.back().IsValid())
+    {
+        resources.pop_back();
+        ids.pop_back();
+    }
+
+    for (const auto& entry : filesById)
+    {
+        dropped.push_back(entry.first);
+    }
+
+    node.resources = std::move(resources);
+
+    if (ids.size() > 1)
+    {
+        node.config[kResourceIdsConfigKey] = SerializeResourceIdsConfig(ids);
+    }
+    else
+    {
+        node.config.erase(kResourceIdsConfigKey);
+    }
+
+    return dropped;
+}
+
+// A letter, then up to 31 letters, digits or underscores: safe in a preset key, a MIDI mapping and
+// a descriptor key, and never a number, so a numbered ABI 1 block can't pass for one.
+bool WasmEffect::IsValidGuestId(std::string_view id)
+{
+    if (id.empty() || id.size() > kMaxGuestIdLength || !IsAsciiLetter(id.front()))
+    {
+        return false;
+    }
+
+    return std::all_of(id.begin(), id.end(),
+                       [](char ch) { return IsAsciiLetter(ch) || IsAsciiDigit(ch) || ch == '_'; });
+}
+
 void WasmEffect::Prepare(double sampleRate, int maxBlockSize)
 {
     if (!ValidatePrepare(sampleRate, maxBlockSize))
@@ -1239,10 +1424,14 @@ double WasmEffect::GetParam(const std::string& key) const
     return 0.0;
 }
 
+// The executor sets the node's config before it loads the node's resources, so the ids are here
+// when LoadResources binds the files to them.
 void WasmEffect::SetConfig(const std::string& key, const std::string& value)
 {
-    (void)key;
-    (void)value;
+    if (key == kResourceIdsConfigKey)
+    {
+        mResourceIdsBySlot = ParseResourceIdsConfig(value);
+    }
 }
 
 std::string WasmEffect::GetConfig(const std::string& key) const
@@ -1292,6 +1481,23 @@ bool WasmEffect::LoadResources(const std::vector<ResourceRef>& refs, const std::
     for (std::size_t i = 0; i < resourceCount; ++i)
     {
         const std::size_t slotIndex = ParseResourceSlotIndex(refs[i]).value_or(i);
+
+        if (slotIndex > kMaxGuestResources)
+        {
+            continue;
+        }
+
+        // A resource is read into guest memory, so one that could never fit is refused unread.
+        if (std::error_code sizeError;
+            slotIndex != kModuleSlot &&
+            std::filesystem::file_size(paths[i], sizeError) > static_cast<std::uintmax_t>(kMaxGuestMemoryBytes) &&
+            !sizeError)
+        {
+            SetError("WASM effect resource is larger than the " + std::to_string(kMaxGuestMemoryBytes / (1024 * 1024)) +
+                     " MB a module's memory can hold: " + util::PathToUtf8(paths[i]));
+            return false;
+        }
+
         const auto fileBytes = guitarfx::util::ReadFileBytes(paths[i]);
 
         if (mResourceBytesBySlot.size() <= slotIndex)
@@ -1376,46 +1582,73 @@ float WasmEffect::GuestTempoBpm() const
     return static_cast<float>(mBpm);
 }
 
-int WasmEffect::ReadGuestResourceSize(int slot) const
+std::int32_t WasmEffect::GuestResourceHandle(std::string_view id) const
 {
-    if (slot < 0)
+    if (!mHasGuestDescriptor)
     {
-        return 0;
+        return -1;
     }
 
-    const std::size_t resourceSlot = static_cast<std::size_t>(slot);
-
-    if (resourceSlot >= mResourceBytesBySlot.size())
+    for (std::size_t index = 0; index < mGuestResourceCount; ++index)
     {
-        return 0;
+        if (mGuestDescriptor.exposedResources[index].resourceId == id)
+        {
+            return mGuestResourceHandleBase + static_cast<std::int32_t>(index);
+        }
     }
 
-    return static_cast<int>(mResourceBytesBySlot[resourceSlot].size());
+    return -1;
 }
 
-int WasmEffect::ReadGuestResourceByte(int slot, int offset) const
+const std::vector<uint8_t>* WasmEffect::GuestResourceBytes(std::int32_t handle) const
 {
-    if (slot < 0 || offset < 0)
+    static const std::vector<uint8_t> kNoFile;
+    const std::int64_t index = static_cast<std::int64_t>(handle) - mGuestResourceHandleBase;
+
+    if (!mHasGuestDescriptor || index < 0 || index >= static_cast<std::int64_t>(mGuestResourceCount))
     {
-        return 0;
+        return nullptr;
     }
 
-    const std::size_t resourceSlot = static_cast<std::size_t>(slot);
-    const std::size_t resourceOffset = static_cast<std::size_t>(offset);
+    const int slot = mGuestResourceSlots[static_cast<std::size_t>(index)];
+    return slot > 0 ? &mResourceBytesBySlot[static_cast<std::size_t>(slot)] : &kNoFile;
+}
 
-    if (resourceSlot >= mResourceBytesBySlot.size())
+// Each guest resource takes the node resource saved under its id. A slot with no saved id is taken
+// as the resource declared at its place, which is where the controller puts each one.
+void WasmEffect::BindGuestResources()
+{
+    mGuestResourceSlots.fill(-1);
+    mGuestResourceCount = std::min(mGuestDescriptor.exposedResources.size(), kMaxGuestResources);
+
+    for (std::size_t slot = kModuleSlot + 1; slot < mResourceBytesBySlot.size(); ++slot)
     {
-        return 0;
+        std::string_view id;
+
+        // A gap between chosen files, which reads as no file anyway.
+        if (mResourceBytesBySlot[slot].empty())
+        {
+            continue;
+        }
+
+        if (slot < mResourceIdsBySlot.size() && !mResourceIdsBySlot[slot].empty())
+        {
+            id = mResourceIdsBySlot[slot];
+        }
+        else if (slot - 1 < mGuestResourceCount)
+        {
+            id = mGuestDescriptor.exposedResources[slot - 1].resourceId;
+        }
+
+        for (std::size_t index = 0; !id.empty() && index < mGuestResourceCount; ++index)
+        {
+            if (mGuestResourceSlots[index] < 0 && mGuestDescriptor.exposedResources[index].resourceId == id)
+            {
+                mGuestResourceSlots[index] = static_cast<int>(slot);
+                break;
+            }
+        }
     }
-
-    const auto& resourceBytes = mResourceBytesBySlot[resourceSlot];
-
-    if (resourceOffset >= resourceBytes.size())
-    {
-        return 0;
-    }
-
-    return static_cast<int>(resourceBytes[resourceOffset]);
 }
 
 bool WasmEffect::RebuildRuntime()
@@ -1546,13 +1779,14 @@ bool WasmEffect::BuildRuntimeOnly()
                           HostParamValueRaw) ||
         !defineHostImport("tempo_bpm", MakeFunctionType(wasm_functype_new_0_1(wasm_valtype_new_f32())),
                           HostTempoBpmRaw) ||
-        !defineHostImport("read_resource_size",
-                          MakeFunctionType(wasm_functype_new_1_1(wasm_valtype_new_i32(), wasm_valtype_new_i32())),
-                          HostReadResourceSizeRaw) ||
-        !defineHostImport("read_resource_byte",
+        !defineHostImport("resource_handle",
                           MakeFunctionType(wasm_functype_new_2_1(wasm_valtype_new_i32(), wasm_valtype_new_i32(),
                                                                  wasm_valtype_new_i32())),
-                          HostReadResourceByteRaw))
+                          HostResourceHandleRaw) ||
+        !defineHostImport("resource_size",
+                          MakeFunctionType(wasm_functype_new_1_1(wasm_valtype_new_i32(), wasm_valtype_new_i32())),
+                          HostResourceSizeRaw) ||
+        !defineHostImport("resource_read", MakeResourceReadType(), HostResourceReadRaw))
     {
         TeardownRuntime();
         return false;
@@ -1595,8 +1829,10 @@ bool WasmEffect::BuildRuntimeOnly()
 // Wasmtime's "unknown import".
 bool WasmEffect::CheckModuleImports()
 {
-    static constexpr std::array<std::string_view, 5> kHostImports{"param_handle", "param_value", "tempo_bpm",
-                                                                  "read_resource_size", "read_resource_byte"};
+    static constexpr std::array<std::string_view, 6> kHostImports{"param_handle",    "param_value",   "tempo_bpm",
+                                                                  "resource_handle", "resource_size", "resource_read"};
+    static constexpr std::array<std::string_view, 3> kAbi1Imports{"read_param", "read_resource_size",
+                                                                  "read_resource_byte"};
 
     wasm_importtype_vec_t imports;
     wasmtime_module_imports(mModule, &imports);
@@ -1607,9 +1843,10 @@ bool WasmEffect::CheckModuleImports()
         const std::string moduleName = CopyWasmMessage(*wasm_importtype_module(imports.data[i]));
         const std::string fieldName = CopyWasmMessage(*wasm_importtype_name(imports.data[i]));
 
-        if (moduleName == "host" && fieldName == "read_param")
+        if (moduleName == "host" &&
+            std::find(kAbi1Imports.begin(), kAbi1Imports.end(), fieldName) != kAbi1Imports.end())
         {
-            problem = std::string("WASM module was written for Custom Effect ABI 1 (it imports host.read_param).") +
+            problem = "WASM module was written for Custom Effect ABI 1 (it imports host." + fieldName + ")." +
                       kAbiMigrationHint;
         }
         else if (moduleName != "host" ||
@@ -1617,7 +1854,8 @@ bool WasmEffect::CheckModuleImports()
         {
             problem = "WASM module imports '" + moduleName + "." + fieldName +
                       "', which a Custom Effect is not given. The host provides host.param_handle, "
-                      "host.param_value, host.tempo_bpm, host.read_resource_size and host.read_resource_byte.";
+                      "host.param_value, host.tempo_bpm, host.resource_handle, host.resource_size and "
+                      "host.resource_read.";
         }
     }
 
@@ -1739,10 +1977,9 @@ bool WasmEffect::InvokePrepare()
         return false;
     }
 
-    std::array<wasmtime_val_t, 3> args{
+    std::array<wasmtime_val_t, 2> args{
         MakeF32Value(static_cast<float>(mSampleRate)),
         MakeI32Value(static_cast<int32_t>(mMaxBlockSize)),
-        MakeI32Value(static_cast<int32_t>(mResourceBytesBySlot.size())),
     };
     std::array<wasmtime_val_t, 1> results{};
 
@@ -1961,6 +2198,8 @@ void WasmEffect::ResetGuestDescriptor()
     mGuestDescriptor = {};
     mGuestParamIndex.clear();
     mGuestParamCount = 0;
+    mGuestResourceCount = 0;
+    mGuestResourceSlots.fill(-1);
     mHasGuestDescriptor = false;
     mGuestValues.fill(0.0);
 }
@@ -1980,10 +2219,19 @@ void WasmEffect::ApplyGuestDescriptor(const WasmModuleDescriptor& descriptor)
     }
 
     mPendingGuestParamValues.clear();
+    BindGuestResources();
 
-    // A fresh base for every instance; ids are what stay the same.
+    // Fresh bases for every instance; ids are what stay the same.
     std::random_device device;
-    mGuestHandleBase = std::uniform_int_distribution<std::int32_t>(1 << 16, 1 << 30)(device);
+    std::uniform_int_distribution<std::int32_t> base(1 << 16, 1 << 30);
+    mGuestHandleBase = base(device);
+
+    do
+    {
+        mGuestResourceHandleBase = base(device);
+    } while (std::abs(static_cast<std::int64_t>(mGuestResourceHandleBase) - mGuestHandleBase) <
+             static_cast<std::int64_t>(kMaxGuestParams + kMaxGuestResources));
+
     mHasGuestDescriptor = true;
 }
 
@@ -2046,7 +2294,7 @@ void RegisterWasmEffect()
     EffectTypeInfo info;
     info.type = EffectGuids::kWasmHost;
     info.displayName = "Custom Effect";
-    info.description = "Runs a stereo WASM effect that can self-describe guest parameters and optional resource slots.";
+    info.description = "Runs a stereo WASM effect that describes its own parameters and optional resources.";
     info.category = "utility";
     info.requiresResource = true;
     info.requiresTempo = true;

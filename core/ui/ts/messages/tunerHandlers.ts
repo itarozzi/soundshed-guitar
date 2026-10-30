@@ -2,10 +2,16 @@
  * Tuner readings and the tuner's own settings.
  */
 
-import { handleTunerLiveModeChanged, handleTunerReferenceChanged, handleTunerStarted, handleTunerStopped, handleTunerUpdate } from "../tuner.js";
+import { onScaleGuideReading } from "../scaleGuide/panel.js";
+import { handleTunerLiveModeChanged, handleTunerReferenceChanged, handleTunerStarted, handleTunerStopped, handleTunerUpdate, isTunerOpen } from "../tuner.js";
 import type { IncomingPayload } from "./types.js";
 
 export function onTunerUpdate(payload: IncomingPayload): void {
+  // A reading for the Scale Guide's LISTEN with the tuner closed: nothing to show or log here.
+  if (onScaleGuideReading(payload) && !isTunerOpen()) {
+    return;
+  }
+
   const tunerPayload = payload as { 
     detected?: boolean; 
     noteName?: string; 

@@ -41,6 +41,20 @@
   color: rgba(220, 227, 243, 0.68);
 }
 
+/* Default controls without their group panels (defaultControlsPanels: false): no heading, no
+   box, the padding kept so the controls stay where they were. Specific enough to beat the themes. */
+.custom-layout-backdrop .custom-layout-default-controls.no-group-panels .node-param-group-block,
+.layout-default-controls-preview.custom-layout-backdrop.no-group-panels .node-param-group-block {
+  border-color: transparent;
+  background: none;
+  box-shadow: none;
+}
+
+.custom-layout-backdrop .custom-layout-default-controls.no-group-panels .node-param-group-title,
+.layout-default-controls-preview.custom-layout-backdrop.no-group-panels .node-param-group-title {
+  display: none;
+}
+
 .custom-layout-backdrop .node-param-tabs {
   padding: 0;
 }
@@ -232,6 +246,49 @@
 
 .custom-image-toggle input:checked ~ .custom-toggle-on {
   display: block;
+}
+
+/* Generated shadows (layoutShadows.ts): an SVG inside the knob or toggle, behind everything the
+   control draws. Its parent is isolated, so z-index -1 keeps it above the layout's background. */
+.has-control-shadow {
+  isolation: isolate;
+}
+
+.custom-control-shadow {
+  position: absolute;
+  z-index: -1;
+  overflow: visible;
+  pointer-events: none;
+}
+
+/* Filmstrip sliders (stripSlider): the frame for the slider's value, with the range input laid
+   over it unseen, so it is dragged as before; a tall frame makes a slider that runs upwards. */
+.custom-slider-strip {
+  position: relative;
+  display: inline-block;
+  margin: 4px 0;
+}
+
+.custom-slider-strip-frame {
+  position: absolute;
+  inset: 0;
+  background-repeat: no-repeat;
+  pointer-events: none;
+}
+
+.custom-slider-strip > .custom-layout-slider {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.custom-slider-strip.is-vertical > .custom-layout-slider {
+  writing-mode: vertical-lr;
+  direction: rtl;
 }
 
 /* Image sliders: track and thumb pictures from custom properties (absolute URLs). */

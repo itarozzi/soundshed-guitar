@@ -1,3 +1,4 @@
+#include "dsp/ChromaAnalyzer.h"
 #include "dsp/MultiPresetMixer.h"
 #include "dsp/TunerEngine.h"
 
@@ -5,6 +6,7 @@
 #include <cmath>
 #include <condition_variable>
 #include <cstdint>
+#include <algorithm>
 #include <iostream>
 #include <iterator>
 #include <mutex>
@@ -288,6 +290,139 @@ bool TestBass()
     std::cout << "Bass low C#, low F#, low B and low E read at 44.1-192 kHz\n";
     return true;
 }
+
+/// A strummed chord: each note with its first five harmonics, falling off as a string's do.
+std::vector<float> Chord(double sampleRate, const std::vector<double>& frequencies, double seconds)
+{
+    std::vector<float> signal(static_cast<std::size_t>(seconds * sampleRate));
+
+    for (const double frequency : frequencies)
+    {
+        for (int harmonic = 1; harmonic <= 5; ++harmonic)
+        {
+            const double amplitude = 0.08 / harmonic;
+
+            for (std::size_t n = 0; n < signal.size(); ++n)
+            {
+                signal[n] += static_cast<float>(
+                    amplitude * std::sin(2.0 * kPi * frequency * harmonic * static_cast<double>(n) / sampleRate));
+            }
+        }
+    }
+
+    return signal;
+}
+
+/// The pitch classes holding the most of a chroma vector, strongest first.
+std::vector<int> Strongest(const ChromaAnalyzer::Chroma& chroma, std::size_t count)
+{
+    std::vector<int> order(12);
+
+    for (int i = 0; i < 12; ++i)
+    {
+        order[static_cast<std::size_t>(i)] = i;
+    }
+
+    std::sort(order.begin(), order.end(),
+              [&](int a, int b) { return chroma[static_cast<std::size_t>(a)] > chroma[static_cast<std::size_t>(b)]; });
+    order.resize(count);
+    std::sort(order.begin(), order.end());
+    return order;
+}
+
+/// The Scale Guide's LISTEN: chroma vectors of chords, and the tuner reading for it while off.
+bool TestListen()
+{
+    for (const double sampleRate : {44100.0, 48000.0, 96000.0})
+    {
+        ChromaAnalyzer analyzer(ChromaAnalyzer::WindowFor(sampleRate));
+        const auto window = analyzer.Size();
+
+        // C major in open position (C3 E3 G3 C4 E4), A minor (A2 E3 A3 C4 E4) and a lone A3.
+        const auto cMajor = Chord(sampleRate, {130.81, 164.81, 196.0, 261.63, 329.63}, 0.5);
+        const auto aMinor = Chord(sampleRate, {110.0, 164.81, 220.0, 261.63, 329.63}, 0.5);
+        const auto a3 = Chord(sampleRate, {220.0}, 0.5);
+        const auto c = analyzer.Analyze(cMajor.data() + 1000, sampleRate);
+        const auto am = analyzer.Analyze(aMinor.data() + 1000, sampleRate);
+        const auto a = analyzer.Analyze(a3.data() + 1000, sampleRate);
+        const std::vector<float> silence(window, 0.0f);
+        const auto quiet = analyzer.Analyze(silence.data(), sampleRate);
+        float total = 0.0f;
+
+        for (const float value : c)
+        {
+            total += value;
+        }
+
+        if (Strongest(c, 3) != std::vector<int>{0, 4, 7} || Strongest(am, 3) != std::vector<int>{0, 4, 9} ||
+            Strongest(a, 1) != std::vector<int>{9} || std::abs(total - 1.0f) > 1e-3f ||
+            std::any_of(quiet.begin(), quiet.end(), [](float v) { return v != 0.0f; }))
+        {
+            std::cerr << "Chroma misread a chord at " << sampleRate << " Hz\n";
+            return false;
+        }
+
+        if (c[0] + c[4] + c[7] < 0.7f)
+        {
+            std::cerr << "C major's tones hold only " << (c[0] + c[4] + c[7]) << " of its chroma\n";
+            return false;
+        }
+    }
+
+    // Listening reads the input with the tuner off, and sends the chroma with each reading.
+    constexpr double sampleRate = 48000.0;
+    TunerEngine tuner;
+    tuner.Prepare(sampleRate);
+    std::mutex mutex;
+    std::condition_variable cv;
+    std::optional<TunerEngine::Result> withChroma;
+    tuner.SetCallback([&](const TunerEngine::Result& result) {
+        std::lock_guard<std::mutex> lock(mutex);
+
+        if (result.hasChroma && result.levelDb > -60.0)
+        {
+            withChroma = result;
+            cv.notify_one();
+        }
+    });
+    tuner.SetListening(true, true);
+
+    if (tuner.IsEnabled() || !tuner.IsActive())
+    {
+        std::cerr << "Listening turned the tuner on, or did not start reading\n";
+        return false;
+    }
+
+    // E major in open position: E2 B2 E3 G#3 B3 E4.
+    const auto eMajor = Chord(sampleRate, {82.41, 123.47, 164.81, 207.65, 246.94, 329.63}, 1.0);
+
+    for (std::size_t start = 0; start + 64 <= eMajor.size(); start += 64)
+    {
+        tuner.Process(eMajor.data() + start, 64);
+    }
+
+    {
+        std::unique_lock<std::mutex> lock(mutex);
+
+        if (!cv.wait_for(lock, std::chrono::seconds(3), [&] { return withChroma.has_value(); }) ||
+            Strongest(withChroma->chroma, 3) != std::vector<int>{4, 8, 11})
+        {
+            std::cerr << "Listening gave no chroma, or misread E major\n";
+            return false;
+        }
+    }
+
+    tuner.SetListening(false, false);
+
+    if (tuner.IsActive())
+    {
+        std::cerr << "The tuner kept reading after listening stopped\n";
+        return false;
+    }
+
+    std::cout << "Chroma reads C, Am, A3 and E major; listening reads with the tuner off\n";
+    return true;
+}
 } // namespace
 
 int main()
@@ -363,5 +498,5 @@ int main()
         return 1;
     }
 
-    return TestPitchTracker() && TestBass() ? 0 : 1;
+    return TestPitchTracker() && TestBass() && TestListen() ? 0 : 1;
 }

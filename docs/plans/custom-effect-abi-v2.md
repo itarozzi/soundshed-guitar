@@ -10,10 +10,10 @@ No Custom Effect modules are known to be in use (Chris, 2026-10-29), so v2 repla
 no compatibility layer; a v1 module is refused with a message that points at the migration guide
 below.
 
-**Status (2026-10-29):** phase 1 (params) is built and tested, uncommitted. Until phase 2 a module
-still reads resources with `read_resource_size` / `read_resource_byte`, declares them as
-numbered `resource.N.*` blocks, and `audiofx_prepare` keeps its third argument.
-`docs/wasm-module-authoring.md` and the phaser sample still describe ABI 1 until phase 4.
+**Status (2026-10-30):** phase 1 (params) is committed (5e9795b8). Phase 2 (resources) is built
+and tested, uncommitted. The UI still parses the cached `key=value` entries itself until phase 3.
+`docs/wasm-module-authoring.md`, the phaser sample and `tools/wasm-module-generator` still
+describe ABI 1 until phase 4.
 
 ## What is wrong with v1
 
@@ -79,7 +79,11 @@ The `guitarfx_*` aliases go.
 | `tempo_bpm` | `() -> f32` | Host tempo. Never shares a namespace with params again. |
 | `resource_handle` | `(idPtr: i32, idLen: i32) -> i32` | As `param_handle`, for `resource.<id>`. |
 | `resource_size` | `(handle: i32) -> i32` | Bytes, 0 when no file is chosen. |
-| `resource_read` | `(handle: i32, offset: i32, dstPtr: i32, len: i32) -> i32` | Copies into guest memory, returns the bytes copied. Replaces byte-at-a-time reads. |
+| `resource_read` | `(handle: i32, offset: i32, dstPtr: i32, len: i32) -> i32` | Copies into guest memory, returns the bytes copied: stops at the end of the resource and of guest memory, 0 for a negative argument. Replaces byte-at-a-time reads. |
+
+`resource_size` and `resource_read` trap on a handle `resource_handle` never gave, as
+`param_value` does; resource handles have their own per-load base, so a param handle is never
+taken for one. A resource file larger than guest memory can hold (256 MB) is refused at load.
 
 The import names differ from v1's on purpose: a v1 module that imports `read_param` fails before
 it is instantiated, so it cannot be half-loaded. The host lists the module's imports
@@ -137,12 +141,17 @@ resource.ir.type=ir
   descriptor is loaded is a value parked, which is never on the audio thread. Delete
   `ParseGuestMacroIndex`, `kTempoParamIndex`, the slot shift in `ReadGuestParam`, generic
   `paramN` keys and the `guitarfx_*` aliases.
-- **Resources by id.** Each node resource records its descriptor id in its `ResourceRef`
-  metadata (`wasmResourceId`), and the effect binds files to resources by that id, not by
-  position. The module stays where it is, `node.resources[0]`. The reconcile in
-  `PluginControllerSignalPath.cpp` (the function that refreshes the descriptor cache on preset
-  load) re-keys resources the way it already re-keys params, and drops the v1 migration from
-  `paramN` keys.
+- **Resources by id.** `ResourceRef::metadata` is never saved, so the ids live in node config
+  instead: `wasmResourceIds` is a JSON array of guest resource ids, one per node resource, `""`
+  for the module at `node.resources[0]`. `RefreshWasmNodeDescriptor` calls
+  `WasmEffect::RekeyNodeResources`, which puts each file at its resource's place in the new
+  descriptor's declaration order (place = order + 1, which is the `resourceIndex` the UI's picker
+  writes) and rewrites the ids; a file whose id the module no longer declares is dropped and
+  logged. A file with no saved id is taken as the resource the cached (previous) descriptor
+  declares at its place. The executor sets config before it loads resources, so `WasmEffect`
+  reads the ids in `SetConfig` and binds each slot by its saved id, falling back to declaration
+  order. `resource.module.*` is refused (`kModuleResourceId`). Sharing strips the descriptor
+  cache but not the ids, which are validated on read.
 - **One parser.** C++ is the only parser. `wasmGuestDescriptor` holds the parsed descriptor as
   JSON (`{abi, name, category, description, thumbnail, params: [...], resources: [...]}`) rather
   than the raw entries, and `getNodeEffectInfo` in `presetV2.ts` maps it to an `EffectTypeInfo`

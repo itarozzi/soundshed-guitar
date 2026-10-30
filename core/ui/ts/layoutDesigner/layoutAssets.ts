@@ -7,6 +7,8 @@
  * a filmstrip taller than a GPU texture does not, and is flagged.
  */
 
+import { postMessage } from "../bridge.js";
+import { cleanCredit, isLayoutImageLicense, LAYOUT_IMAGE_LICENSES } from "../layoutImageCredits.js";
 import { resolveLayoutImageUrl } from "../layoutImages.js";
 import { visitLayoutImageRefs, type EffectLayout, type LayoutImageRef } from "../layoutTypes.js";
 import { RENDITION_MIN_SOURCE_EDGE } from "../layoutRenditions.js";
@@ -69,6 +71,39 @@ export function layoutAssets(layout: EffectLayout): LayoutAssetRow[] {
   return [...rows.values()];
 }
 
+/** Record `imageId`'s licence and credit, here and in the engine; both empty forgets them. */
+function setLayoutImageCredit(imageId: string, license: string, credit: string): void {
+  const image = uiState.layoutLibrary?.images.find((img) => img.imageId === imageId);
+  if (!image || image.factory) return;
+  const nextLicense = isLayoutImageLicense(license) ? license : "";
+  const nextCredit = cleanCredit(credit);
+  if (nextLicense) image.license = nextLicense;
+  else delete image.license;
+  if (nextCredit) image.credit = nextCredit;
+  else delete image.credit;
+  postMessage({ type: "setLayoutImageCredit", imageId, license: nextLicense, credit: nextCredit });
+}
+
+/** An image's licence and credit, which travel with it when the layout is exported. */
+function creditRows(imageId: string, image: LayoutImageRef): string {
+  return `
+          <div class="layout-property-row">
+            <span class="layout-property-label">Licence</span>
+            <div class="layout-property-input">
+              <select class="layout-asset-license" data-image-id="${escapeHtml(imageId)}" title="The licence the image was shared under">
+                <option value="">Not set</option>
+                ${LAYOUT_IMAGE_LICENSES.map((license) => `<option value="${escapeHtml(license.id)}" ${image.license === license.id ? "selected" : ""}>${escapeHtml(license.label)}</option>`).join("")}
+              </select>
+            </div>
+          </div>
+          <div class="layout-property-row">
+            <span class="layout-property-label">Credit</span>
+            <div class="layout-property-input">
+              <input type="text" class="layout-asset-credit" data-image-id="${escapeHtml(imageId)}" maxlength="300" placeholder="Author, source" value="${escapeHtml(image.credit ?? "")}" title="The credit the image's licence asks for">
+            </div>
+          </div>`;
+}
+
 /** The group's markup, or empty for a layout that uses no images. */
 export function renderLayoutAssetsGroup(layout: EffectLayout, imageOptions: (selectedImageId?: string) => string): string {
   const rows = layoutAssets(layout);
@@ -100,7 +135,7 @@ export function renderLayoutAssetsGroup(layout: EffectLayout, imageOptions: (sel
             <div class="layout-property-input">
               <select class="layout-asset-replace" data-image-id="${escapeHtml(row.imageId)}" title="Use another library image everywhere this one is used">${imageOptions(row.imageId)}</select>
             </div>
-          </div>
+          </div>${image && !image.factory ? creditRows(row.imageId, image) : ""}
         </div>`;
   });
   return `
@@ -109,8 +144,19 @@ export function renderLayoutAssetsGroup(layout: EffectLayout, imageOptions: (sel
       </div>`;
 }
 
-/** Points every use of an image at the one picked in its Replace list. */
+/** Points every use of an image at the one picked in its Replace list, and records credits. */
 export function bindLayoutAssetsGroup(layout: EffectLayout, host: LayoutPropertiesHost, root: ParentNode = document): void {
+  // A credit belongs to the image, not the layout: it is stored at once and is no undo step.
+  root.querySelectorAll<HTMLElement>(".layout-asset-license, .layout-asset-credit").forEach((field) => {
+    field.addEventListener("change", () => {
+      const imageId = field.dataset.imageId;
+      const row = field.closest(".layout-asset-row");
+      if (!imageId || !row) return;
+      const license = row.querySelector<HTMLSelectElement>(".layout-asset-license")?.value ?? "";
+      const credit = row.querySelector<HTMLInputElement>(".layout-asset-credit")?.value ?? "";
+      setLayoutImageCredit(imageId, license, credit);
+    });
+  });
   root.querySelectorAll<HTMLSelectElement>("select.layout-asset-replace").forEach((select) => {
     select.addEventListener("change", () => {
       const from = select.dataset.imageId;

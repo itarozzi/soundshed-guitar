@@ -807,6 +807,11 @@ void UiCommands::SetTunerReference(double frequency)
     mClient.Send("tuner", {{"action", "setReference"}, {"referenceFrequency", frequency}});
 }
 
+void UiCommands::SetTunerListening(bool listening, bool chroma)
+{
+    mClient.Send("tuner", {{"action", "listen"}, {"enabled", listening}, {"chroma", chroma}});
+}
+
 void UiCommands::SetMetronomeEnabled(bool enabled)
 {
     mClient.Send("setMetronome", {{"enabled", enabled}});

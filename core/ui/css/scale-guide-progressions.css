@@ -1,0 +1,189 @@
+/* ===== Scale Guide: progressions =====
+   The Play picker's Edit button, the steps row, the progression editor and
+   the chord-box strip (ts/scaleGuide/progressionView.ts). Linked right after
+   scale-guide.css, whose tokens it uses. */
+
+/* ── Progressions: the Play picker's Edit, the steps row, the editor and the strip ── */
+.sg-field-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sg-field-row .sg-select {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.sg-button {
+  height: 40px;
+  padding: 0 16px;
+  border: 1px solid var(--sg-line-strong);
+  border-radius: 10px;
+  background: var(--sg-surface-raised);
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.sg-button:hover:not(:disabled) {
+  border-color: var(--color-accent);
+}
+
+.sg-button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.sg-button-icon {
+  width: 40px;
+  padding: 0;
+}
+
+.sg-button-primary {
+  border-color: var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 22%, transparent);
+}
+
+.sg-button-danger:hover {
+  border-color: var(--sg-mute);
+  color: var(--sg-mute);
+}
+
+.sg-controls-steps,
+.sg-editor {
+  border-top: 1px solid var(--sg-line);
+}
+
+.sg-controls-steps[hidden],
+.sg-editor[hidden] {
+  display: none;
+}
+
+.sg-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  flex: 1 1 auto;
+}
+
+.sg-step {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  min-width: 52px;
+  padding: 6px 10px;
+  border: 1px solid var(--sg-line);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.sg-step b {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.sg-step small {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.sg-step.done {
+  opacity: 0.6;
+}
+
+.sg-step.active {
+  border-color: var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 22%, transparent);
+  color: var(--text-primary);
+}
+
+.sg-step-buttons {
+  display: inline-flex;
+  gap: 6px;
+}
+
+.scale-guide .sg-input {
+  height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--sg-line-strong);
+  border-radius: 10px;
+  background: var(--sg-surface-raised);
+  color: var(--text-primary);
+  font-size: 15px;
+}
+
+.sg-editor {
+  align-items: flex-end;
+}
+
+.sg-editor-chords-field {
+  flex: 1 1 260px;
+}
+
+.sg-editor-chords {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-height: 40px;
+  align-items: center;
+}
+
+.sg-editor-pill {
+  padding: 6px 6px 6px 12px;
+  font-size: 14px;
+}
+
+.sg-pill-remove {
+  margin-left: 4px;
+  padding: 2px 6px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.sg-pill-remove:hover {
+  color: var(--sg-mute);
+}
+
+.sg-editor-actions {
+  display: inline-flex;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.sg-strip {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.sg-strip-box {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  color: var(--text-primary);
+}
+
+.sg-strip-name {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.sg-box-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 110px;
+  height: 120px;
+  font-size: 12px;
+  color: var(--text-muted);
+}

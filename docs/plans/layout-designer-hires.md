@@ -504,7 +504,7 @@ not working.
   - A filmstrip drops any custom knob style, so 1.6.0 shows a standard knob
     rather than a squashed strip.
   - New `requires` entries: `control-size`, `knob-image`, `image-toggle`,
-    `image-slider` and `image-overlay`.
+    `image-slider`, `image-overlay` and (later) `control-shadow`.
 - **Image references.** Every new reference is listed by `layoutImageIds`
   (export), renamed by `renameLayoutImageIds` (import), and collected by the
   engine's `CollectLayoutImageIds` (the copy on save; pinned by
@@ -567,6 +567,48 @@ panels:
   - Warnings for a decode over 64 MB, a filmstrip taller than 16,384 px, and
     an image missing from the library.
   - Replace swaps an image everywhere the layout uses it, in one undo step.
+- **Image strips** (`layoutKnobImages.ts`). Strips as knob renderers export
+  them, one image of every frame:
+  - A filmstrip knob counts its own frames and columns when its picture is a
+    strip of square frames, in a column or a row (`squareFrameStrip`).
+  - A toggle can take `toggleImage.strip` (`{imageId, frames, columns?,
+    aspect?}`): off is the first frame, on the last, at the frame's shape.
+  - A slider can take `sliderImage.strip`: the frame for its value, the range
+    input over it unseen; a tall frame runs upwards (`writing-mode`). One
+    document `input` listener moves the frame for drags, the wheel and keys.
+  - Switch and slider frames are seldom square, so their count is set by
+    hand (Strip Frames); the picture gives the layout and frame shape.
+- **The layout's switch** (`layout.switchImage`, `layoutDesigner/switchProperties.ts`).
+  As the layout's knob image is for knobs: an off and an on picture, or a
+  strip, which wins, with an optional width and height (default 36 wide at
+  the off picture's or a frame's shape). Every toggle without images of its
+  own draws it: positioned toggles (`withLayoutSwitchImage`) and the default
+  controls', whose standard switch `applySwitchImageToToggles` replaces, the
+  input kept. Adds the `switch-image` requirement; older apps draw standard
+  toggles. Export, import and the copy on save include its images.
+- **Image licence and credit** (`layoutImageCredits.ts`). Each user image can
+  record the licence it was shared under (CC0 and the CC 4.0 licences, own
+  work, other) and a credit line, in Images in this Layout. The engine keeps
+  them in `layouts/indexes/image-credits.json` (`setLayoutImageCredit`), lists
+  them with the image, and an exported layout's manifest carries them back
+  in on import. Nothing shows them in the params panel yet.
+- **Generated control shadows** (`layoutShadows.ts`,
+  `layoutDesigner/shadowProperties.ts`). A layout's `controlShadow` is one
+  light for the panel: `angle` (where it comes from, 315 = top left),
+  `elevation` (15-80 degrees), `softness` and `opacity`; unset casts nothing,
+  as before, and it adds the `control-shadow` requirement (older apps just
+  draw no shadows).
+  - Every knob and toggle, positioned or default, is taken to stand as tall
+    as it is wide (the smaller side) and casts its footprint away from the
+    light by height / tan(elevation): a capsule for a knob, a swept pill for a
+    toggle. Sliders cast none. `style.castShadow: false` turns one off.
+  - The shadow is one still SVG, sized in percent of the control, inside the
+    knob or toggle element at z-index -1; its parent gets
+    `has-control-shadow` (isolation), so it stays above the background. The
+    knob is never wrapped: the panel finds its label and value through its
+    parent. Turning a knob does not redraw it.
+  - It is the footprint, not the silhouette: a pointer cap casts a round
+    shadow.
 - **Image pickers and categories** (`layoutDesigner/imagePicker.ts`,
   `layoutImageCategories.ts`). Every image list in the designer opens as a
   dropdown of thumbnails over its hidden `<select>`, which stays the value the

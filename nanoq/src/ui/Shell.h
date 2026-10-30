@@ -41,6 +41,7 @@
 #include "uiclient/PracticeTool.h"
 #include "uiclient/PresetBrowse.h"
 #include "uiclient/PresetTrail.h"
+#include "uiclient/ScaleGuide.h"
 
 #include <functional>
 #include <map>
@@ -118,6 +119,7 @@ struct SectionNav
 };
 
 class WebViewSlot; // JamPage.cpp
+class ScaleNeck;   // ScaleGuideDraw.h
 class NodeCard;    // ChainWidgets.h
 class Connector;   // ChainWidgets.h
 
@@ -597,19 +599,42 @@ class Shell
     /// An audio file dropped on the Practice Tool loads as its track.
     bool DropPracticeTrack(const std::vector<std::string>& paths);
     [[nodiscard]] Ptr BuildBackingTracks(float width);
-    // The YouTube player and the scale explorer are web pages: each shows in a web view of its
-    // own (nanoq/src/WebView.h) placed over an empty slot in the layout, or, where there is none,
-    // in the browser. The player keeps playing on other pages, with a bar over them to stop it.
+    // ScaleGuidePage.cpp: the Scales section, the Scale Guide drawn from the engine's view model
+    // with the web UI's own settings (uiclient/ScaleGuide.h), and its LISTEN.
+    [[nodiscard]] Ptr BuildScaleGuide(float width);
+    [[nodiscard]] std::string ScaleGuideSignature() const;
+    const nlohmann::json& ScaleGuideView();
+    void ChangeScaleGuide(const std::function<void(guitarfx::uiclient::scaleguide::Settings&)>& edit);
+    /// Steps a progression, the next chord led from the shape showing (or `fromFrets`).
+    void ScaleGuideStep(int index, std::vector<int> fromFrets = {});
+    /// Every tick: LISTEN on while the guide shows with it on, and the readings it brings.
+    void SyncScaleGuideListen();
+    [[nodiscard]] std::vector<int> ScaleGuideHeard() const;
+    nlohmann::json mScaleGuideView;
+    std::string mScaleGuideViewKey;
+    int mScaleGuideStep = 0;
+    std::vector<int> mScaleGuidePrevious; // the shape to lead the next chord from, sent once
+    std::weak_ptr<ScaleNeck> mScaleNeck;
+    std::weak_ptr<Text> mScaleGuideLive;
+    std::string mScaleGuideReadout;
+    bool mScaleGuideListening = false, mScaleGuideChroma = false;
+    std::uint64_t mScaleGuideReadings = 0;
+    guitarfx::uiclient::scaleguide::NoteFollower mScaleGuideFollower;
+    guitarfx::uiclient::scaleguide::StrumGate mScaleGuideStrums;
+    int mScaleGuideRound = 1, mScaleGuideClean = 0;
+    // The YouTube player is a web page: it shows in a web view of its own (nanoq/src/WebView.h)
+    // placed over an empty slot in the layout, or, where there is none, in the browser. It keeps
+    // playing on other pages, with a bar over them to stop it.
     [[nodiscard]] Ptr BuildJamPlayer(float width);
-    [[nodiscard]] nanoq::WebView* JamWebView(bool scales);
+    [[nodiscard]] nanoq::WebView* JamWebView();
     void CloseJamPlayer();
     void SyncJamWebViews();
     void SyncJamPlayerBar();
     std::optional<guitarfx::uiclient::jam::Video> mJamVideo; // what the player holds
-    std::unique_ptr<nanoq::WebView> mJamPlayerView, mScalesView;
+    std::unique_ptr<nanoq::WebView> mJamPlayerView;
     bool mJamWebViewUnavailable = false;
     bool mJamPlayerAudible = false; // the player was making sound at the last tick
-    std::weak_ptr<WebViewSlot> mJamPlayerSlot, mScalesSlot;
+    std::weak_ptr<WebViewSlot> mJamPlayerSlot;
     Ptr mJamPlayerBar;
     std::string mJamPlayerBarShown;
     void RunJamSearch();

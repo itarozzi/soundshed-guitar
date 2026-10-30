@@ -3,6 +3,7 @@
 #include "MessageHandlerRegistry.h"
 #include "dsp/MultiPresetMixer.h"
 
+#include <cmath>
 #include <utility>
 
 #include <nlohmann/json.hpp>
@@ -83,6 +84,17 @@ void TunerService::HandleTunerRequest(const nlohmann::json& payload)
         return;
     }
 
+    // The Scale Guide's LISTEN: readings without turning the tuner on, so nothing is muted, and
+    // a chroma vector with each when `chroma` is set. Not acknowledged: readings are the answer.
+    if (action == "listen")
+    {
+        const bool enabled = payload.value("enabled", false);
+        const bool chroma = payload.value("chroma", false);
+        std::lock_guard<std::mutex> lock(mDSPMutex);
+        mMixer.SetTunerListening(enabled, chroma);
+        return;
+    }
+
     if (action == "setReference")
     {
         double freq = payload.value("referenceFrequency", 440.0);
@@ -153,6 +165,19 @@ void TunerService::OnIdle()
     msg["centOffset"] = reading.centOffset;
     msg["confidence"] = reading.confidence;
     msg["detected"] = reading.detected;
+    msg["levelDb"] = std::round(reading.levelDb * 10.0) / 10.0;
+
+    if (reading.hasChroma)
+    {
+        nlohmann::json chroma = nlohmann::json::array();
+
+        for (const float value : reading.chroma)
+        {
+            chroma.push_back(std::round(value * 1000.0f) / 1000.0f);
+        }
+
+        msg["chroma"] = chroma;
+    }
 
     if (mSendMessage)
     {

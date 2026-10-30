@@ -1,0 +1,134 @@
+#pragma once
+
+/**
+ * ScaleGuide.h - The Scale Guide as a native UI keeps it (docs/plans/scale-guide.md): the player's
+ * choices and their own progressions, read from and written to the same app settings the web UI
+ * uses (`scaleGuide.view`, `scaleGuide.progressions`; ts/scaleGuide/state.ts, progressions.ts), the
+ * request music/ScaleGuideView.h answers, and LISTEN's logic (ts/scaleGuide/listen.ts): the note
+ * being played, steadied, and whether a strummed chord rings clean.
+ */
+
+#include <nlohmann/json.hpp>
+
+#include <array>
+#include <optional>
+#include <string>
+#include <vector>
+
+namespace guitarfx::uiclient::scaleguide
+{
+inline constexpr const char* kViewSetting = "scaleGuide.view";
+inline constexpr const char* kProgressionsSetting = "scaleGuide.progressions";
+inline constexpr int kMaxCapo = 12;
+inline constexpr int kMaxProgressionChords = 16;
+
+struct Settings
+{
+    std::string mode = "scale"; ///< "scale" or "chord"
+    int key = 4;
+    std::string scale = "minpent";
+    std::string chord = "maj";
+    /// "" a single chord, "b:<id>" a built-in progression, "u:<id>" one of the player's own.
+    std::string progression;
+    std::string tuning = "std";
+    std::string labels = "name"; ///< "name", "interval", "degree" or "none"
+    int position = 0;
+    int capo = 0;
+    bool leftHanded = false;
+    bool listen = false;
+    std::string match = "normal"; ///< "easy", "normal" or "strict"
+};
+
+/// The stored choices, anything missing or malformed taking its default.
+[[nodiscard]] Settings ParseSettings(const nlohmann::json& stored);
+[[nodiscard]] nlohmann::json SettingsJson(const Settings& settings);
+[[nodiscard]] Settings LoadSettings(const nlohmann::json& appSettings);
+
+struct UserProgression
+{
+    std::string id;
+    std::string name;
+    std::vector<std::string> chords; ///< roman numerals, "I", "bVII7"
+};
+
+[[nodiscard]] std::vector<UserProgression> LoadProgressions(const nlohmann::json& appSettings);
+[[nodiscard]] nlohmann::json ProgressionsJson(const std::vector<UserProgression>& progressions);
+
+/// The engine request for these choices: the chosen progression (a built-in's id, or one of the
+/// player's own as numerals), the step showing, and the shape to lead from when stepping.
+[[nodiscard]] nlohmann::json ViewRequest(const Settings& settings, const std::vector<UserProgression>& progressions,
+                                         int step, const std::vector<int>& previousFrets = {});
+
+// ── LISTEN ──────────────────────────────────────────────────────────────────
+
+/// The tuner's note ("C#/Db", octave 3) as a MIDI note.
+[[nodiscard]] std::optional<int> ReadingMidi(const std::string& noteName, int octave);
+
+struct ChordTone
+{
+    int pitchClass = 0;
+    std::string interval; ///< "R", "3", "♭3", "5" …
+};
+
+struct ChordMatch
+{
+    double share = 0.0;      ///< the chord's tones' share of the chroma
+    std::vector<bool> heard; ///< per tone, in the order given
+    std::vector<int> missing;
+    bool ok = false;
+};
+
+/// Whether `chroma` is the chord, at a strictness of "easy", "normal" or "strict": its tones hold
+/// the strictness's share, each (bar a plain 5th) reads its level, and no rival chord on the root
+/// that is not a superset of this one fits better.
+[[nodiscard]] ChordMatch MatchChord(const std::array<float, 12>& chroma, int rootPitchClass,
+                                    const std::vector<ChordTone>& tones, const std::string& strictness);
+
+/// A clean strum: five clean readings in a row (~200 ms); the next needs a jump in level.
+class StrumGate
+{
+  public:
+    static constexpr int kHold = 5;
+    static constexpr double kJumpDb = 4.0;
+    static constexpr double kQuietDb = -50.0;
+
+    /// True when this reading completes a clean strum.
+    bool Push(double levelDb, bool clean);
+    void Reset();
+
+  private:
+    std::vector<double> mLevels;
+    bool mArmed = true;
+    int mHeld = 0;
+};
+
+/// The note being played, steadied: it shows once read twice, goes after four silent readings,
+/// and the last two stay as a trail until a long silence.
+class NoteFollower
+{
+  public:
+    static constexpr int kReleaseReadings = 4;
+    static constexpr int kClearReadings = 190;
+
+    /// One reading (nullopt for none); true when what should show has changed.
+    bool Push(std::optional<int> midi);
+    void Reset();
+
+    [[nodiscard]] std::optional<int> Current() const
+    {
+        return mCurrent;
+    }
+
+    [[nodiscard]] const std::vector<int>& Trail() const
+    {
+        return mTrail;
+    }
+
+  private:
+    std::optional<int> mCurrent;
+    std::vector<int> mTrail;
+    std::optional<int> mCandidate;
+    int mSeen = 0;
+    int mSilent = 0;
+};
+} // namespace guitarfx::uiclient::scaleguide

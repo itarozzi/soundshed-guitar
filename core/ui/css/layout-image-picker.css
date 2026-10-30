@@ -212,3 +212,23 @@
   color: var(--ld-text-muted);
   font-size: 11px;
 }
+
+/* Browse… at the foot of the list: adds an image file and picks it. */
+.layout-image-picker-browse {
+  margin: 0 4px 4px;
+  padding: 5px 8px;
+  border: 1px dashed var(--ld-border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ld-text-secondary);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.layout-image-picker-browse:hover,
+.layout-image-picker-browse:focus-visible {
+  outline: none;
+  border-color: var(--accent-primary);
+  color: var(--ld-text);
+}

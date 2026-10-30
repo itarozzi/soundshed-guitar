@@ -26,11 +26,67 @@ export interface LayoutKnobImage {
   clip?: boolean;
 }
 
+/**
+ * A toggle or slider drawn from one strip of frames, laid out as a filmstrip knob's are: a toggle
+ * shows the first frame when off and the last when on; a slider shows the frame for its position.
+ */
+export interface LayoutImageStrip {
+  imageId: string;
+  frames: number;
+  columns?: number;
+  /** One frame's height over its width, so the control is drawn at the frame's shape. */
+  aspect?: number;
+}
+
 const MAX_FRAMES = 1024;
 
 /** A whole number of frames from 2 to 1024, or 0 when `frames` is not one. */
 export function filmstripFrameCount(frames: unknown): number {
   return typeof frames === "number" && Number.isInteger(frames) && frames >= 2 && frames <= MAX_FRAMES ? frames : 0;
+}
+
+/**
+ * The frames and columns of a strip of square frames, the way KnobMan and most knob renderers
+ * export them: one column when the image is taller than wide, one row when wider. Null for an
+ * image that is not one, whose frames must be counted by hand.
+ */
+export function squareFrameStrip(width: unknown, height: unknown): { frames: number; columns: number } | null {
+  if (typeof width !== "number" || typeof height !== "number" || !Number.isInteger(width) || !Number.isInteger(height) || width <= 0 || height <= 0) {
+    return null;
+  }
+  if (height > width && height % width === 0) {
+    const frames = filmstripFrameCount(height / width);
+    return frames ? { frames, columns: 1 } : null;
+  }
+  if (width > height && width % height === 0) {
+    const frames = filmstripFrameCount(width / height);
+    return frames ? { frames, columns: frames } : null;
+  }
+  return null;
+}
+
+/**
+ * The strip an image `width` x `height` makes holding `frames` frames: in one column when it is
+ * at least as tall as wide, else in one row, with the frame's shape when the size is known.
+ */
+export function stripFor(imageId: string, width: number | undefined, height: number | undefined, frames: number): LayoutImageStrip {
+  const count = filmstripFrameCount(frames) || 2;
+  const columns = width && height && width > height ? count : 1;
+  const rows = Math.ceil(count / columns);
+  const aspect = width && height ? (height / rows) / (width / columns) : undefined;
+  return {
+    imageId,
+    frames: count,
+    ...(columns > 1 ? { columns } : {}),
+    ...(aspect && Number.isFinite(aspect) ? { aspect: Math.round(aspect * 10000) / 10000 } : {}),
+  };
+}
+
+/** `value` as a strip when it names an image and a frame count, else null. */
+export function usableStrip(value: unknown): LayoutImageStrip | null {
+  if (!value || typeof value !== "object") return null;
+  const strip = value as LayoutImageStrip;
+  return typeof strip.imageId === "string" && strip.imageId !== "" && filmstripFrameCount(strip.frames) ? strip : null;
 }
 
 /** The frame (0-based) for a knob `position` of 0..1 across `frames` frames. */

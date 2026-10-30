@@ -186,6 +186,20 @@ html[data-density="compact"] .layout-designer-sidebar {
   border-top: 1px solid var(--border-dark-medium);
 }
 
+/* With the canvas over the inspector, the add tools lie in a row above the canvas. */
+html[data-density="compact"] .layout-designer-tool-rail {
+  flex-direction: row;
+  padding: 4px 6px;
+  border-right: none;
+  border-bottom: 1px solid var(--border-dark-medium);
+}
+
+html[data-density="compact"] .layout-designer-tool-divider {
+  width: 1px;
+  height: 20px;
+  margin: 0 4px;
+}
+
 html[data-density="compact"] .layout-designer-toolbar {
   gap: 4px 6px;
   padding: 6px;

@@ -903,9 +903,17 @@ bool TestImageCategoriesAreFiledListedAndShipped()
     WriteBytes(wood, PngOfSize(400, 280, 60));
     host.SetBrowsePath(wood);
     controller.HandleUIMessage(
-        nlohmann::json{{"type", "browseLayoutImage"}, {"purpose", "background"}, {"layoutId", "A"}}.dump());
+        nlohmann::json{{"type", "browseLayoutImage"}, {"purpose", "background"}, {"layoutId", "A"}, {"pickerId", "picker-7"}}
+            .dump());
     const auto selected = host.WaitForMessage("layoutImageSelected");
     const std::string woodId = selected ? selected->value("imageId", "") : std::string();
+
+    // An image picker's request id comes back, so the image goes to the picker that asked.
+    if (!selected || selected->value("pickerId", "") != "picker-7")
+    {
+        std::cerr << "The picker's request id did not come back with the image\n";
+        return false;
+    }
     // The library lists a layout's images once the layout is saved.
     SaveLayout(controller, "A", "fx_a", {woodId});
 
@@ -953,6 +961,71 @@ bool TestImageCategoriesAreFiledListedAndShipped()
     return true;
 }
 
+/// An image's licence and credit are recorded, listed with it, cleared, refused when the licence is
+/// unknown or the credit too long, and taken from an imported archive.
+bool TestImageCreditsAreRecordedAndListed()
+{
+    const fs::path sandbox = FreshSandbox("image-credits");
+    const ScopedPlatformRoot root(sandbox);
+
+    TestHost host(sandbox);
+    guitarfx::PluginController controller(host);
+
+    SaveImage(controller, "A", "knob_1", "knob_1.png", PngBytes());
+    SaveLayout(controller, "A", "fx_a", {"knob_1"});
+    const auto credit = [&](const std::string& imageId) {
+        const auto image = ListedImage(host, controller, imageId);
+        return image.value("license", "") + "|" + image.value("credit", "");
+    };
+    const auto setCredit = [&](const std::string& license, const std::string& text) {
+        controller.HandleUIMessage(
+            nlohmann::json{{"type", "setLayoutImageCredit"}, {"imageId", "knob_1"}, {"license", license}, {"credit", text}}
+                .dump());
+    };
+
+    setCredit("CC-BY-4.0", "Knob by Ada");
+
+    if (credit("knob_1") != "CC-BY-4.0|Knob by Ada")
+    {
+        std::cerr << "The credit was not listed with the image: " << credit("knob_1") << "\n";
+        return false;
+    }
+
+    setCredit("WTFPL", "Someone else");
+    setCredit("own", std::string(301, 'x'));
+
+    if (credit("knob_1") != "CC-BY-4.0|Knob by Ada")
+    {
+        std::cerr << "An unknown licence or an overlong credit replaced the credit: " << credit("knob_1") << "\n";
+        return false;
+    }
+
+    setCredit("", "");
+
+    if (credit("knob_1") != "|")
+    {
+        std::cerr << "Clearing both fields kept the credit: " << credit("knob_1") << "\n";
+        return false;
+    }
+
+    controller.HandleUIMessage(nlohmann::json{{"type", "saveLayoutImage"},
+                                              {"imageId", "imported_1"},
+                                              {"fileName", "imported_1.png"},
+                                              {"data", guitarfx::util::EncodeBase64(PngBytes())},
+                                              {"layoutId", "A"},
+                                              {"license", "CC0-1.0"},
+                                              {"credit", "From the archive"}}
+                                   .dump());
+
+    if (credit("imported_1") != "CC0-1.0|From the archive")
+    {
+        std::cerr << "An imported image did not keep its archive's credit: " << credit("imported_1") << "\n";
+        return false;
+    }
+
+    return true;
+}
+
 /// Images an image knob, toggle, slider or overlay draws on, and the layout's own knob image, are
 /// the layout's like any other: a save copies each into its own folder, so they survive the layout
 /// they came from.
@@ -964,8 +1037,10 @@ bool TestImageControlReferencesAreCopiedOnSave()
 
     TestHost host(sandbox);
     guitarfx::PluginController controller(host);
-    const std::vector<std::string> ids = {"face_1", "face_base_1", "strip_1", "skirt_1", "glare_1",
-                                          "on_1",   "off_1",       "rail_1",  "cap_1",   "logo_1"};
+    const std::vector<std::string> ids = {"face_1",        "face_base_1", "switch_off_1", "switch_on_1",
+                                          "switch_strip_1", "strip_1",    "skirt_1",      "glare_1",
+                                          "on_1",          "off_1",       "switchstrip_1", "rail_1",
+                                          "cap_1",         "sliderstrip_1", "logo_1"};
 
     for (const auto& id : ids)
     {
@@ -981,6 +1056,10 @@ bool TestImageControlReferencesAreCopiedOnSave()
         {"dimensions", {{"width", 400}, {"height", 280}}},
         {"backgrounds", nlohmann::json::array()},
         {"knobImage", {{"mode", "rotate"}, {"imageId", "face_1"}, {"baseImageId", "face_base_1"}}},
+        {"switchImage",
+         {{"offImageId", "switch_off_1"},
+          {"onImageId", "switch_on_1"},
+          {"strip", {{"imageId", "switch_strip_1"}, {"frames", 2}}}}},
         {"controls",
          {{{"paramKey", "a"},
            {"type", "knob"},
@@ -995,11 +1074,19 @@ bool TestImageControlReferencesAreCopiedOnSave()
           {{"paramKey", "b"},
            {"type", "toggle"},
            {"position", {{"x", 0}, {"y", 0}}},
-           {"style", {{"toggleImage", {{"onImageId", "on_1"}, {"offImageId", "off_1"}}}}}},
+           {"style",
+            {{"toggleImage",
+              {{"onImageId", "on_1"},
+               {"offImageId", "off_1"},
+               {"strip", {{"imageId", "switchstrip_1"}, {"frames", 2}}}}}}}},
           {{"paramKey", "c"},
            {"type", "slider"},
            {"position", {{"x", 0}, {"y", 0}}},
-           {"style", {{"sliderImage", {{"trackImageId", "rail_1"}, {"thumbImageId", "cap_1"}}}}}}}},
+           {"style",
+            {{"sliderImage",
+              {{"trackImageId", "rail_1"},
+               {"thumbImageId", "cap_1"},
+               {"strip", {{"imageId", "sliderstrip_1"}, {"frames", 64}}}}}}}}}},
         {"overlays",
          {{{"id", "o"},
            {"position", {{"x", 0}, {"y", 0}}},
@@ -1109,6 +1196,7 @@ int main()
         {"Renditions are stored, listed and served", TestRenditionsAreStoredListedAndServed},
         {"Picking the same image again reuses it", TestPickingTheSameImageAgainReusesIt},
         {"Image categories are filed, listed and shipped", TestImageCategoriesAreFiledListedAndShipped},
+        {"Image credits are recorded and listed", TestImageCreditsAreRecordedAndListed},
         {"Image control references are copied on save", TestImageControlReferencesAreCopiedOnSave},
         {"A failed save is reported", TestFailedSaveIsReported},
         {"Delete removes the layout from every key", TestDeleteRemovesTheLayoutFromEveryKey},

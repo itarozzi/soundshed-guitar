@@ -1,15 +1,19 @@
 #pragma once
 
+#include "dsp/ChromaAnalyzer.h"
 #include "dsp/PitchTracker.h"
 
+#include <array>
 #include <atomic>
 #include <condition_variable>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <thread>
+#include <vector>
 
 namespace guitarfx
 {
@@ -22,6 +26,10 @@ namespace guitarfx
 /// 43 ms at any rate). Averaging the 5 ms detections over it reads a held note with a third to a
 /// tenth of the scatter of the single 85 ms YIN window it replaces, so the tuner needs no longer
 /// window of its own.
+///
+/// It also listens for the Scale Guide (SetListening): the same readings without the tuner being
+/// on, so a player whose tuner mutes the output still hears themselves, and optionally a chroma
+/// vector of the last ~170 ms (ChromaAnalyzer), worked out on the worker, for chord matching.
 ///
 /// Control methods are called under the mixer's DSP lock; Process() never allocates or waits.
 class TunerEngine
@@ -37,6 +45,11 @@ class TunerEngine
         bool detected = false;
         double debugRms = 0.0;
         double debugRawFreq = 0.0;
+        /// The input level over the reading, dBFS.
+        double levelDb = -120.0;
+        /// Set only while listening with chroma (SetListening): energy per pitch class, C first.
+        bool hasChroma = false;
+        ChromaAnalyzer::Chroma chroma{};
     };
 
     using Callback = std::function<void(const Result&)>;
@@ -52,6 +65,21 @@ class TunerEngine
     [[nodiscard]] bool IsEnabled() const noexcept
     {
         return mEnabled;
+    }
+
+    /// The Scale Guide's LISTEN: readings without the tuner on (and without muting), with a chroma
+    /// vector each reading when `chroma` is set.
+    void SetListening(bool listening, bool chroma);
+
+    [[nodiscard]] bool IsListening() const noexcept
+    {
+        return mListening;
+    }
+
+    /// Reading the input for the tuner or for LISTEN.
+    [[nodiscard]] bool IsActive() const noexcept
+    {
+        return mEnabled || mListening;
     }
 
     void SetCallback(Callback callback);
@@ -81,6 +109,7 @@ class TunerEngine
         double frequency = 0.0;    ///< the mean of the reading's detections, 0 when none found a pitch
         double rawFrequency = 0.0; ///< the latest of those detections' own estimates
         double rms = 0.0;
+        bool hasSamples = false; ///< mPendingSamples holds the chroma window for this reading
     };
 
     static constexpr double kReadingSeconds = 2048.0 / 48000.0;
@@ -89,12 +118,15 @@ class TunerEngine
     void StopWorker();
     void WorkerLoop();
     void ResetReading();
+    void Restart();
     void AddDetection();
     void QueueReading();
     [[nodiscard]] static Result FrequencyToNote(double frequency, double referenceFrequency);
 
     double mSampleRate = 44100.0;
     bool mEnabled = false;
+    bool mListening = false;
+    bool mChroma = false;
     bool mLiveMode = true;
     double mReferenceFrequency = 440.0;
     Callback mCallback;
@@ -108,6 +140,8 @@ class TunerEngine
     double mFrequencySum = 0.0;
     int mFrequencyCount = 0;
     double mRawFrequency = 0.0;
+    std::vector<float> mRing; ///< the last ChromaAnalyzer window of input, when listening with chroma
+    std::size_t mRingPos = 0;
 
     // Handoff to the worker, under mAnalysisMutex
     std::mutex mAnalysisMutex;
@@ -116,8 +150,13 @@ class TunerEngine
     bool mWorkerQuit = false;
     bool mAnalysisPending = false;
     Reading mPendingReading;
+    std::vector<float> mPendingSamples;
     double mAnalysisReferenceFrequency = 440.0;
     std::uint64_t mQueuedGeneration = 0;
     std::atomic<std::uint64_t> mAnalysisGeneration{0};
+
+    // Worker only
+    std::unique_ptr<ChromaAnalyzer> mChromaAnalyzer;
+    std::vector<float> mWorkerSamples;
 };
 } // namespace guitarfx

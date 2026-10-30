@@ -168,26 +168,10 @@ function parseBooleanDescriptorValue(value: string | undefined, fallback: boolea
   return fallback;
 }
 
-function parseIndexedDescriptorKey(key: string, prefix: string): { index: number; field: string } | null {
-  const stem = `${prefix}.`;
-  if (!key.startsWith(stem)) {
-    return null;
-  }
-  const fieldSeparator = key.indexOf(".", stem.length);
-  if (fieldSeparator < 0) {
-    return null;
-  }
-  const index = Number.parseInt(key.slice(stem.length, fieldSeparator), 10);
-  if (!Number.isInteger(index) || index < 0) {
-    return null;
-  }
-  return { index, field: key.slice(fieldSeparator + 1) };
-}
-
-// param.<id>.<field>, with the engine's id rule (IsValidGuestId): a numbered ABI 1 key is not one.
-function parseParamDescriptorKey(key: string): { id: string; field: string } | null {
-  const match = /^param\.([A-Za-z][A-Za-z0-9_]{0,31})\.(.+)$/.exec(key);
-  return match ? { id: match[1], field: match[2] } : null;
+// <prefix>.<id>.<field>, with the engine's id rule (IsValidGuestId): a numbered ABI 1 key is not one.
+function parseIdKeyedDescriptorKey(key: string, prefix: "param" | "resource"): { id: string; field: string } | null {
+  const match = /^(param|resource)\.([A-Za-z][A-Za-z0-9_]{0,31})\.(.+)$/.exec(key);
+  return match && match[1] === prefix ? { id: match[2], field: match[3] } : null;
 }
 
 function parseWasmDescriptorEntries(configValue: unknown): WasmDescriptorEntry[] {
@@ -218,9 +202,10 @@ function buildWasmNodeEffectInfo(base: EffectTypeInfo, node: Pick<GraphNode, "co
     return base;
   }
 
-  // Keyed by id, in the order each id first appears (Custom Effect ABI 2: param.<id>.<field>).
+  // Keyed by id, in the order each id first appears (Custom Effect ABI 2: param.<id>.<field>,
+  // resource.<id>.<field>).
   const paramGroups = new Map<string, Record<string, string>>();
-  const resourceGroups = new Map<number, Record<string, string>>();
+  const resourceGroups = new Map<string, Record<string, string>>();
   let displayName = "";
   let category = "";
   let description = "";
@@ -255,7 +240,7 @@ function buildWasmNodeEffectInfo(base: EffectTypeInfo, node: Pick<GraphNode, "co
       continue;
     }
 
-    const paramKey = parseParamDescriptorKey(entry.key);
+    const paramKey = parseIdKeyedDescriptorKey(entry.key, "param");
     if (paramKey) {
       const group = paramGroups.get(paramKey.id) ?? {};
       group[paramKey.field] = entry.value;
@@ -263,11 +248,11 @@ function buildWasmNodeEffectInfo(base: EffectTypeInfo, node: Pick<GraphNode, "co
       continue;
     }
 
-    const resourceKey = parseIndexedDescriptorKey(entry.key, "resource");
+    const resourceKey = parseIdKeyedDescriptorKey(entry.key, "resource");
     if (resourceKey) {
-      const group = resourceGroups.get(resourceKey.index) ?? {};
+      const group = resourceGroups.get(resourceKey.id) ?? {};
       group[resourceKey.field] = entry.value;
-      resourceGroups.set(resourceKey.index, group);
+      resourceGroups.set(resourceKey.id, group);
     }
   }
 
@@ -299,21 +284,21 @@ function buildWasmNodeEffectInfo(base: EffectTypeInfo, node: Pick<GraphNode, "co
     })
     .filter((param): param is ParameterDef => param !== null);
 
+  // The controller keeps each file at its resource's place in declaration order (the module is
+  // slot 0), and keeps it with its id when a new version of the module reorders them.
+  const hostResourceIds = new Set((base.exposedResources ?? []).map((resource) => resource.resourceId));
   const exposedResources: NonNullable<EffectTypeInfo["exposedResources"]> = [];
-  for (const [index, fields] of [...resourceGroups.entries()].sort((left, right) => left[0] - right[0])) {
-    if (!fields.id) {
-      continue;
-    }
-    const resourceIndex = Number.parseInt(fields.slot ?? `${index + 1}`, 10);
-    if (!Number.isInteger(resourceIndex) || resourceIndex <= 0) {
+  for (const [id, fields] of resourceGroups.entries()) {
+    // The engine refuses a descriptor that takes the module's own resource id.
+    if (hostResourceIds.has(id)) {
       continue;
     }
     exposedResources.push({
-      resourceId: fields.id,
-      displayName: fields.title || fields.name || fields.id,
+      resourceId: id,
+      displayName: fields.title || fields.name || id,
       nodeId: "",
       resourceType: fields.type || "blob",
-      resourceIndex,
+      resourceIndex: exposedResources.length + 1,
       allowBrowseFile: parseBooleanDescriptorValue(fields.allowBrowseFile, true),
       parameterId: fields.parameterId,
       parameterValue: typeof fields.parameterValue === "string"

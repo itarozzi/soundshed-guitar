@@ -5,11 +5,39 @@
  * background images, control positioning, and text labels.
  */
 
-import type { LayoutKnobImage } from "./layoutKnobImages.js";
+import type { LayoutImageStrip, LayoutKnobImage } from "./layoutKnobImages.js";
 import type { LayoutImageRendition } from "./layoutRenditions.js";
 import type { LayoutScaling } from "./layoutScaling.js";
 
-export type { LayoutImageRendition, LayoutKnobImage, LayoutScaling };
+export type { LayoutImageRendition, LayoutImageStrip, LayoutKnobImage, LayoutScaling };
+
+/** A toggle drawn from images: an off and an on picture, or a strip of frames, which wins. */
+export interface LayoutToggleImage {
+  onImageId?: string;
+  offImageId?: string;
+  strip?: LayoutImageStrip;
+  /** The off picture's height over its width, so the toggle takes the picture's shape. */
+  aspect?: number;
+}
+
+/** The switch every toggle in a layout is drawn from unless it has its own: images and a size. */
+export interface LayoutSwitchImage extends LayoutToggleImage {
+  /** The toggle's drawn size, px; unset: 36 wide and the picture's shape. */
+  width?: number;
+  height?: number;
+}
+
+/** The light of a layout's generated control shadows; every field is optional (CONTROL_SHADOW_DEFAULTS). */
+export interface LayoutControlShadow {
+  /** Where the light comes from, degrees clockwise from the top: 315 is top left. */
+  angle?: number;
+  /** How high the light is above the panel, 15 to 80 degrees: lower casts longer shadows. */
+  elevation?: number;
+  /** Blur, 0 (hard edged) to 1. */
+  softness?: number;
+  /** Darkness, 0 to 1. */
+  opacity?: number;
+}
 
 /** Image reference for layout backgrounds and knobs */
 export interface LayoutImageRef {
@@ -37,6 +65,9 @@ export interface LayoutImageRef {
   type?: "background" | "knob" | "switch" | "general";
   /** Shipped with the app: it cannot be refiled under another category. */
   factory?: boolean;
+  /** The licence it was shared under (layoutImageCredits.ts) and the credit it asks for. */
+  license?: string;
+  credit?: string;
 }
 
 /** Background layer configuration */
@@ -118,10 +149,12 @@ export interface LayoutControl {
     toggleHeight?: number;
     /** A knob drawn from images: a turning face or a filmstrip (layoutKnobImages.ts). Wins over knobStyle. */
     knobImage?: LayoutKnobImage;
-    /** A toggle drawn as two pictures, one for off and one for on. */
-    toggleImage?: { onImageId?: string; offImageId?: string };
-    /** A slider drawn with a track picture and a thumb picture. */
-    sliderImage?: { trackImageId?: string; thumbImageId?: string };
+    /** A toggle drawn as two pictures, one for off and one for on, or from a strip, which wins. */
+    toggleImage?: LayoutToggleImage;
+    /** A slider drawn with a track picture and a thumb picture, or from a strip of frames, which wins. */
+    sliderImage?: { trackImageId?: string; thumbImageId?: string; strip?: LayoutImageStrip };
+    /** False: this knob or toggle casts no shadow under the layout's controlShadow light. */
+    castShadow?: boolean;
   };
   /** Custom label text (overrides param name) */
   labelOverride?: string;
@@ -226,6 +259,13 @@ export interface EffectLayout {
    * wrapper (transform-origin: top left). Values < 1 shrink, > 1 enlarge.
    */
   defaultControlsScale?: { x: number; y: number };
+  /** When useDefaultControls is true: only the Main tab's controls, with no tab bar (layoutDefaultControls.ts). */
+  defaultControlsMainOnly?: boolean;
+  /**
+   * When useDefaultControls is true, false: the groups lose their titled panels, so the controls
+   * sit straight on the background. Unset or true: the panels the params panel draws.
+   */
+  defaultControlsPanels?: boolean;
   /**
    * Optional theme override for the visualisation container. When set, the corresponding
    * theme class (e.g. "theme-dark") is applied to the container div, scoping CSS colour
@@ -255,6 +295,18 @@ export interface EffectLayout {
    * and a knobStyle of "default" or none. Older apps ignore it and draw standard knobs.
    */
   knobImage?: LayoutKnobImage;
+  /**
+   * The light the layout's knobs and toggles cast shadows from (layoutShadows.ts): each stands as
+   * tall as it is wide and casts its footprint away from the light. Unset: no shadows, as before.
+   * Older apps ignore it.
+   */
+  controlShadow?: LayoutControlShadow;
+  /**
+   * The switch every toggle in the layout is drawn from unless it has images of its own: the
+   * default controls' toggles (useDefaultControls) and each positioned toggle. Older apps ignore it
+   * and draw standard toggles.
+   */
+  switchImage?: LayoutSwitchImage;
   /** How the layout fits the params panel (layoutScaling.ts). Unset: the original fit-width rule. */
   scaling?: LayoutScaling;
   /** The designer's snap step (px), also used when the layout is imported. Unset: LAYOUT_GRID_SIZE. */
@@ -460,6 +512,9 @@ export function visitLayoutImageRefs(
   visitField(layout.knobImage, "imageId", `Layout knob: ${layout.knobImage?.mode === "filmstrip" ? "filmstrip" : "turning face"}`);
   visitField(layout.knobImage, "baseImageId", "Layout knob: base");
   visitField(layout.knobImage, "glareImageId", "Layout knob: glare");
+  visitField(layout.switchImage, "offImageId", "Layout switch: off");
+  visitField(layout.switchImage, "onImageId", "Layout switch: on");
+  visitField(layout.switchImage?.strip, "imageId", "Layout switch: strip");
   for (const control of layout.controls ?? []) {
     const style = control.style;
     const name = control.labelOverride || control.paramKey;
@@ -471,6 +526,8 @@ export function visitLayoutImageRefs(
     visitField(style?.toggleImage, "offImageId", `${name}: off`);
     visitField(style?.sliderImage, "trackImageId", `${name}: track`);
     visitField(style?.sliderImage, "thumbImageId", `${name}: thumb`);
+    visitField(style?.toggleImage?.strip, "imageId", `${name}: switch strip`);
+    visitField(style?.sliderImage?.strip, "imageId", `${name}: slider strip`);
   }
   for (const overlay of layout.overlays ?? []) {
     visitField(overlay.style, "imageId", "Rectangle image");

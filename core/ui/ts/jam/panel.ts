@@ -5,6 +5,7 @@
  * state or kicks off a search. Section switching and search live in ../jam.ts.
  */
 
+import { renderScaleGuidePanel } from "../scaleGuide/panel.js";
 import type { JamState, JamVideoSummary } from "../types.js";
 import { escapeHtml } from "../utils.js";
 import { renderRiffLibraryPanel } from "../riffLibrary.js";
@@ -139,6 +140,7 @@ export function renderJamPanel(): void {
   }
 
   if (resolvedSection === "scales") {
+    renderScaleGuidePanel();
     return;
   }
 

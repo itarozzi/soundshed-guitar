@@ -3,6 +3,7 @@
  */
 
 import { layoutDesigner } from "../layoutDesigner.js";
+import { completeImagePickerBrowse } from "../layoutDesigner/imagePicker.js";
 import { isLayoutImageCategory } from "../layoutImageCategories.js";
 import { areLayoutImagesLoaded, ensureLayoutImagesLoaded, markLayoutImagesLoaded } from "../layoutImages.js";
 import { renderLayoutList } from "../layoutManager.js";
@@ -83,6 +84,8 @@ export function onLayoutImageSelected(payload: IncomingPayload): void {
     /** The category the engine filed it under; the message's own "type" is taken. */
     category?: string;
     factory?: boolean;
+    /** Set when an image picker's Browse asked for it: the image goes back to that picker. */
+    pickerId?: string;
     layerIndex?: number;
     paramKey?: string;
   };
@@ -110,6 +113,9 @@ export function onLayoutImageSelected(payload: IncomingPayload): void {
       } else {
         uiState.layoutLibrary.images.push(imageEntry);
       }
+    }
+    if (imgPayload.pickerId && completeImagePickerBrowse(imgPayload.pickerId, imgPayload.imageId)) {
+      return;
     }
     layoutDesigner.handleImageSelected(
       imgPayload.purpose,

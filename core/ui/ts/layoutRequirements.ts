@@ -9,7 +9,9 @@
  * fields and draw what they understand (docs/plans/layout-designer-hires.md, rule 7).
  */
 
-import { usableKnobImage } from "./layoutControlImages.js";
+import { usableKnobImage, usableToggleImage } from "./layoutControlImages.js";
+import { usableStrip } from "./layoutKnobImages.js";
+import { usableControlShadow } from "./layoutShadows.js";
 import { LEGACY_DIMENSION_LIMITS, type EffectLayout } from "./layoutTypes.js";
 
 /** The features, in the order they are listed. */
@@ -22,6 +24,9 @@ export const LAYOUT_FEATURES = [
   "image-toggle",
   "image-slider",
   "image-overlay",
+  "control-shadow",
+  "default-controls-style",
+  "switch-image",
 ] as const;
 export type LayoutFeature = (typeof LAYOUT_FEATURES)[number];
 
@@ -60,11 +65,16 @@ export function layoutRequirements(layout: EffectLayout): LayoutFeature[] {
       used.add("control-size");
     }
     if (usableKnobImage(style?.knobImage)) used.add("knob-image");
-    if (style?.toggleImage?.onImageId && style.toggleImage.offImageId) used.add("image-toggle");
-    if (style?.sliderImage?.trackImageId || style?.sliderImage?.thumbImageId) used.add("image-slider");
+    if ((style?.toggleImage?.onImageId && style.toggleImage.offImageId) || usableStrip(style?.toggleImage?.strip)) used.add("image-toggle");
+    if (style?.sliderImage?.trackImageId || style?.sliderImage?.thumbImageId || usableStrip(style?.sliderImage?.strip)) used.add("image-slider");
   }
   if ((layout.overlays ?? []).some((overlay) => overlay.style?.imageId)) {
     used.add("image-overlay");
+  }
+  if (usableControlShadow(layout.controlShadow)) used.add("control-shadow");
+  if (usableToggleImage(layout.switchImage)) used.add("switch-image");
+  if (layout.useDefaultControls && (layout.defaultControlsMainOnly === true || layout.defaultControlsPanels === false)) {
+    used.add("default-controls-style");
   }
 
   return LAYOUT_FEATURES.filter((feature) => used.has(feature));

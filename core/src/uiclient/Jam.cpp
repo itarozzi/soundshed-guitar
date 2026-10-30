@@ -438,13 +438,12 @@ bool StaysInWebView(const std::string& url)
     const auto starts = [&lower](const char* prefix) { return lower.rfind(prefix, 0) == 0; };
 
     // The player's wrapper page (juce/source/PluginEditor.cpp keeps it in the web view for the
-    // same reason), and the scale explorer, which navigates within itself.
+    // same reason).
     if (starts("https://api-guitar.soundshed.com/") && lower.find("/embed/") != std::string::npos)
     {
         return true;
     }
 
-    return lower == "https://scalex.soundshed.com" || starts("https://scalex.soundshed.com/") ||
-           starts("https://scalex.soundshed.com?") || starts("about:blank");
+    return starts("about:blank");
 }
 } // namespace guitarfx::uiclient::jam

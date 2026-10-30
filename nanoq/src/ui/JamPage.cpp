@@ -7,9 +7,9 @@
 // own settings (core/src/uiclient/Jam.h), so a favourite starred in either product shows in both.
 // A track plays in YouTube's embedded player, which is web content: a web view of its own beside
 // the results (nanoq/src/WebView.h), playing on while other pages are shown, with a bar over them
-// to bring it back or stop it. Scales, the scale explorer, is a web page too. Where there is no
-// web view (not Windows, or no WebView2 Runtime) both open in the browser. The Practice Tool is
-// PracticeToolPage.cpp's.
+// to bring it back or stop it; where there is no web view (not Windows, or no WebView2 Runtime) it
+// plays in the browser. Scales is the Scale Guide, drawn natively (ScaleGuidePage.cpp). The
+// Practice Tool is PracticeToolPage.cpp's.
 
 #include "ui/Shell.h"
 
@@ -403,6 +403,8 @@ std::string Shell::JamPageSignature() const
         s += "|" + PracticeToolSignature();
         break;
     case JamSection::Scales:
+        s += "|" + ScaleGuideSignature();
+        break;
     case JamSection::Riffs:
         break;
     }
@@ -482,9 +484,9 @@ void Shell::ToggleJamFavorite(const jam::Video& video)
     Mark(kPage);
 }
 
-nanoq::WebView* Shell::JamWebView(bool scales)
+nanoq::WebView* Shell::JamWebView()
 {
-    auto& view = scales ? mScalesView : mJamPlayerView;
+    auto& view = mJamPlayerView;
 
     if (view && view->Failed())
     {
@@ -517,7 +519,7 @@ nanoq::WebView* Shell::JamWebView(bool scales)
 
 void Shell::PlayJamVideo(const jam::Video& video)
 {
-    auto* player = JamWebView(false);
+    auto* player = JamWebView();
 
     if (player == nullptr)
     {
@@ -612,12 +614,6 @@ void Shell::SyncJamWebViews()
               jam && mJamVideo && (mJamSection == JamSection::Search || mJamSection == JamSection::Favorites));
     }
 
-    if (mScalesView)
-    {
-        // A toast lands on the page it fills.
-        place(mScalesView.get(), mScalesSlot, jam && mJamSection == JamSection::Scales && mToast == nullptr);
-    }
-
     // Whether the player is making sound, in the log: what tells a hidden player still plays.
     if (const bool audible = mJamPlayerView && mJamPlayerView->PlayingAudio(); audible != mJamPlayerAudible)
     {
@@ -626,16 +622,15 @@ void Shell::SyncJamWebViews()
                    (mPage == Page::Jam ? "" : " (on another page)"));
     }
 
-    // A view that could not start: its page goes to the browser from now on.
-    if ((mJamPlayerView && mJamPlayerView->Failed()) || (mScalesView && mScalesView->Failed()))
+    // A view that could not start: the player goes to the browser from now on.
+    if (mJamPlayerView && mJamPlayerView->Failed())
     {
-        if (mJamPlayerView && mJamPlayerView->Failed() && mJamVideo)
+        if (mJamVideo)
         {
             mSession.Commands().OpenUrl(jam::WatchUrl(mJamVideo->videoId));
         }
 
         mJamPlayerView.reset();
-        mScalesView.reset();
         mJamVideo.reset();
         mJamWebViewUnavailable = true;
         Mark(kPage);
@@ -918,26 +913,9 @@ Ptr Shell::BuildJamPage()
         }
 
         break;
-    case JamSection::Scales: {
-        if (auto* web = JamWebView(true))
-        {
-            // The page fills the section, under the chips.
-            web->Navigate(jam::kScalesUrl);
-            auto slot = std::make_shared<WebViewSlot>(mTheme, 0.0f, 0.0f, "Loading the scale explorer...");
-            mScalesSlot = slot;
-            content = Pad(0, 0, 0, 0, slot);
-            break;
-        }
-
-        // No web view here: the scale explorer opens in the browser.
-        auto open = std::make_shared<IconButton>(mTheme, mIcons, "", IconButton::Look::Accent);
-        open->Size(170, 32).Label("Open the scale explorer", 11.5f);
-        open->onClick = [this] { mSession.Commands().OpenUrl(jam::kScalesUrl); };
-        content = Pad(12, 16, 12, 0,
-                      Col({Message(mTheme, "Scales is Soundshed's scale explorer, a web page."),
-                           FixedHeight(32, Row({Stretch(), open, Stretch()})), Stretch()}));
+    case JamSection::Scales:
+        content = KeptVScroll(Pad(12, 10, 14, 0, BuildScaleGuide(contentWidth)), mJamScroll);
         break;
-    }
     case JamSection::Riffs:
         content = Pad(16, 14, 16, 0, BuildRiffSection());
         break;
@@ -975,5 +953,6 @@ void Shell::SyncJam()
 
     SyncJamWebViews();
     SyncJamPlayerBar();
+    SyncScaleGuideListen();
 }
 } // namespace nanoq::ui

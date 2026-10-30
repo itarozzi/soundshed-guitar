@@ -1928,6 +1928,14 @@ void PluginController::RefreshWasmNodeDescriptor(GraphNode& node)
         }
     }
 
+    // Files are kept by resource id the same way, whatever order this version declares them in.
+    for (const auto& droppedId :
+         WasmEffect::RekeyNodeResources(node, *descriptor, previousDescriptor ? *previousDescriptor : *descriptor))
+    {
+        AppendSessionLog("Custom Effect " + node.id + ": dropped the file for resource '" + droppedId +
+                         "', which the module no longer declares");
+    }
+
 #endif
 }
 

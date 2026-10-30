@@ -524,6 +524,8 @@ set(GUITARFX_CORE_SOURCES
     src/controller/SignalTestService.cpp
     src/controller/TunerService.h
     src/controller/TunerService.cpp
+    src/controller/ScaleGuideMessages.h
+    src/controller/ScaleGuideMessages.cpp
     src/controller/GateLearnService.h
     src/controller/GateLearnService.cpp
     src/controller/TelemetryPublisher.h
@@ -562,6 +564,7 @@ set(GUITARFX_CORE_SOURCES
     src/controller/PluginControllerCustomEffects.cpp
     src/controller/PluginControllerPresets.cpp
     src/controller/PluginControllerPresetEdits.cpp
+    src/controller/PluginControllerScenes.cpp
     src/controller/PluginControllerPresetFolders.cpp
     src/controller/PluginControllerSetlists.cpp
     src/controller/PluginControllerMixer.cpp
@@ -640,6 +643,8 @@ set(GUITARFX_CORE_SOURCES
     src/dsp/SimdFFT.h
     src/dsp/SpectrumTap.h
     src/dsp/SpectrumTap.cpp
+    src/dsp/ChromaAnalyzer.h
+    src/dsp/ChromaAnalyzer.cpp
     src/dsp/BlockSincResampler.h
     src/dsp/IRTypes.h
     src/dsp/IRWavLoader.h
@@ -752,6 +757,17 @@ set(GUITARFX_CORE_SOURCES
     # Models
     src/models/ModelHasher.h
     src/models/ModelHasher.cpp
+
+    # Music theory for the Scale Guide (docs/plans/scale-guide.md)
+    src/music/MusicTheory.h
+    src/music/MusicTheory.cpp
+    src/music/MusicCatalog.h
+    src/music/MusicCatalog.cpp
+    src/music/Fretboard.h
+    src/music/Fretboard.cpp
+    src/music/ChordShapes.cpp
+    src/music/ScaleGuideView.h
+    src/music/ScaleGuideView.cpp
 
     # Utilities
     src/util/Base64.h

@@ -10,6 +10,8 @@ import { bindKnobImageRows, renderKnobImageRows } from "./controlImageProperties
 import { getLayoutImageUrl } from "./images.js";
 import { bindLayoutAssetsGroup, renderLayoutAssetsGroup } from "./layoutAssets.js";
 import type { LayoutPropertiesHost } from "./propertiesHost.js";
+import { bindShadowGroup, renderShadowGroup } from "./shadowProperties.js";
+import { bindSwitchGroup, renderSwitchGroup } from "./switchProperties.js";
 import { openLayoutSizePreview } from "./sizePreview.js";
 import { colorInputValue } from "../layoutRenderer.js";
 import { escapeHtml } from "../utils.js";
@@ -31,6 +33,21 @@ export class CanvasProperties {
     const scaling = layout.scaling ?? {};
 
     const backdropSections = isBackdrop ? `
+      <div class="layout-property-group">
+        <div class="layout-property-group-title">Default Controls</div>
+        <div class="layout-property-row">
+          <span class="layout-property-label">Main Tab Only</span>
+          <div class="layout-property-input">
+            <input type="checkbox" id="prop-dc-main-only" ${layout.defaultControlsMainOnly === true ? "checked" : ""} title="Show only the Main tab's controls, with no tab bar and no Advanced tab">
+          </div>
+        </div>
+        <div class="layout-property-row">
+          <span class="layout-property-label">Group Panels</span>
+          <div class="layout-property-input">
+            <input type="checkbox" id="prop-dc-panels" ${layout.defaultControlsPanels !== false ? "checked" : ""} title="Draw each group's heading and panel; off, the controls sit straight on the background">
+          </div>
+        </div>
+      </div>
       <div class="layout-property-group">
         <div class="layout-property-group-title">Default Controls — Position</div>
         <div class="layout-property-row">
@@ -131,7 +148,7 @@ export class CanvasProperties {
         <div class="layout-property-hint">
           The image every knob is drawn from${isBackdrop ? ", the default controls' included" : ""}, unless a knob sets its own image or a knob style other than Default.
         </div>${renderKnobImageRows(layout.knobImage, (_purpose, selected) => this.host.renderImageOptionsHtml("knob", selected), "prop-layout-knob", "Standard")}
-      </div>
+      </div>${renderSwitchGroup(layout, (purpose, selected) => this.host.renderImageOptionsHtml(purpose, selected), isBackdrop)}${renderShadowGroup(layout)}
       <div class="layout-property-group">
         <div class="layout-property-group-title">Fit to Panel</div>
         <div class="layout-property-row">
@@ -241,6 +258,8 @@ export class CanvasProperties {
       this.host.renderCanvas();
       if (rerenderSidebar) this.host.renderSidebar();
     });
+    bindSwitchGroup(layout, this.host);
+    bindShadowGroup(layout, this.host);
 
     const fontInput = document.getElementById("prop-layout-font") as HTMLInputElement | null;
     fontInput?.addEventListener("change", () => {
@@ -312,6 +331,24 @@ export class CanvasProperties {
     bindNum("prop-dc-scale-y", (v) => {
       if (!layout) return;
       layout.defaultControlsScale = { x: layout.defaultControlsScale?.x ?? 1, y: Math.max(0.1, v) };
+    });
+
+    const bindCheck = (id: string, apply: (checked: boolean) => void) => {
+      const el = document.getElementById(id) as HTMLInputElement | null;
+      el?.addEventListener("change", () => {
+        this.host.pushSidebarUndoOnce();
+        apply(el.checked);
+        this.host.renderCanvas();
+      });
+    };
+    // Each is stored only when it differs from what the panel draws by default.
+    bindCheck("prop-dc-main-only", (checked) => {
+      if (checked) layout.defaultControlsMainOnly = true;
+      else delete layout.defaultControlsMainOnly;
+    });
+    bindCheck("prop-dc-panels", (checked) => {
+      if (checked) delete layout.defaultControlsPanels;
+      else layout.defaultControlsPanels = false;
     });
 
     document.getElementById("prop-dc-scale-reset")?.addEventListener("click", () => {

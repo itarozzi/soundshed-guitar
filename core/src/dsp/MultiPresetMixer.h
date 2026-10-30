@@ -651,6 +651,13 @@ class MultiPresetMixer
     void SetTunerCallback(TunerCallback callback);
     void SetTunerReferenceFrequency(double frequency);
 
+    /// The Scale Guide's LISTEN: tuner readings (with a chroma vector when `chroma` is set) while
+    /// the tuner itself may be off, never muting the output.
+    void SetTunerListening(bool listening, bool chroma)
+    {
+        mTuner->SetListening(listening, chroma);
+    }
+
     [[nodiscard]] double GetTunerReferenceFrequency() const noexcept
     {
         return mTuner->GetReferenceFrequency();

@@ -9,6 +9,9 @@
  *
  * Dragging one of your images onto a category tab files it there (setLayoutImageCategory); a
  * factory image keeps the category it ships under.
+ *
+ * Browse… at the foot of the list asks the engine for an image file (browseLayoutImage with a
+ * pickerId); the image it adds, filed under the open category, is picked in this list.
  */
 
 import { postMessage } from "../bridge.js";
@@ -31,6 +34,40 @@ const THUMBNAIL_EDGE = 40;
 const DRAG_THRESHOLD_PX = 5;
 
 const BOUND = "imagePickerBound";
+
+/** Asks the engine for an image file filed under `purpose`; set by the designer, which knows the layout. */
+let browseForImage: ((purpose: LayoutImageCategory, pickerId: string) => void) | null = null;
+/** Browse requests awaiting their image, by pickerId: the list that asked, by id where it has one. */
+const pendingBrowses = new Map<string, { selectId: string; select: HTMLSelectElement }>();
+let browseCount = 0;
+
+export function setImagePickerBrowse(handler: ((purpose: LayoutImageCategory, pickerId: string) => void) | null): void {
+  browseForImage = handler;
+}
+
+/**
+ * The engine added the image a picker's Browse asked for: pick it in that list (found again by id,
+ * as the sidebar may have been drawn since). False when no picker asked for `pickerId`.
+ */
+export function completeImagePickerBrowse(pickerId: string, imageId: string): boolean {
+  const pending = pendingBrowses.get(pickerId);
+  if (!pending) return false;
+  pendingBrowses.delete(pickerId);
+  const byId = pending.selectId ? document.getElementById(pending.selectId) : null;
+  const select = byId instanceof HTMLSelectElement ? byId : pending.select.isConnected ? pending.select : null;
+  if (!select) return true;
+  // The list was built before the image existed.
+  if (!Array.from(select.options).some((option) => option.value === imageId)) {
+    const option = document.createElement("option");
+    option.value = imageId;
+    option.dataset.layoutImage = "";
+    option.textContent = imageId;
+    select.append(option);
+  }
+  select.value = imageId;
+  select.dispatchEvent(new Event("change", { bubbles: true }));
+  return true;
+}
 
 type Filter = LayoutImageCategory | "all";
 
@@ -139,6 +176,7 @@ function enhance(select: HTMLSelectElement): void {
     <div class="layout-image-picker-panel">
       <div class="layout-image-picker-tabs" role="tablist" aria-label="Image category"></div>
       <div class="layout-image-picker-list" role="listbox"></div>
+      ${browseForImage ? `<button type="button" class="layout-image-picker-browse" title="Add an image file to the library and use it here">Browse…</button>` : ""}
     </div>`;
   select.after(picker);
 
@@ -208,6 +246,17 @@ function enhance(select: HTMLSelectElement): void {
     const current = list.querySelector<HTMLElement>(".is-selected") ?? list.querySelector<HTMLElement>(".layout-image-picker-item");
     current?.focus({ preventScroll: true });
     panel.scrollIntoView({ block: "nearest" });
+  });
+
+  picker.querySelector(".layout-image-picker-browse")?.addEventListener("click", () => {
+    if (!browseForImage) return;
+    // A new image is filed under the category open here, else the one the row is for.
+    const purpose = select.querySelector<HTMLOptionElement>("option[data-purpose]")?.dataset.purpose;
+    const category = filter !== "all" ? filter : isLayoutImageCategory(purpose) ? purpose : "general";
+    const pickerId = `picker-${++browseCount}`;
+    pendingBrowses.set(pickerId, { selectId: select.id, select });
+    picker.open = false;
+    browseForImage(category, pickerId);
   });
 
   tabs.addEventListener("click", (event) => {
@@ -288,13 +337,4 @@ export function enhanceImageSelects(root: ParentNode): void {
   root.querySelectorAll<HTMLSelectElement>("select").forEach((select) => {
     if (!select.dataset[BOUND] && isImageSelect(select)) enhance(select);
   });
-}
-
-/**
- * Keep `root`'s image selects enhanced however its content is replaced: the sidebar is rendered
- * from many places, and some re-render only part of it.
- */
-export function watchImageSelects(root: HTMLElement): void {
-  enhanceImageSelects(root);
-  new MutationObserver(() => enhanceImageSelects(root)).observe(root, { childList: true, subtree: true });
 }

@@ -26,13 +26,6 @@ bool isYouTubeUrl(const juce::String& url)
            url.containsIgnoreCase("youtu.be");
 }
 
-bool isScalexUrl(const juce::String& url)
-{
-    return url.equalsIgnoreCase("https://scalex.soundshed.com") ||
-           url.startsWithIgnoreCase("https://scalex.soundshed.com/") ||
-           url.startsWithIgnoreCase("https://scalex.soundshed.com?");
-}
-
 // The Jam view embeds YouTube through a first-party wrapper page served from
 // the Soundshed API (see api /v1/embed/youtube). On WebKit backends the app
 // WebView has an opaque origin, so YouTube only initialises when its parent
@@ -251,8 +244,8 @@ bool SinglePageBrowser::pageAboutToLoad(const juce::String& newURL)
         return true;
     }
 
-    // The Jam view embeds trusted tool/player pages that should remain inside the WebView.
-    if (isYouTubeUrl(newURL) || isScalexUrl(newURL) || isSoundshedEmbedUrl(newURL))
+    // The Jam view embeds trusted player pages that should remain inside the WebView.
+    if (isYouTubeUrl(newURL) || isSoundshedEmbedUrl(newURL))
     {
         return true;
     }

@@ -1,6 +1,7 @@
 /**
- * A Custom Effect node's params come from its module's descriptor, cached in the node config
- * (Custom Effect ABI 2: param.<id>.<field>, in the order each id first appears).
+ * A Custom Effect node's params and resources come from its module's descriptor, cached in the
+ * node config (Custom Effect ABI 2: param.<id>.<field> and resource.<id>.<field>, in the order each
+ * id first appears).
  */
 import { describe, expect, it } from "vitest";
 import { EffectGuids } from "../ts/effectGuids.js";
@@ -15,6 +16,7 @@ EffectTypeRegistry.register(EffectGuids.kWasmHost, {
     { key: "mix", name: "Mix", default: 1, min: 0, max: 1 },
     { key: "inputGainDb", name: "Input Gain", default: 0, min: -24, max: 24 },
   ],
+  exposedResources: [{ resourceId: "module", displayName: "Module", nodeId: "", resourceType: "wasm", resourceIndex: 0 }],
 });
 
 function nodeWithDescriptor(entries: Array<[string, string]>) {
@@ -51,5 +53,34 @@ describe("Custom Effect node params", () => {
 
     expect(info?.parameters.map((param) => param.key)).toEqual(["mix", "inputGainDb"]);
     expect(info?.parameters[0].name).toBe("Mix");
+  });
+});
+
+describe("Custom Effect node resources", () => {
+  it("lists resources by id after the module, at places in declaration order", () => {
+    const info = getNodeEffectInfo(nodeWithDescriptor([
+      ["resource.table.title", "Wavetable"],
+      ["resource.ir.title", "Impulse"],
+      ["resource.ir.type", "ir"],
+      ["resource.table.allowBrowseFile", "false"],
+    ]));
+
+    expect(info?.exposedResources?.map((resource) => [resource.resourceId, resource.resourceIndex])).toEqual([
+      ["module", 0],
+      ["table", 1],
+      ["ir", 2],
+    ]);
+    expect(info?.exposedResources?.[1]).toMatchObject({ displayName: "Wavetable", resourceType: "blob", allowBrowseFile: false });
+    expect(info?.exposedResources?.[2]).toMatchObject({ displayName: "Impulse", resourceType: "ir" });
+  });
+
+  it("ignores numbered ABI 1 resource blocks and the module's own id", () => {
+    const info = getNodeEffectInfo(nodeWithDescriptor([
+      ["resource.0.id", "impulse"],
+      ["resource.0.slot", "1"],
+      ["resource.module.title", "Another Module"],
+    ]));
+
+    expect(info?.exposedResources?.map((resource) => resource.resourceId)).toEqual(["module"]);
   });
 });

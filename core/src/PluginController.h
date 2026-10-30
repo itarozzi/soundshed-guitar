@@ -478,6 +478,8 @@ class PluginController
     void HandleSaveLayoutImageRenditionRequest(const nlohmann::json& payload);
     /// Files a user image under a category for the designer's image lists (setLayoutImageCategory).
     void HandleSetLayoutImageCategoryRequest(const nlohmann::json& payload);
+    /// Records a user image's licence and credit (setLayoutImageCredit).
+    void HandleSetLayoutImageCreditRequest(const nlohmann::json& payload);
     void HandleRequestLayoutImagesRequest();
     void HandleCleanupResourceLibraryRequest(const nlohmann::json& payload);
     void HandleSaveCompositeDefinitionRequest(const nlohmann::json& payload);
@@ -540,6 +542,7 @@ class PluginController
     void HandleSelectSceneRequest(const nlohmann::json& payload);
     void HandleAddSceneRequest(const nlohmann::json& payload);
     void HandleRenameSceneRequest(const nlohmann::json& payload);
+    void HandleMoveSceneRequest(const nlohmann::json& payload);
     void HandleRemoveSceneRequest(const nlohmann::json& payload);
     void HandleNewPresetRequest(const nlohmann::json& payload);
     void HandleSetPresetFavoriteRequest(const nlohmann::json& payload);

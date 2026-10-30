@@ -30,6 +30,17 @@ void TunerEngine::Prepare(double sampleRate)
     mReadingLength = static_cast<std::size_t>(std::max(1L, std::lround(sampleRate * kReadingSeconds)));
     mDetectionsSeen = 0;
     ResetReading();
+
+    // The chroma window and its copies, sized here so the audio thread never allocates. The worker
+    // makes its analyzer when it first needs one, on its own thread.
+    const std::size_t window = ChromaAnalyzer::WindowFor(sampleRate);
+    mRing.assign(window, 0.0f);
+    mRingPos = 0;
+    {
+        std::lock_guard<std::mutex> lock(mAnalysisMutex);
+        mPendingSamples.assign(window, 0.0f);
+        mPendingReading.hasSamples = false;
+    }
 }
 
 void TunerEngine::StartWorker()
@@ -84,6 +95,12 @@ void TunerEngine::WorkerLoop()
 
             reading = mPendingReading;
             referenceFrequency = mAnalysisReferenceFrequency;
+
+            if (reading.hasSamples)
+            {
+                mWorkerSamples = mPendingSamples;
+            }
+
             queuedGeneration = mQueuedGeneration;
             mAnalysisPending = false;
             callback = mCallback;
@@ -97,6 +114,18 @@ void TunerEngine::WorkerLoop()
         Result result = FrequencyToNote(reading.frequency, referenceFrequency);
         result.debugRms = reading.rms;
         result.debugRawFreq = reading.rawFrequency;
+        result.levelDb = reading.rms > 1e-6 ? 20.0 * std::log10(reading.rms) : -120.0;
+
+        if (reading.hasSamples)
+        {
+            if (!mChromaAnalyzer || mChromaAnalyzer->Size() != mWorkerSamples.size())
+            {
+                mChromaAnalyzer = std::make_unique<ChromaAnalyzer>(mWorkerSamples.size());
+            }
+
+            result.chroma = mChromaAnalyzer->Analyze(mWorkerSamples.data(), mSampleRate, referenceFrequency);
+            result.hasChroma = true;
+        }
 
         if (queuedGeneration != mAnalysisGeneration.load(std::memory_order_acquire))
         {
@@ -109,10 +138,40 @@ void TunerEngine::WorkerLoop()
 
 void TunerEngine::SetEnabled(bool enabled)
 {
+    const bool wasActive = IsActive();
     mEnabled = enabled;
+
+    if (!wasActive || !IsActive())
+    {
+        Restart();
+    }
+}
+
+void TunerEngine::SetListening(bool listening, bool chroma)
+{
+    const bool wasActive = IsActive();
+    const bool chromaStarts = listening && chroma && !mChroma;
+    mListening = listening;
+    mChroma = listening && chroma;
+
+    if (chromaStarts)
+    {
+        std::fill(mRing.begin(), mRing.end(), 0.0f);
+        mRingPos = 0;
+    }
+
+    if (!wasActive || !IsActive())
+    {
+        Restart();
+    }
+}
+
+/// Starts reading afresh: readings already queued are dropped, as they belong to the old state.
+void TunerEngine::Restart()
+{
     const std::uint64_t generation = mAnalysisGeneration.fetch_add(1, std::memory_order_acq_rel) + 1;
 
-    if (enabled)
+    if (IsActive())
     {
         StartWorker();
         mTracker.Reset();
@@ -148,15 +207,24 @@ void TunerEngine::ResetReading()
 
 void TunerEngine::Process(const float* input, int numSamples)
 {
-    if (!mEnabled || !input)
+    if (!IsActive() || !input)
     {
         return;
     }
+
+    const bool chroma = mChroma && !mRing.empty();
 
     for (int i = 0; i < numSamples; ++i)
     {
         const float sample = input[i];
         mTracker.Push(sample);
+
+        if (chroma)
+        {
+            mRing[mRingPos] = sample;
+            mRingPos = mRingPos + 1 == mRing.size() ? 0 : mRingPos + 1;
+        }
+
         mReadingEnergy += static_cast<double>(sample) * static_cast<double>(sample);
 
         if (mTracker.DetectionCount() != mDetectionsSeen)
@@ -207,6 +275,16 @@ void TunerEngine::QueueReading()
 
         if (lock.owns_lock())
         {
+            // The chroma window in time order, oldest first. Sized in Prepare(): no allocation.
+            reading.hasSamples = mChroma && !mRing.empty() && mPendingSamples.size() == mRing.size();
+
+            if (reading.hasSamples)
+            {
+                const auto split = mRing.begin() + static_cast<std::ptrdiff_t>(mRingPos);
+                std::copy(split, mRing.end(), mPendingSamples.begin());
+                std::copy(mRing.begin(), split, mPendingSamples.begin() + (mRing.end() - split));
+            }
+
             mPendingReading = reading;
             mAnalysisReferenceFrequency = mReferenceFrequency;
             mQueuedGeneration = mAnalysisGeneration.load(std::memory_order_acquire);

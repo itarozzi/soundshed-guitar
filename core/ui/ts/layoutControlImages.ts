@@ -8,7 +8,7 @@
  * `resolve`, which applies the renderer's own checks; anything it refuses draws nothing.
  */
 
-import { filmstripBackground, filmstripFrame, filmstripFrameCount, knobFaceAngle, type LayoutKnobImage } from "./layoutKnobImages.js";
+import { filmstripBackground, filmstripFrame, filmstripFrameCount, knobFaceAngle, usableStrip, type LayoutImageStrip, type LayoutKnobImage } from "./layoutKnobImages.js";
 import { parseParamTaper, valueToTaperPosition } from "./paramTaper.js";
 import { escapeHtml } from "./utils.js";
 
@@ -83,13 +83,28 @@ export function knobDiameterStyle(diameter: number): string {
   return diameter === DEFAULT_KNOB_DIAMETER ? "" : ` zoom: ${Math.round((diameter / DEFAULT_KNOB_DIAMETER) * 10000) / 10000};`;
 }
 
-/** The on and off pictures of an image toggle, or empty when it has none it can draw. */
+/** Style that shows `frame` of `strip` drawn from `url`. */
+function stripFrameStyle(strip: LayoutImageStrip, url: string, frame: number): string {
+  const { size, position } = filmstripBackground(frame, strip.frames, strip.columns);
+  return `background-image: ${url}; background-size: ${size}; background-position: ${position};`;
+}
+
+/**
+ * The on and off pictures of an image toggle, or empty when it has none it can draw. A strip wins
+ * over two pictures: off is its first frame and on its last.
+ */
 export function imageToggleChildren(
-  toggleImage: { onImageId?: unknown; offImageId?: unknown } | undefined,
+  toggleImage: { onImageId?: unknown; offImageId?: unknown; strip?: unknown } | undefined,
   width: number,
   resolve: ImageCssResolver,
 ): string {
   if (!toggleImage || typeof toggleImage !== "object") return "";
+  const strip = usableStrip(toggleImage.strip);
+  const stripUrl = strip ? resolve(strip.imageId, width * (strip.columns ?? 1)) : null;
+  if (strip && stripUrl) {
+    return `<span class="custom-toggle-image custom-toggle-off" style="${escapeHtml(stripFrameStyle(strip, stripUrl, 0))}"></span>`
+      + `<span class="custom-toggle-image custom-toggle-on" style="${escapeHtml(stripFrameStyle(strip, stripUrl, strip.frames - 1))}"></span>`;
+  }
   const on = typeof toggleImage.onImageId === "string" ? resolve(toggleImage.onImageId, width) : null;
   const off = typeof toggleImage.offImageId === "string" ? resolve(toggleImage.offImageId, width) : null;
   if (!on || !off) return "";
@@ -131,8 +146,8 @@ interface ControlImageStyle {
   toggleWidth?: unknown;
   toggleHeight?: unknown;
   knobImage?: unknown;
-  toggleImage?: { onImageId?: unknown; offImageId?: unknown };
-  sliderImage?: { trackImageId?: unknown; thumbImageId?: unknown };
+  toggleImage?: { onImageId?: unknown; offImageId?: unknown; strip?: unknown; aspect?: unknown };
+  sliderImage?: { trackImageId?: unknown; thumbImageId?: unknown; strip?: unknown };
 }
 
 /** The knob's drawn diameter: its knobDiameter (16 to 512 px), else the original 38. */
@@ -201,10 +216,63 @@ export function styledKnobSizeStyle(style: ControlImageStyle | undefined): strin
   return knobDiameterStyle(knobDiameter(style));
 }
 
+/** An image toggle's drawn size: its own, else 36 wide and, from a strip, the frame's shape, else 20 high. */
+export function imageToggleSize(style: ControlImageStyle | undefined): { width: number; height: number } {
+  const width = layoutSize(style?.toggleWidth, 8, 512) ?? 36;
+  const strip = usableStrip(style?.toggleImage?.strip);
+  const aspect = strip ? strip.aspect : style?.toggleImage?.aspect;
+  const height = layoutSize(style?.toggleHeight, 8, 512)
+    ?? (typeof aspect === "number" && aspect > 0 ? Math.max(8, Math.min(512, Math.round(width * aspect))) : 20);
+  return { width, height };
+}
+
+/** True when `value` can draw a toggle: a usable strip, or both an off and an on picture. */
+export function usableToggleImage(value: unknown): boolean {
+  if (!value || typeof value !== "object") return false;
+  const toggleImage = value as { onImageId?: unknown; offImageId?: unknown; strip?: unknown };
+  return usableStrip(toggleImage.strip) !== null
+    || (typeof toggleImage.onImageId === "string" && toggleImage.onImageId !== ""
+      && typeof toggleImage.offImageId === "string" && toggleImage.offImageId !== "");
+}
+
+/**
+ * `style` with the layout's switch in it when the toggle takes the layout's: it has no images of
+ * its own. The switch's size applies where the toggle sets none. Otherwise `style` unchanged.
+ */
+export function withLayoutSwitchImage<T extends ControlImageStyle>(style: T | undefined, layoutSwitch: unknown): T | undefined {
+  if (!usableToggleImage(layoutSwitch) || usableToggleImage(style?.toggleImage)) return style;
+  const switchImage = layoutSwitch as { width?: unknown; height?: unknown };
+  return {
+    ...(style ?? {}),
+    toggleImage: layoutSwitch,
+    ...(style?.toggleWidth === undefined && switchImage.width !== undefined ? { toggleWidth: switchImage.width } : {}),
+    ...(style?.toggleHeight === undefined && switchImage.height !== undefined ? { toggleHeight: switchImage.height } : {}),
+  } as T;
+}
+
+/**
+ * `html` with each standard toggle in it drawn from `switchImage`. The default controls of a
+ * useDefaultControls layout are built by the params panel, which knows nothing of layouts, so the
+ * switch goes in here, as the knob image does. `html` unchanged when `switchImage` is not usable.
+ */
+export function applySwitchImageToToggles(html: string, switchImage: unknown, resolve: ImageCssResolver): string {
+  if (!usableToggleImage(switchImage) || !html.includes("toggle-switch")) return html;
+  const parts = imageToggle(withLayoutSwitchImage(undefined, switchImage), resolve);
+  if (!parts) return html;
+  const template = document.createElement("template");
+  template.innerHTML = html;
+  template.content.querySelectorAll<HTMLElement>("label.toggle-switch:not(.custom-image-toggle)").forEach((label) => {
+    label.classList.add("custom-image-toggle");
+    label.setAttribute("style", parts.style);
+    label.querySelector(":scope > .toggle-slider")?.remove();
+    label.insertAdjacentHTML("beforeend", parts.children);
+  });
+  return template.innerHTML;
+}
+
 /** An image toggle's class, size and pictures, or null to draw the original switch. */
 export function imageToggle(style: ControlImageStyle | undefined, resolve: ImageCssResolver): { style: string; children: string } | null {
-  const width = layoutSize(style?.toggleWidth, 8, 512) ?? 36;
-  const height = layoutSize(style?.toggleHeight, 8, 512) ?? 20;
+  const { width, height } = imageToggleSize(style);
   const children = imageToggleChildren(style?.toggleImage, width, resolve);
   return children ? { style: `width: ${width}px; height: ${height}px;`, children } : null;
 }
@@ -215,6 +283,64 @@ export function sliderAttributes(style: ControlImageStyle | undefined, resolve: 
   const images = imageSliderStyle(style?.sliderImage, length ?? 80, resolve);
   const css = `${length ? `width: ${length}px;` : ""}${images}`;
   return css ? `${images ? " data-image-slider" : ""} style="${escapeHtml(css.trim())}"` : "";
+}
+
+/** A filmstrip slider's size: its length along its travel, which runs up a tall frame and across a wide one. */
+export function stripSliderSize(style: ControlImageStyle | undefined, strip: LayoutImageStrip): { width: number; height: number; vertical: boolean } {
+  const length = layoutSize(style?.sliderLength, 24, 2048) ?? 80;
+  const aspect = typeof strip.aspect === "number" && strip.aspect > 0 ? strip.aspect : 0.25;
+  const vertical = aspect > 1;
+  return vertical
+    ? { width: Math.max(4, Math.round(length / aspect)), height: length, vertical }
+    : { width: length, height: Math.max(4, Math.round(length * aspect)), vertical };
+}
+
+/**
+ * A slider drawn from a strip: the frame for `position` (0..1), with the range input laid over it
+ * unseen, so the slider is dragged as before. `open` and `close` wrap the input, which takes
+ * `attributes`; null for a slider without a strip it can draw.
+ */
+export function stripSlider(
+  style: ControlImageStyle | undefined,
+  position: number,
+  resolve: ImageCssResolver,
+): { open: string; close: string; attributes: string } | null {
+  const strip = usableStrip(style?.sliderImage?.strip);
+  if (!strip) return null;
+  const { width, height, vertical } = stripSliderSize(style, strip);
+  const url = resolve(strip.imageId, width * (strip.columns ?? 1));
+  if (!url) return null;
+  bindStripSliders();
+  const columns = Math.max(1, Math.min(strip.frames, Number.isInteger(strip.columns) && strip.columns! > 0 ? strip.columns! : 1));
+  return {
+    open: `<span class="custom-slider-strip${vertical ? " is-vertical" : ""}" style="${escapeHtml(`width: ${width}px; height: ${height}px;`)}">`
+      + `<span class="custom-slider-strip-frame" style="${escapeHtml(stripFrameStyle(strip, url, filmstripFrame(position, strip.frames)))}"></span>`,
+    close: "</span>",
+    attributes: ` data-slider-strip data-frames="${strip.frames}" data-columns="${columns}"`,
+  };
+}
+
+let stripSlidersBound = false;
+
+/**
+ * Keep each filmstrip slider's frame on its value as it moves: one listener for the document, as
+ * the drag, the wheel and the keys all end in an input event on the range.
+ */
+function bindStripSliders(): void {
+  if (stripSlidersBound || typeof document === "undefined") return;
+  stripSlidersBound = true;
+  document.addEventListener("input", (event) => {
+    const input = event.target;
+    if (!(input instanceof HTMLInputElement) || !input.hasAttribute("data-slider-strip")) return;
+    const frame = input.previousElementSibling;
+    if (!(frame instanceof HTMLElement) || !frame.classList.contains("custom-slider-strip-frame")) return;
+    const min = parseFloat(input.min || "0");
+    const max = parseFloat(input.max || "1");
+    const position = max > min ? (parseFloat(input.value) - min) / (max - min) : 0;
+    const frames = filmstripFrameCount(parseInt(input.dataset.frames ?? "", 10));
+    if (!frames) return;
+    frame.style.backgroundPosition = filmstripBackground(filmstripFrame(position, frames), frames, parseInt(input.dataset.columns ?? "1", 10)).position;
+  });
 }
 
 /** Style that draws a rectangle overlay's image, or empty for one without an image. */
