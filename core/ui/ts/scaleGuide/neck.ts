@@ -127,7 +127,7 @@ export function renderNeckSvg(view: ScaleGuideView, options: NeckOptions): strin
     const classes = ["sg-dot", dot.root ? "sg-dot-root" : "", dot.inPosition ? "" : "sg-dot-dim"].filter(Boolean).join(" ");
     const size = label.length > 2 ? 10 : 12.5;
     parts.push(
-      `<g class="${escapeHtml(classes)}"><circle cx="${cx}" cy="${y(dot.string)}" r="${DOT_RADIUS}"/>` +
+      `<g class="${escapeHtml(classes)}" data-midi="${(view.strings[dot.string]?.openMidi ?? 0) + dot.fret}"><circle cx="${cx}" cy="${y(dot.string)}" r="${DOT_RADIUS}"/>` +
         (label ? `<text x="${cx}" y="${y(dot.string) + size * 0.36}" text-anchor="middle" font-size="${size}">${escapeHtml(label)}</text>` : "") +
         "</g>",
     );
@@ -144,5 +144,31 @@ export function renderNeckSvg(view: ScaleGuideView, options: NeckOptions): strin
     });
   }
 
+  // LISTEN draws here: rings for a played note the scale or chord does not have (noteMarkersSvg).
+  parts.push('<g class="sg-live-layer"></g>');
+
   return `<svg class="sg-neck-svg" viewBox="0 0 ${WIDTH} ${height}" role="img" aria-label="${escapeHtml(view.title)} on the neck">${parts.join("")}</svg>`;
+}
+
+/**
+ * Rings where `midi` sounds on this neck, for LISTEN to show a note that has no dot (one outside
+ * the scale or chord). `className` sets how it is drawn: the note now, or one fading behind it.
+ */
+export function noteMarkersSvg(view: ScaleGuideView, options: NeckOptions, midi: number, className: string): string {
+  const strings = view.strings.length;
+  const x = (value: number): number => (options.leftHanded ? WIDTH - value : value);
+  const y = (string: number): number => TOP + (strings - 1 - string) * STRING_GAP;
+  const parts: string[] = [];
+
+  view.strings.forEach((string, index) => {
+    const fret = midi - string.openMidi;
+
+    if (fret < view.capo || fret > view.frets) {
+      return;
+    }
+
+    parts.push(`<circle class="${escapeHtml(className)}" cx="${fmt(x(noteX(fret, view.frets)))}" cy="${y(index)}" r="${DOT_RADIUS + 3}"/>`);
+  });
+
+  return parts.join("");
 }

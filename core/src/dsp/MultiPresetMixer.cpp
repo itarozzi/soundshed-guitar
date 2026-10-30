@@ -1222,13 +1222,14 @@ void MultiPresetMixer::ProcessStereoBlock(float** inputs, float** outputs, int n
     UpdateIdenticalInputFold(processInL, processInR, numSamples);
 
     // Process tuner FIRST (before any processing, uses raw input for accurate pitch detection)
-    if (mTuner->IsEnabled())
+    if (mTuner->IsActive())
     {
         // The folded input in Mono; input 1 otherwise.
         mTuner->Process(processInL ? processInL : processInR, numSamples);
 
-        // If not in live tuner mode, mute the output. A loop keeps time, silently.
-        if (!mTuner->IsLiveMode())
+        // If the tuner (not only LISTEN) is on and not in live mode, mute the output. A loop
+        // keeps time, silently.
+        if (mTuner->IsEnabled() && !mTuner->IsLiveMode())
         {
             if (outputs[0])
             {

@@ -6,8 +6,11 @@ Scales and single-chord view, `core/ui/ts/scaleGuide/`, answered by `scaleGuide`
 `controller/ScaleGuideMessages.cpp`) replaced the web iframe on 2026-10-30; Nano Q still shows
 scalex.soundshed.com until phase 5. Phase 3 (progressions: the Play picker, steps with
 arrow keys, the voice-led chord-box strip, and the player's own progressions in the
-`scaleGuide.progressions` app setting, built-ins edited as copies) followed the same day. Phases
-4-6 not started. `ScaleGuideTests --dump <tuning> <key 0-11> <chord>` prints the shapes found, for tuning
+`scaleGuide.progressions` app setting, built-ins edited as copies) followed the same day, then
+phase 4 (LISTEN: `tuner {action: "listen"}` reads the input without turning the tuner on, so a
+muting tuner never silences the player; Scales mode follows the played note, Chords mode matches
+a chroma vector from `dsp/ChromaAnalyzer.h` and a clean strum steps a progression). Phases 5-6 not
+started. `ScaleGuideTests --dump <tuning> <key 0-11> <chord>` prints the shapes found, for tuning
 the search's scoring.
 
 ## Why
@@ -190,6 +193,18 @@ those are new work here.
 - Spelling a lone chord follows the fewest-accidentals rule strictly, so B♭m7♭5 reads A♯m7♭5
   (F♭ counts as an accidental). B♭m7, D♭ and the like come out as charts write them.
 - Search time: about 1.3 ms a chord in a Debug build, worst on 8 strings.
+
+## LISTEN notes (phase 4)
+
+- Readings come about every 43 ms. A note shows once it reads the same twice, goes after four
+  silent readings, and the last two stay as a fading trail (`NoteFollower` in listen.ts).
+- Chord match, per strictness (Easy / Normal / Strict): the chord's tones hold 55 / 65 / 75 % of
+  the chroma, each tone bar a plain 5th reads 10 / 15 / 25 %, and no rival chord on the root that
+  is not a superset fits better by more than 3 %. Five clean readings in a row (~200 ms) count;
+  the next count needs a 4 dB jump in level, so a repeated chord steps once per strum.
+- Tested on synthetic chords (TunerEngineTests, scaleGuideListen.test.ts) and live on the demo DI
+  riffs, which are single-note riffs: a clean strum of a real chord on a real guitar is not yet
+  checked, so the thresholds may want tuning against recordings (see the PitchTracker notes).
 
 ## Phases
 

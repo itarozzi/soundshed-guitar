@@ -17,6 +17,7 @@
 // each set under the DSP lock and acknowledged to the UI.
 
 #include <atomic>
+#include <array>
 #include <functional>
 #include <mutex>
 #include <string>
@@ -39,6 +40,10 @@ class TunerService
         double centOffset = 0.0;
         double confidence = 0.0;
         bool detected = false;
+        double levelDb = -120.0;
+        /// While the Scale Guide listens for chords: energy per pitch class, C first.
+        bool hasChroma = false;
+        std::array<float, 12> chroma{};
     };
 
     using SendMessageFn = std::function<void(const std::string&)>;
@@ -65,7 +70,7 @@ class TunerService
     }
 
   private:
-    /// "tuner": start, stop, setLiveMode, setReference, or a bare {enabled}.
+    /// "tuner": start, stop, setLiveMode, setReference, listen, or a bare {enabled}.
     void HandleTunerRequest(const nlohmann::json& payload);
 
     SendMessageFn mSendMessage;

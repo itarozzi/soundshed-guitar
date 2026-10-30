@@ -841,6 +841,9 @@ void PluginController::ApplyPreset(const Preset& preset)
                 result.centOffset,
                 result.confidence,
                 result.detected,
+                result.levelDb,
+                result.hasChroma,
+                result.chroma,
             });
         });
 

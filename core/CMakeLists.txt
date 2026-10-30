@@ -642,6 +642,8 @@ set(GUITARFX_CORE_SOURCES
     src/dsp/SimdFFT.h
     src/dsp/SpectrumTap.h
     src/dsp/SpectrumTap.cpp
+    src/dsp/ChromaAnalyzer.h
+    src/dsp/ChromaAnalyzer.cpp
     src/dsp/BlockSincResampler.h
     src/dsp/IRTypes.h
     src/dsp/IRWavLoader.h

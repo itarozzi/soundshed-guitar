@@ -98,4 +98,8 @@ export interface ScaleGuideSettings {
   position: number;
   capo: number;
   leftHanded: boolean;
+  /** LISTEN: light the note played (Scales) or step on a clean chord (Chords). */
+  listen: boolean;
+  /** How clean a chord must ring to count. */
+  match: "easy" | "normal" | "strict";
 }

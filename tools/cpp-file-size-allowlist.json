@@ -64,6 +64,7 @@
     "core/tests/BuiltinAmpEffectTests.cpp": 1250,
     "core/tests/PickupMatchEffectTests.cpp": 1000,
     "core/src/uiclient/ClientState.h": 1000,
-    "core/src/dsp/MultiPresetMixer.h": 1000
+    "core/src/dsp/MultiPresetMixer.h": 1000,
+    "core/src/PluginController.cpp": 1000
   }
 }

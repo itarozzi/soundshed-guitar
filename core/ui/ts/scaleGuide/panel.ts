@@ -9,6 +9,7 @@ import { postMessage } from "../bridge.js";
 import type { IncomingPayload } from "../messages/types.js";
 import { escapeHtml } from "../utils.js";
 import { renderChordBoxSvg } from "./chordBox.js";
+import { onListenReading, renderListen, resetListenForTests, resetRound, syncListening, type ListenHost } from "./listenController.js";
 import { renderNeckSvg } from "./neck.js";
 import { MAX_PROGRESSION_CHORDS, loadProgressions, newProgressionId, romanToken, saveProgressions, type UserProgression } from "./progressions.js";
 import { NEW_PROGRESSION, degreeOptions, editorChordsMarkup, numeralTokens, progressionOptions, qualityOptions, stepsMarkup, stripMarkup } from "./progressionView.js";
@@ -38,6 +39,17 @@ let pendingPrevious: number[] | undefined;
 /** A progression being written or changed: `id` null for a new one (or a built-in's copy). */
 let draft: { id: string | null; name: string; chords: string[] } | null = null;
 let userProgressions: UserProgression[] | null = null;
+const listenHost: ListenHost = {
+  settings: () => current(),
+  view: () => view,
+  step: () => step,
+  goStep: (index) => goStep(index),
+};
+
+/** A `tunerUpdate`: true when it was for the guide's LISTEN (listenController.ts). */
+export function onScaleGuideReading(payload: IncomingPayload): boolean {
+  return onListenReading(listenHost, payload);
+}
 
 function element<T extends HTMLElement>(id: string): T | null {
   return document.getElementById(id) as T | null;
@@ -110,6 +122,7 @@ export function renderScaleGuidePanel(): void {
 
   renderControls();
   requestView();
+  syncListening(listenHost);
 }
 
 function requestView(): void {
@@ -131,6 +144,7 @@ function change(patch: Partial<ScaleGuideSettings>): void {
 
   if (next.mode !== before.mode || next.progression !== before.progression) {
     step = 0;
+    resetRound();
     draft = next.mode === before.mode ? draft : null;
   }
 
@@ -147,8 +161,12 @@ function change(patch: Partial<ScaleGuideSettings>): void {
     });
   }
 
-  // Labels and handedness only change how the same model is drawn.
-  const redrawOnly = Object.keys(patch).every((key) => key === "labels" || key === "leftHanded");
+  if ("listen" in patch || "mode" in patch) {
+    syncListening(listenHost);
+  }
+
+  // Labels, handedness and LISTEN's settings only change how the same model is drawn.
+  const redrawOnly = Object.keys(patch).every((key) => ["labels", "leftHanded", "listen", "match"].includes(key));
 
   if (redrawOnly && view) {
     renderView();
@@ -187,7 +205,7 @@ export function onScaleGuideView(payload: IncomingPayload): void {
 function bindEvents(root: HTMLElement): void {
   root.addEventListener("click", (event) => {
     const target = (event.target as HTMLElement | null)?.closest<HTMLElement>(
-      "[data-sg-mode],[data-sg-labels],[data-sg-position],[data-sg-chord-root],[data-sg-goto],[data-sg-step],[data-sg-remove]",
+      "[data-sg-mode],[data-sg-labels],[data-sg-position],[data-sg-chord-root],[data-sg-goto],[data-sg-step],[data-sg-remove],[data-sg-match],#sg-listen",
     );
 
     if (!target || !root.contains(target)) {
@@ -196,7 +214,11 @@ function bindEvents(root: HTMLElement): void {
 
     const data = target.dataset;
 
-    if (data.sgMode) {
+    if (target.id === "sg-listen") {
+      change({ listen: !current().listen });
+    } else if (data.sgMatch) {
+      change({ match: data.sgMatch as ScaleGuideSettings["match"] });
+    } else if (data.sgMode) {
       change({ mode: data.sgMode as ScaleGuideMode });
     } else if (data.sgLabels) {
       change({ labels: data.sgLabels as ScaleGuideLabels });
@@ -209,6 +231,10 @@ function bindEvents(root: HTMLElement): void {
       const index = Number(data.sgGoto);
       goStep(index, target.classList.contains("sg-strip-box") ? (view?.progression?.chords[index]?.shape?.frets ?? undefined) : undefined);
     } else if (data.sgStep) {
+      if (data.sgStep === "first") {
+        resetRound();
+      }
+
       goStep(data.sgStep === "first" ? 0 : step + (data.sgStep === "next" ? 1 : -1));
     } else if (data.sgRemove !== undefined && draft) {
       draft.chords.splice(Number(data.sgRemove), 1);
@@ -434,6 +460,17 @@ function renderControls(): void {
     button.classList.toggle("active", button.dataset.sgLabels === state.labels);
     button.setAttribute("aria-pressed", String(button.dataset.sgLabels === state.labels));
   });
+  document.querySelectorAll<HTMLElement>("#scale-guide [data-sg-match]").forEach((button) => {
+    button.classList.toggle("active", button.dataset.sgMatch === state.match);
+    button.setAttribute("aria-pressed", String(button.dataset.sgMatch === state.match));
+  });
+
+  const listen = element<HTMLElement>("sg-listen");
+
+  if (listen) {
+    listen.classList.toggle("active", state.listen);
+    listen.setAttribute("aria-pressed", String(state.listen));
+  }
 
   const keyLabel = element<HTMLElement>("sg-key-label");
 
@@ -610,6 +647,8 @@ function renderView(): void {
   if (draft) {
     renderEditor(state);
   }
+
+  renderListen(listenHost);
 }
 
 /** For tests: forget everything, as on a fresh page. */
@@ -625,4 +664,5 @@ export function resetScaleGuideForTests(): void {
   pendingPrevious = undefined;
   draft = null;
   userProgressions = null;
+  resetListenForTests();
 }

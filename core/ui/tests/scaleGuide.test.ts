@@ -13,7 +13,7 @@ vi.mock("../ts/appSettingsStore.js", () => ({
 
 import { boxBaseFret, renderChordBoxSvg } from "../ts/scaleGuide/chordBox";
 import { dotLabel, noteX, renderNeckSvg } from "../ts/scaleGuide/neck";
-import { onScaleGuideCatalog, onScaleGuideView, renderScaleGuidePanel, resetScaleGuideForTests } from "../ts/scaleGuide/panel";
+import { onScaleGuideCatalog, onScaleGuideReading, onScaleGuideView, renderScaleGuidePanel, resetScaleGuideForTests } from "../ts/scaleGuide/panel";
 import { normalizeProgressions, PROGRESSIONS_SETTING, romanToken } from "../ts/scaleGuide/progressions";
 import { DEFAULT_SETTINGS, normalizeSettings, SCALE_GUIDE_SETTING } from "../ts/scaleGuide/state";
 
@@ -367,6 +367,57 @@ describe("scale guide panel", () => {
     expect((document.getElementById("sg-editor-name") as HTMLInputElement).value).toBe("Classic rock (mine)");
     expect(lastViewRequest().request).toMatchObject({ progressionChords: ["I", "bVII", "IV", "I"] });
     expect(document.getElementById("sg-editor-delete")?.hidden).toBe(true);
+  });
+
+  it("listens while LISTEN is on and the guide is showing, with chroma in Chords mode", () => {
+    renderScaleGuidePanel();
+    onScaleGuideView({ type: "scaleGuideView", requestId: lastViewRequest().requestId, view: ukuleleView({ mode: "scale", shapes: undefined }) });
+    const listens = (): Array<Record<string, unknown>> =>
+      postMessage.mock.calls.map(([m]) => m as Record<string, unknown>).filter((m) => m.type === "tuner" && m.action === "listen");
+    expect(listens()).toHaveLength(0);
+
+    (document.getElementById("sg-listen") as HTMLElement).click();
+    expect(listens().at(-1)).toMatchObject({ enabled: true, chroma: false });
+    expect(settingsStore.get(SCALE_GUIDE_SETTING)).toMatchObject({ listen: true });
+
+    // The played note (G4, the ukulele's open high G) lights where it sits once it reads twice.
+    const reading = { type: "tunerUpdate", detected: true, noteName: "G", octave: 4, levelDb: -20 };
+    expect(onScaleGuideReading(reading)).toBe(true);
+    onScaleGuideReading(reading);
+    expect(document.querySelectorAll("#sg-neck .sg-dot.sg-hit").length).toBeGreaterThan(0);
+    expect(document.getElementById("sg-live")?.textContent).toContain("in the scale");
+
+    // A note with no dot (A4, not in C E G) gets a ring instead.
+    const offScale = { type: "tunerUpdate", detected: true, noteName: "A", octave: 4, levelDb: -20 };
+    onScaleGuideReading(offScale);
+    onScaleGuideReading(offScale);
+    expect(document.querySelectorAll("#sg-neck .sg-live-layer .sg-miss").length).toBeGreaterThan(0);
+    expect(document.getElementById("sg-live")?.textContent).toContain("not in the");
+
+    (document.querySelector('[data-sg-mode="chord"]') as HTMLElement).click();
+    expect(listens().at(-1)).toMatchObject({ enabled: true, chroma: true });
+
+    // Hidden (another Jam section): the next reading stops the listening.
+    document.getElementById("jam-section-panel-scales")?.setAttribute("hidden", "");
+    onScaleGuideReading(reading);
+    expect(listens().at(-1)).toMatchObject({ enabled: false });
+  });
+
+  it("steps a progression on when its chord rings clean", () => {
+    settingsStore.set(SCALE_GUIDE_SETTING, { ...DEFAULT_SETTINGS, mode: "chord", progression: "b:pop", listen: true, position: 1 });
+    renderScaleGuidePanel();
+    onScaleGuideView({ type: "scaleGuideView", requestId: lastViewRequest().requestId, view: progressionView(0) });
+    expect(document.getElementById("sg-match")?.hidden).toBe(false);
+    const clean = { type: "tunerUpdate", detected: false, levelDb: -18, chroma: [0.4, 0, 0, 0, 0.3, 0, 0, 0.28, 0, 0, 0, 0.02] };
+    const before = lastViewRequest().requestId;
+
+    for (let i = 0; i < 5; i += 1) {
+      onScaleGuideReading({ ...clean, levelDb: i === 0 ? -18 : -19 });
+    }
+
+    expect(lastViewRequest().requestId).toBeGreaterThan(before);
+    expect(lastViewRequest().request).toMatchObject({ step: 1, previousFrets: OPEN_C.frets });
+    expect(document.getElementById("sg-live")?.textContent).toContain("Clean");
   });
 
   it("fills the pickers from the catalogue", () => {

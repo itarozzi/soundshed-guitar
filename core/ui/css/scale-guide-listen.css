@@ -1,0 +1,188 @@
+/* ===== Scale Guide: LISTEN =====
+   The Listen toggle, the readout beside the tabs, the played note and its
+   trail on the neck, and the chord match meter (ts/scaleGuide/listenView.ts).
+   Linked after scale-guide.css, whose tokens it uses. */
+
+/* ── LISTEN: the toggle, the readout, the played note on the neck, the chord meter ── */
+.sg-listen {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 16px;
+  border: 1px solid var(--sg-line-strong);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.sg-listen::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-muted);
+}
+
+.sg-listen.active {
+  border-color: var(--color-success);
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--color-success) 14%, transparent);
+}
+
+.sg-listen.active::before {
+  background: var(--color-success);
+  box-shadow: 0 0 8px var(--color-success-glow);
+}
+
+.sg-live {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-left: auto;
+  padding-bottom: 12px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.sg-live[hidden] {
+  display: none;
+}
+
+.sg-live + .sg-title {
+  margin-left: 16px;
+}
+
+.sg-live b {
+  font-size: 20px;
+  color: var(--text-primary);
+}
+
+.sg-live-in span {
+  color: var(--color-success);
+}
+
+.sg-live-out span {
+  color: var(--sg-mute);
+}
+
+.sg-live-clean b {
+  color: var(--color-success);
+}
+
+.sg-dot.sg-hit circle {
+  stroke: var(--color-success);
+  stroke-width: 4;
+}
+
+.sg-dot.sg-hit,
+.sg-dot.sg-hit-1,
+.sg-dot.sg-hit-2 {
+  opacity: 1;
+}
+
+.sg-dot.sg-hit-1 circle {
+  stroke: color-mix(in srgb, var(--color-success) 55%, transparent);
+  stroke-width: 3;
+}
+
+.sg-dot.sg-hit-2 circle {
+  stroke: color-mix(in srgb, var(--color-success) 30%, transparent);
+  stroke-width: 2.5;
+}
+
+.sg-miss {
+  fill: none;
+  stroke: var(--sg-mute);
+  stroke-width: 3;
+}
+
+.sg-miss.sg-hit-1 {
+  opacity: 0.5;
+}
+
+.sg-miss.sg-hit-2 {
+  opacity: 0.25;
+}
+
+.sg-match {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-top: 6px;
+}
+
+.sg-match[hidden] {
+  display: none;
+}
+
+.sg-meter {
+  position: relative;
+  width: 200px;
+  height: 8px;
+  border-radius: 4px;
+  background: var(--sg-surface-raised);
+  overflow: hidden;
+}
+
+.sg-meter-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 0;
+  border-radius: 4px;
+  background: var(--text-muted);
+  transition: width 120ms linear;
+}
+
+.sg-meter-fill.ok {
+  background: var(--color-success);
+}
+
+.sg-meter-threshold {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  width: 2px;
+  background: var(--text-primary);
+  opacity: 0.6;
+}
+
+.sg-match-text {
+  min-width: 96px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.sg-segmented-small .sg-segment {
+  padding: 4px 10px;
+  font-size: 12px;
+}
+
+.sg-pill.heard {
+  border-color: var(--color-success);
+}
+
+.sg-pill.missing {
+  border-color: var(--sg-mute);
+}
+
+.sg-round {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.sg-round[hidden] {
+  display: none;
+}

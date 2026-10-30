@@ -56,6 +56,11 @@ interface TunerSample {
   confidence: number;
 }
 
+/** Whether the tuner's own dialog is showing (readings may also be for the Scale Guide's LISTEN). */
+export function isTunerOpen(): boolean {
+  return tunerState.isOpen;
+}
+
 const tunerState: TunerState = {
   isOpen: false,
   isLive: true,
