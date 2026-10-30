@@ -884,6 +884,75 @@ bool TestPickingTheSameImageAgainReusesIt()
     return true;
 }
 
+/// Each image is listed with its category: a browsed one under what it was picked for, an imported
+/// one under its archive's, one refiled under the new one, and a factory image under the folder it
+/// ships in, which refiling cannot change.
+bool TestImageCategoriesAreFiledListedAndShipped()
+{
+    const fs::path sandbox = FreshSandbox("image-categories");
+    const ScopedPlatformRoot root(sandbox);
+
+    TestHost host(sandbox);
+    guitarfx::PluginController controller(host);
+
+    WriteBytes(sandbox / "ui" / "assets" / "layout-images" / "switch" / "factory-bat.png", PngOfSize(32, 48));
+    const auto listed = [&](const std::string& imageId) { return ListedImage(host, controller, imageId); };
+    const auto category = [&](const std::string& imageId) { return listed(imageId).value("type", ""); };
+
+    const fs::path wood = sandbox / "picked" / "wood.png";
+    WriteBytes(wood, PngOfSize(400, 280, 60));
+    host.SetBrowsePath(wood);
+    controller.HandleUIMessage(
+        nlohmann::json{{"type", "browseLayoutImage"}, {"purpose", "background"}, {"layoutId", "A"}}.dump());
+    const auto selected = host.WaitForMessage("layoutImageSelected");
+    const std::string woodId = selected ? selected->value("imageId", "") : std::string();
+    // The library lists a layout's images once the layout is saved.
+    SaveLayout(controller, "A", "fx_a", {woodId});
+
+    if (woodId.empty() || selected->value("category", "") != "background" || category(woodId) != "background")
+    {
+        std::cerr << "A browsed background was not filed as one: " << (selected ? selected->dump() : "none") << "\n";
+        return false;
+    }
+
+    controller.HandleUIMessage(
+        nlohmann::json{{"type", "setLayoutImageCategory"}, {"imageId", woodId}, {"category", "switch"}}.dump());
+    controller.HandleUIMessage(
+        nlohmann::json{{"type", "setLayoutImageCategory"}, {"imageId", woodId}, {"category", "drawer"}}.dump());
+
+    if (category(woodId) != "switch")
+    {
+        std::cerr << "Refiling did not stick, or an unknown category was taken: " << category(woodId) << "\n";
+        return false;
+    }
+
+    controller.HandleUIMessage(nlohmann::json{{"type", "saveLayoutImage"},
+                                              {"imageId", "imported_1"},
+                                              {"fileName", "imported_1.png"},
+                                              {"data", guitarfx::util::EncodeBase64(PngBytes())},
+                                              {"layoutId", "A"},
+                                              {"category", "knob"}}
+                                   .dump());
+
+    if (category("imported_1") != "knob")
+    {
+        std::cerr << "An imported image did not take its archive's category\n";
+        return false;
+    }
+
+    controller.HandleUIMessage(
+        nlohmann::json{{"type", "setLayoutImageCategory"}, {"imageId", "factory-bat"}, {"category", "knob"}}.dump());
+    const auto factory = listed("factory-bat");
+
+    if (factory.value("type", "") != "switch" || !factory.value("factory", false))
+    {
+        std::cerr << "The factory image was not listed under its folder, or was refiled: " << factory.dump() << "\n";
+        return false;
+    }
+
+    return true;
+}
+
 /// Images an image knob, toggle, slider or overlay draws on, and the layout's own knob image, are
 /// the layout's like any other: a save copies each into its own folder, so they survive the layout
 /// they came from.
@@ -1039,6 +1108,7 @@ int main()
         {"Large imported images are stored", TestLargeImportedImagesAreStored},
         {"Renditions are stored, listed and served", TestRenditionsAreStoredListedAndServed},
         {"Picking the same image again reuses it", TestPickingTheSameImageAgainReusesIt},
+        {"Image categories are filed, listed and shipped", TestImageCategoriesAreFiledListedAndShipped},
         {"Image control references are copied on save", TestImageControlReferencesAreCopiedOnSave},
         {"A failed save is reported", TestFailedSaveIsReported},
         {"Delete removes the layout from every key", TestDeleteRemovesTheLayoutFromEveryKey},

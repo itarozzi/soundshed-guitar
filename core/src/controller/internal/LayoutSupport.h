@@ -12,8 +12,10 @@
 #include <cstdint>
 #include <filesystem>
 #include <functional>
+#include <map>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -111,17 +113,36 @@ struct LayoutImageSize
 /// write something else under an image's name.
 [[nodiscard]] bool LooksLikeLayoutImage(const std::vector<std::uint8_t>& bytes, const std::filesystem::path& extension);
 
-/// One image a layout can draw on: its id and the file that holds it.
+/// One image a layout can draw on: its id and the file that holds it. A factory image comes with
+/// the app and cannot be refiled; one from a factory category folder carries that category.
 struct LayoutImageSource
 {
     std::string imageId;
     std::filesystem::path path;
+    std::string category;
+    bool factory = false;
 };
+
+/// True for a category the designer files images under: "knob", "background", "switch" and
+/// "general" (shown as Misc).
+[[nodiscard]] bool IsLayoutImageCategory(std::string_view category);
+
+/// Factory images that belong to no layout, one folder per category beside the factory layouts:
+/// ui/assets/layout-images/<category>/<imageId>.<ext>.
+[[nodiscard]] std::filesystem::path ResolveFactoryLayoutImagesDir(const std::filesystem::path& factoryLayoutsDir);
+
+/// The category the designer filed each user image under, by id. Ids are shared by every layout,
+/// so the categories live in one file beside the layout index.
+[[nodiscard]] std::map<std::string, std::string> LoadLayoutImageCategories(const FileSystem& fileSystem);
+
+/// Files `imageId` under `category`, or forgets its category when `category` is empty. False when
+/// the category is not one IsLayoutImageCategory takes, or the file could not be written.
+bool SaveLayoutImageCategory(const FileSystem& fileSystem, const std::string& imageId, const std::string& category);
 
 /// Every image a layout can draw on, each id once, in the order the library first lists it.
 /// Ids are shared by every layout, and when two folders hold the same id the later one wins, in
 /// this order: the legacy shared folder, then each indexed layout's folder in index order, then
-/// the factory layouts. That is the file the UI has always shown for an id, so everything that
+/// the factory layouts, then the factory category folders. That is the file the UI has always shown for an id, so everything that
 /// reads an image by id resolves it here. With `includeUnindexed`, layout folders the index does
 /// not list (a layout never saved, or one a delete left behind) come first, so they only supply an
 /// id found nowhere else. `excludeImagesDir` is left out entirely.

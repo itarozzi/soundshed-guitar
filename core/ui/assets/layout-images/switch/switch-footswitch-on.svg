@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="160" height="200" viewBox="0 0 160 200">
+<defs>
+  <radialGradient id="cap" cx="40%" cy="35%" r="70%"><stop offset="0" stop-color="#ffffff"/><stop offset="0.5" stop-color="#c3c7cd"/><stop offset="1" stop-color="#6e737a"/></radialGradient>
+  <radialGradient id="led" cx="40%" cy="35%" r="70%"><stop offset="0" stop-color="#ffd0c8"/><stop offset="1" stop-color="#ff2a12"/></radialGradient>
+  <filter id="glow" x="-100%" y="-100%" width="300%" height="300%"><feGaussianBlur stdDeviation="5"/></filter>
+</defs>
+<circle cx="80" cy="28" r="14" fill="#ff3a1e" opacity="0.6" filter="url(#glow)"/>
+<circle cx="80" cy="28" r="10" fill="url(#led)" stroke="#1c1c1c" stroke-width="2"/>
+<circle cx="80" cy="124" r="54" fill="#2b2d31" stroke="#16171a" stroke-width="2"/>
+<circle cx="80" cy="127" r="40" fill="url(#cap)" stroke="#5e6269" stroke-width="2"/>
+<path d="M80 97L80 89M86.68 97.75L88.46 89.95M93.02 99.97L96.49 92.76M98.7 103.55L103.69 97.29M103.45 108.3L109.71 103.31M107.03 113.98L114.24 110.51M109.25 120.32L117.05 118.54M110 127L118 127M109.25 133.68L117.05 135.46M107.03 140.02L114.24 143.49M103.45 145.7L109.71 150.69M98.7 150.45L103.69 156.71M93.02 154.03L96.49 161.24M86.68 156.25L88.46 164.05M80 157L80 165M73.32 156.25L71.54 164.05M66.98 154.03L63.51 161.24M61.3 150.45L56.31 156.71M56.55 145.7L50.29 150.69M52.97 140.02L45.76 143.49M50.75 133.68L42.95 135.46M50 127L42 127M50.75 120.32L42.95 118.54M52.97 113.98L45.76 110.51M56.55 108.3L50.29 103.31M61.3 103.55L56.31 97.29M66.98 99.97L63.51 92.76M73.32 97.75L71.54 89.95" stroke="#4d5157" stroke-opacity="0.5" stroke-width="2"/>
+</svg>

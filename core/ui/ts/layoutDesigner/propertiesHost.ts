@@ -11,6 +11,7 @@
  * step.
  */
 
+import type { LayoutImageCategory } from "../layoutImageCategories.js";
 import type { EffectLayout, LayoutControl } from "../layoutTypes.js";
 import type { ParameterDef } from "../presetV2.js";
 import type { LayoutResourceCandidate, SelectedElement } from "./types.js";
@@ -35,7 +36,7 @@ export interface LayoutPropertiesHost {
   selectElement(element: SelectedElement): void;
 
   /** The <option> list of images already in this layout's library. */
-  renderImageOptionsHtml(purpose: "background" | "knob", selectedImageId?: string): string;
+  renderImageOptionsHtml(purpose: LayoutImageCategory, selectedImageId?: string): string;
   browseBackgroundImage(layerIndex?: number): void;
   browseKnobImage(control: LayoutControl): void;
   /** Whether this control picks a resource rather than driving a parameter. */

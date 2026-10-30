@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="560" viewBox="0 0 800 560">
+<defs>
+  <linearGradient id="paint" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#d23a2c"/><stop offset="1" stop-color="#8f1d15"/></linearGradient>
+  <filter id="powder"><feTurbulence type="fractalNoise" baseFrequency="1.2" numOctaves="2" seed="3"/><feColorMatrix values="0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 0.08 0"/></filter>
+  <radialGradient id="screw" cx="40%" cy="35%" r="70%"><stop offset="0" stop-color="#f0f0f0"/><stop offset="1" stop-color="#7a7a7a"/></radialGradient>
+</defs>
+<rect width="800" height="560" rx="36" fill="url(#paint)"/>
+<rect width="800" height="560" rx="36" filter="url(#powder)"/>
+<rect x="3" y="3" width="794" height="554" rx="34" fill="none" stroke="#ffffff" stroke-opacity="0.18" stroke-width="4"/>
+<circle cx="40" cy="40" r="11" fill="url(#screw)"/><path d="M34 40h12M40 34v12" stroke="#555" stroke-width="2"/><circle cx="760" cy="40" r="11" fill="url(#screw)"/><path d="M754 40h12M760 34v12" stroke="#555" stroke-width="2"/><circle cx="40" cy="520" r="11" fill="url(#screw)"/><path d="M34 520h12M40 514v12" stroke="#555" stroke-width="2"/><circle cx="760" cy="520" r="11" fill="url(#screw)"/><path d="M754 520h12M760 514v12" stroke="#555" stroke-width="2"/>
+</svg>

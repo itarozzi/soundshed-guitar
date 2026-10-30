@@ -5,6 +5,7 @@
  * renderer so the designer and the params panel always draw the same file for an id.
  */
 
+import type { LayoutImageCategory } from "../layoutImageCategories.js";
 import { resolveLayoutImageUrl } from "../layoutImages.js";
 import type { LayoutImageRef } from "../layoutTypes.js";
 import { uiState } from "../state.js";
@@ -25,15 +26,15 @@ export function loadThumbnailImage(src: string): Promise<HTMLImageElement> {
 }
 
 /**
- * The library images a picker offers for a background or a knob: those of that kind first, then
- * the one already chosen, then the rest, each group by name.
+ * The library images a picker offers for `purpose`: every one, since the picker filters by
+ * category itself, those filed under `purpose` first, then the one already chosen, then the rest,
+ * each group by name.
  */
-export function reusableLayoutImages(purpose: "background" | "knob", selectedImageId?: string): LayoutImageRef[] {
+export function reusableLayoutImages(purpose: LayoutImageCategory, selectedImageId?: string): LayoutImageRef[] {
   const images = uiState.layoutLibrary?.images ?? [];
   const available = images.filter((img) => Boolean(img.imageId) && (Boolean(img.dataUrl) || Boolean(img.url) || Boolean(img.fileName)));
-  const preferredType = purpose === "background" ? "background" : "knob";
-  const compatible = available.filter((img) => img.imageId === selectedImageId || !img.type || img.type === "general" || img.type === preferredType);
-  return [...compatible].sort((a, b) => {
+  const preferredType = purpose;
+  return [...available].sort((a, b) => {
     const aPriority = a.type === preferredType ? 0 : a.imageId === selectedImageId ? 1 : 2;
     const bPriority = b.type === preferredType ? 0 : b.imageId === selectedImageId ? 1 : 2;
     if (aPriority !== bPriority) {
@@ -48,9 +49,10 @@ export function reusableLayoutImages(purpose: "background" | "knob", selectedIma
  * Its options are marked data-layout-image, which is what enhanceImageSelects (imagePicker.ts) looks
  * for to show the list as thumbnails, an empty library's list included.
  */
-export function imageOptionsHtml(purpose: "background" | "knob", selectedImageId?: string): string {
+export function imageOptionsHtml(purpose: LayoutImageCategory, selectedImageId?: string): string {
   const options = [
-    `<option value="" data-layout-image>Select existing image...</option>`,
+    // The picker opens on `purpose`'s category when nothing is chosen.
+    `<option value="" data-layout-image data-purpose="${purpose}">Select existing image...</option>`,
     ...reusableLayoutImages(purpose, selectedImageId).map((img) => {
       const selected = selectedImageId && img.imageId === selectedImageId ? "selected" : "";
       const typeLabel = img.type ? ` [${img.type}]` : "";

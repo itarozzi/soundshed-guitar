@@ -493,6 +493,8 @@ export class LayoutStore {
           fileName: image.fileName,
           data: image.base64,
           layoutId: current.layoutId,
+          // The engine files the image under the category the archive gives it.
+          category: image.type,
         });
       }
 

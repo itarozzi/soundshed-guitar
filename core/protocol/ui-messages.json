@@ -156,6 +156,7 @@
     "setAutomationValue",
     "setGlobalChainParam",
     "setInputMode",
+    "setLayoutImageCategory",
     "setLooper",
     "setLooperLayer",
     "setLoudnessWatch",

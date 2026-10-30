@@ -259,8 +259,6 @@ export class LayoutDesignerModal {
     this.zoomResetBtn = document.getElementById("layout-designer-zoom-reset") as HTMLButtonElement;
     this.zoomLabel = document.getElementById("layout-designer-zoom-label");
 
-    console.log("[LayoutDesigner] initialize - addBgBtn found:", !!this.addBgBtn);
-
     // Dimension inputs
     this.widthInput = document.getElementById("layout-designer-width") as HTMLInputElement;
     this.heightInput = document.getElementById("layout-designer-height") as HTMLInputElement;
@@ -1267,7 +1265,6 @@ export class LayoutDesignerModal {
   }
 
   private browseBackgroundImage(layerIndex?: number): void {
-    console.log("[LayoutDesigner] browseBackgroundImage called");
     const targetLayerIndex = layerIndex ?? (this.layout ? nextFreeBackgroundLayer(this.layout.backgrounds) : 0);
     if (targetLayerIndex === null) {
       showNotification(`Maximum ${MAX_BACKGROUND_LAYERS} background layers`);

@@ -174,6 +174,12 @@ bool MessageDispatcher::DispatchLibraryAndComposite(PluginController& c, const n
         return true;
     }
 
+    if (type == "setLayoutImageCategory")
+    {
+        c.HandleSetLayoutImageCategoryRequest(msg);
+        return true;
+    }
+
     if (type == "requestLayoutImages")
     {
         c.HandleRequestLayoutImagesRequest();

@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+<defs>
+  <radialGradient id="cap" cx="40%" cy="32%" r="80%"><stop offset="0" stop-color="#fffaf0"/><stop offset="0.55" stop-color="#ece0c4"/><stop offset="1" stop-color="#b8a582"/></radialGradient>
+  <linearGradient id="skirt" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f3e9d2"/><stop offset="1" stop-color="#a8956f"/></linearGradient>
+  <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="5" stdDeviation="6" flood-opacity="0.5"/></filter>
+</defs>
+<circle cx="128" cy="128" r="104" fill="url(#skirt)" filter="url(#shadow)"/>
+<circle cx="128" cy="128" r="104" fill="none" stroke="#7d6a48" stroke-width="2"/>
+<circle cx="128" cy="128" r="70" fill="url(#cap)" stroke="#8c7a55" stroke-width="2"/>
+<path d="M128 68L128 60M137.39 68.74L138.64 60.84M146.54 70.94L149.01 63.33M155.24 74.54L158.87 67.41M163.27 79.46L167.97 72.99M170.43 85.57L176.08 79.92M176.54 92.73L183.01 88.03M181.46 100.76L188.59 97.13M185.06 109.46L192.67 106.99M187.26 118.61L195.16 117.36M188 128L196 128M187.26 137.39L195.16 138.64M185.06 146.54L192.67 149.01M181.46 155.24L188.59 158.87M176.54 163.27L183.01 167.97M170.43 170.43L176.08 176.08M163.27 176.54L167.97 183.01M155.24 181.46L158.87 188.59M146.54 185.06L149.01 192.67M137.39 187.26L138.64 195.16M128 188L128 196M118.61 187.26L117.36 195.16M109.46 185.06L106.99 192.67M100.76 181.46L97.13 188.59M92.73 176.54L88.03 183.01M85.57 170.43L79.92 176.08M79.46 163.27L72.99 167.97M74.54 155.24L67.41 158.87M70.94 146.54L63.33 149.01M68.74 137.39L60.84 138.64M68 128L60 128M68.74 118.61L60.84 117.36M70.94 109.46L63.33 106.99M74.54 100.76L67.41 97.13M79.46 92.73L72.99 88.03M85.57 85.57L79.92 79.92M92.73 79.46L88.03 72.99M100.76 74.54L97.13 67.41M109.46 70.94L106.99 63.33M118.61 68.74L117.36 60.84" stroke="#8c7a55" stroke-opacity="0.45" stroke-width="2"/>
+<path d="M128 28 L128 86" stroke="#1a1712" stroke-width="6" stroke-linecap="round"/>
+</svg>

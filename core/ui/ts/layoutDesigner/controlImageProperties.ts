@@ -6,11 +6,12 @@
  * control nobody touched here stays exactly as older layouts stored it.
  */
 
+import type { LayoutImageCategory } from "../layoutImageCategories.js";
 import type { LayoutControl, LayoutKnobImage, LayoutRectangleOverlay } from "../layoutTypes.js";
 import { escapeHtml } from "../utils.js";
 import type { LayoutPropertiesHost } from "./propertiesHost.js";
 
-type ImageOptions = (purpose: "background" | "knob", selectedImageId?: string) => string;
+type ImageOptions = (purpose: LayoutImageCategory, selectedImageId?: string) => string;
 
 function numberRow(id: string, label: string, value: unknown, placeholder: string, min: number, max: number, step = 1, title = ""): string {
   const shown = typeof value === "number" && Number.isFinite(value) ? String(value) : "";
@@ -23,12 +24,12 @@ function numberRow(id: string, label: string, value: unknown, placeholder: strin
         </div>`;
 }
 
-function imageRow(id: string, label: string, selected: string | undefined, options: ImageOptions): string {
+function imageRow(id: string, label: string, selected: string | undefined, options: ImageOptions, purpose: LayoutImageCategory = "knob"): string {
   return `
         <div class="layout-property-row">
           <span class="layout-property-label">${escapeHtml(label)}</span>
           <div class="layout-property-input">
-            <select id="${escapeHtml(id)}">${options("knob", selected)}</select>
+            <select id="${escapeHtml(id)}">${options(purpose, selected)}</select>
           </div>
         </div>`;
 }
@@ -133,12 +134,12 @@ export function renderControlImageGroup(control: LayoutControl, isResource: bool
   if (control.type === "toggle") {
     rows += numberRow("prop-ci-toggle-width", "Width", style.toggleWidth, "36", 8, 512);
     rows += numberRow("prop-ci-toggle-height", "Height", style.toggleHeight, "20", 8, 512);
-    rows += imageRow("prop-ci-toggle-off", "Off Image", style.toggleImage?.offImageId, options);
-    rows += imageRow("prop-ci-toggle-on", "On Image", style.toggleImage?.onImageId, options);
+    rows += imageRow("prop-ci-toggle-off", "Off Image", style.toggleImage?.offImageId, options, "switch");
+    rows += imageRow("prop-ci-toggle-on", "On Image", style.toggleImage?.onImageId, options, "switch");
   } else if (control.type === "slider") {
     rows += numberRow("prop-ci-slider-length", "Length", style.sliderLength, "80", 24, 2048, 8);
-    rows += imageRow("prop-ci-slider-track", "Track Image", style.sliderImage?.trackImageId, options);
-    rows += imageRow("prop-ci-slider-thumb", "Thumb Image", style.sliderImage?.thumbImageId, options);
+    rows += imageRow("prop-ci-slider-track", "Track Image", style.sliderImage?.trackImageId, options, "general");
+    rows += imageRow("prop-ci-slider-thumb", "Thumb Image", style.sliderImage?.thumbImageId, options, "general");
   } else {
     rows += numberRow("prop-ci-knob-diameter", "Diameter", style.knobDiameter, "38", 16, 512, 1, "Knob size in px; empty is the standard 38 px");
     rows += renderKnobImageRows(style.knobImage, options, "prop-ci-knob", layoutHasKnobImage ? "Layout's knob" : "None");
@@ -199,7 +200,7 @@ export function renderOverlayImageGroup(overlay: LayoutRectangleOverlay, options
   const fit = overlay.style?.imageFit ?? "contain";
   return `
       <div class="layout-property-group">
-        <div class="layout-property-group-title">Image</div>${imageRow("prop-ci-overlay-image", "Image", overlay.style?.imageId, (_purpose, selected) => options("background", selected))}
+        <div class="layout-property-group-title">Image</div>${imageRow("prop-ci-overlay-image", "Image", overlay.style?.imageId, options, "background")}
         <div class="layout-property-row">
           <span class="layout-property-label">Fit</span>
           <div class="layout-property-input">

@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import * as bridge from "../ts/bridge.js";
 import { enhanceImageSelects, watchImageSelects } from "../ts/layoutDesigner/imagePicker.js";
 import { imageOptionsHtml } from "../ts/layoutDesigner/images.js";
 import type { LayoutImageRef } from "../ts/layoutTypes.js";
+import { layoutImageCategory, layoutImageUsage } from "../ts/layoutImageCategories.js";
 import { onLayoutImageSelected } from "../ts/messages/layoutHandlers.js";
 import { uiState } from "../ts/state.js";
 
@@ -57,7 +59,7 @@ describe("image picker", () => {
     const trigger = document.querySelector(".layout-image-picker-selected")!;
     expect(trigger.querySelector("img")?.getAttribute("src")).toContain("layout-images/id/cap");
     expect(trigger.querySelector(".layout-image-picker-name")?.textContent).toBe("cap.png");
-    expect(trigger.querySelector(".layout-image-picker-facts")?.textContent).toBe("knob · 128×128");
+    expect(trigger.querySelector(".layout-image-picker-facts")?.textContent).toBe("Knob · 128×128");
   });
 
   it("lists every image, with a way to clear the one chosen", () => {
@@ -124,5 +126,107 @@ describe("an image the engine already had", () => {
     onLayoutImageSelected({ type: "layoutImageSelected", purpose: "knob", imageId: "cap", fileName: "cap.png", url: "layout-images/id/cap?v=7", width: 128, height: 128 });
     expect(uiState.layoutLibrary!.images).toHaveLength(1);
     expect(uiState.layoutLibrary!.images[0]).toMatchObject({ imageId: "cap", version: "7", renditions, type: "background" });
+  });
+});
+
+describe("image categories", () => {
+  const library: LayoutImageRef[] = [
+    { imageId: "cap", fileName: "cap.png", url: "u/cap", type: "knob" },
+    { imageId: "wood", fileName: "wood.png", url: "u/wood", type: "background" },
+    { imageId: "bat", fileName: "bat.png", url: "u/bat", type: "switch" },
+    { imageId: "odd", fileName: "odd.png", url: "u/odd" },
+    { imageId: "f-knob", fileName: "f-knob.svg", url: "u/f-knob", type: "knob", factory: true },
+  ];
+
+  beforeEach(() => {
+    uiState.layoutLibrary = { byEffectType: {}, defaults: {}, images: library.map((image) => ({ ...image })) };
+  });
+
+  function tabs(): Array<{ filter: string; text: string; active: boolean }> {
+    return Array.from(document.querySelectorAll<HTMLElement>(".layout-image-picker-tab")).map((tab) => ({
+      filter: tab.dataset.filter ?? "",
+      text: tab.textContent ?? "",
+      active: tab.classList.contains("is-active"),
+    }));
+  }
+
+  it("opens on the row's category, counts each, and puts factory images in their own section", () => {
+    mountSelect();
+    open();
+    expect(tabs()).toEqual([
+      { filter: "all", text: "All5", active: false },
+      { filter: "knob", text: "Knob2", active: true },
+      { filter: "background", text: "Background1", active: false },
+      { filter: "switch", text: "Switch1", active: false },
+      { filter: "general", text: "Misc1", active: false },
+    ]);
+    expect(items().map((item) => item.value)).toEqual(["cap", "f-knob"]);
+    expect(Array.from(document.querySelectorAll(".layout-image-picker-section")).map((el) => el.textContent)).toEqual(["Your images", "Factory"]);
+  });
+
+  it("switches category from the tabs, and opens on the chosen image's category", () => {
+    mountSelect("bat");
+    open();
+    expect(items().map((item) => item.value)).toEqual(["", "bat"]);
+    document.querySelector<HTMLElement>('.layout-image-picker-tab[data-filter="all"]')!.click();
+    expect(items().map((item) => item.value)).toHaveLength(6);
+    document.querySelector<HTMLElement>('.layout-image-picker-tab[data-filter="general"]')!.click();
+    expect(items().map((item) => item.value)).toEqual(["", "odd"]);
+  });
+
+  it("opens on All when the row's category has nothing in it", () => {
+    uiState.layoutLibrary!.images = library.filter((image) => image.type !== "switch").map((image) => ({ ...image }));
+    document.body.innerHTML = `<select id="pick">${imageOptionsHtml("switch")}</select>`;
+    enhanceImageSelects(document.body);
+    open();
+    expect(tabs().find((tab) => tab.active)?.filter).toBe("all");
+  });
+
+  it("files an image dragged onto a tab, and leaves factory images where they ship", () => {
+    const post = vi.spyOn(bridge, "postMessage").mockImplementation(() => {});
+    const select = mountSelect();
+    const onChange = vi.fn();
+    select.addEventListener("change", onChange);
+    open();
+    const backgroundTab = document.querySelector<HTMLElement>('.layout-image-picker-tab[data-category="background"]')!;
+    document.elementFromPoint = () => backgroundTab;
+    const drag = (item: HTMLElement) => {
+      item.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, clientX: 10, clientY: 10 }));
+      document.dispatchEvent(new MouseEvent("pointermove", { bubbles: true, clientX: 10, clientY: 40 }));
+      document.dispatchEvent(new MouseEvent("pointerup", { bubbles: true, clientX: 10, clientY: 40 }));
+      item.click();
+    };
+
+    drag(document.querySelector<HTMLElement>('.layout-image-picker-item[data-value="cap"]')!);
+    expect(post).toHaveBeenCalledWith({ type: "setLayoutImageCategory", imageId: "cap", category: "background" });
+    expect(uiState.layoutLibrary!.images.find((image) => image.imageId === "cap")?.type).toBe("background");
+    expect(items().map((item) => item.value)).toEqual(["f-knob"]);
+    // The click that ends a drag picks nothing.
+    expect(onChange).not.toHaveBeenCalled();
+
+    drag(document.querySelector<HTMLElement>('.layout-image-picker-item[data-value="f-knob"]')!);
+    expect(post).toHaveBeenCalledTimes(1);
+    expect(uiState.layoutLibrary!.images.find((image) => image.imageId === "f-knob")?.type).toBe("knob");
+    post.mockRestore();
+  });
+
+  it("files an image never filed by where the library's layouts use it", () => {
+    const layout = {
+      effectType: "fx", version: 1, dimensions: { width: 100, height: 100 }, textLabels: [],
+      backgrounds: [{ layerIndex: 0, type: "image" as const, value: "odd" }],
+      controls: [{ paramKey: "a", type: "toggle" as const, position: { x: 0, y: 0 }, style: { toggleImage: { onImageId: "lit" } } }],
+    };
+    uiState.layoutLibrary!.byEffectType = { fx: [{ layout, isDefault: true, layoutId: "l" }] };
+    const usage = layoutImageUsage();
+    expect(layoutImageCategory({ imageId: "odd" }, usage)).toBe("background");
+    expect(layoutImageCategory({ imageId: "lit" }, usage)).toBe("switch");
+    expect(layoutImageCategory({ imageId: "unused" }, usage)).toBe("general");
+    // A filed category wins over use.
+    expect(layoutImageCategory({ imageId: "odd", type: "knob" }, usage)).toBe("knob");
+  });
+
+  it("takes the category the engine filed a browsed image under", () => {
+    onLayoutImageSelected({ type: "layoutImageSelected", purpose: "knob", imageId: "new", fileName: "new.png", url: "u/new", category: "knob" });
+    expect(uiState.layoutLibrary!.images.find((image) => image.imageId === "new")?.type).toBe("knob");
   });
 });

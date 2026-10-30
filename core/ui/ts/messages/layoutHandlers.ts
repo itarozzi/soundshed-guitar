@@ -3,6 +3,7 @@
  */
 
 import { layoutDesigner } from "../layoutDesigner.js";
+import { isLayoutImageCategory } from "../layoutImageCategories.js";
 import { areLayoutImagesLoaded, ensureLayoutImagesLoaded, markLayoutImagesLoaded } from "../layoutImages.js";
 import { renderLayoutList } from "../layoutManager.js";
 import type { LayoutImageRef, LayoutLibrary } from "../layoutTypes.js";
@@ -79,6 +80,9 @@ export function onLayoutImageSelected(payload: IncomingPayload): void {
     bytes?: number;
     version?: string;
     renditions?: LayoutImageRef["renditions"];
+    /** The category the engine filed it under; the message's own "type" is taken. */
+    category?: string;
+    factory?: boolean;
     layerIndex?: number;
     paramKey?: string;
   };
@@ -98,7 +102,8 @@ export function onLayoutImageSelected(payload: IncomingPayload): void {
         bytes: imgPayload.bytes,
         version: imgPayload.version ?? existing?.version,
         renditions: imgPayload.renditions ?? existing?.renditions,
-        type: existing?.type ?? imgPayload.purpose as "background" | "knob" | "general"
+        type: isLayoutImageCategory(imgPayload.category) ? imgPayload.category : existing?.type,
+        factory: imgPayload.factory ?? existing?.factory,
       };
       if (existingIdx >= 0) {
         uiState.layoutLibrary.images[existingIdx] = imageEntry;

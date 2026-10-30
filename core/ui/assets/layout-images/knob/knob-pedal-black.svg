@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+<defs>
+  <linearGradient id="side" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3a3a3e"/><stop offset="1" stop-color="#0d0d0f"/></linearGradient>
+  <radialGradient id="top" cx="42%" cy="35%" r="75%"><stop offset="0" stop-color="#3c3c41"/><stop offset="1" stop-color="#151517"/></radialGradient>
+  <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="4" stdDeviation="5" flood-opacity="0.6"/></filter>
+</defs>
+<circle cx="128" cy="128" r="96" fill="url(#side)" filter="url(#shadow)"/>
+<path d="M128 44L128 32M142.59 45.28L144.67 33.46M156.73 49.07L160.83 37.79M170 55.25L176 44.86M181.99 63.65L189.71 54.46M192.35 74.01L201.54 66.29M200.75 86L211.14 80M206.93 99.27L218.21 95.17M210.72 113.41L222.54 111.33M212 128L224 128M210.72 142.59L222.54 144.67M206.93 156.73L218.21 160.83M200.75 170L211.14 176M192.35 181.99L201.54 189.71M181.99 192.35L189.71 201.54M170 200.75L176 211.14M156.73 206.93L160.83 218.21M142.59 210.72L144.67 222.54M128 212L128 224M113.41 210.72L111.33 222.54M99.27 206.93L95.17 218.21M86 200.75L80 211.14M74.01 192.35L66.29 201.54M63.65 181.99L54.46 189.71M55.25 170L44.86 176M49.07 156.73L37.79 160.83M45.28 142.59L33.46 144.67M44 128L32 128M45.28 113.41L33.46 111.33M49.07 99.27L37.79 95.17M55.25 86L44.86 80M63.65 74.01L54.46 66.29M74.01 63.65L66.29 54.46M86 55.25L80 44.86M99.27 49.07L95.17 37.79M113.41 45.28L111.33 33.46" stroke="#000" stroke-opacity="0.6" stroke-width="5"/>
+<circle cx="128" cy="128" r="78" fill="url(#top)" stroke="#000" stroke-opacity="0.4" stroke-width="2"/>
+<circle cx="128" cy="62" r="8" fill="#f2f2f2"/>
+</svg>

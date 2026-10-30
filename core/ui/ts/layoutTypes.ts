@@ -33,8 +33,10 @@ export interface LayoutImageRef {
   version?: string;
   /** Smaller copies of a large image, made for this version (layoutRenditions.ts). */
   renditions?: LayoutImageRendition[];
-  /** Image type/category */
-  type?: "background" | "knob" | "general";
+  /** The category the designer files it under (layoutImageCategories.ts); "general" is Misc. */
+  type?: "background" | "knob" | "switch" | "general";
+  /** Shipped with the app: it cannot be refiled under another category. */
+  factory?: boolean;
 }
 
 /** Background layer configuration */

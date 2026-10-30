@@ -54,7 +54,7 @@ export interface PreparedLayoutImport {
 
 type Reader = (archivePath: string) => Promise<ArrayBuffer | null>;
 
-const IMAGE_TYPES = new Set<LayoutImageRef["type"]>(["background", "knob", "general"]);
+const IMAGE_TYPES = new Set<LayoutImageRef["type"]>(["background", "knob", "switch", "general"]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
