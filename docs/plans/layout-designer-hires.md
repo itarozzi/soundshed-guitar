@@ -504,7 +504,7 @@ not working.
   - A filmstrip drops any custom knob style, so 1.6.0 shows a standard knob
     rather than a squashed strip.
   - New `requires` entries: `control-size`, `knob-image`, `image-toggle`,
-    `image-slider` and `image-overlay`.
+    `image-slider`, `image-overlay` and (later) `control-shadow`.
 - **Image references.** Every new reference is listed by `layoutImageIds`
   (export), renamed by `renameLayoutImageIds` (import), and collected by the
   engine's `CollectLayoutImageIds` (the copy on save; pinned by
@@ -567,6 +567,23 @@ panels:
   - Warnings for a decode over 64 MB, a filmstrip taller than 16,384 px, and
     an image missing from the library.
   - Replace swaps an image everywhere the layout uses it, in one undo step.
+- **Generated control shadows** (`layoutShadows.ts`,
+  `layoutDesigner/shadowProperties.ts`). A layout's `controlShadow` is one
+  light for the panel: `angle` (where it comes from, 315 = top left),
+  `elevation` (15-80 degrees), `softness` and `opacity`; unset casts nothing,
+  as before, and it adds the `control-shadow` requirement (older apps just
+  draw no shadows).
+  - Every knob and toggle, positioned or default, is taken to stand as tall
+    as it is wide (the smaller side) and casts its footprint away from the
+    light by height / tan(elevation): a capsule for a knob, a swept pill for a
+    toggle. Sliders cast none. `style.castShadow: false` turns one off.
+  - The shadow is one still SVG, sized in percent of the control, inside the
+    knob or toggle element at z-index -1; its parent gets
+    `has-control-shadow` (isolation), so it stays above the background. The
+    knob is never wrapped: the panel finds its label and value through its
+    parent. Turning a knob does not redraw it.
+  - It is the footprint, not the silhouette: a pointer cap casts a round
+    shadow.
 - **Image pickers and categories** (`layoutDesigner/imagePicker.ts`,
   `layoutImageCategories.ts`). Every image list in the designer opens as a
   dropdown of thumbnails over its hidden `<select>`, which stays the value the

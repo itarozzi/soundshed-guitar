@@ -20,6 +20,7 @@ function onCanvas(selector: string): HTMLElement | null {
 import type { KnobStylePreset, LabelPosition, LayoutControl, LayoutRectangleOverlay, LayoutTextLabel } from "../layoutTypes.js";
 import { getLayoutImageUrl } from "./images.js";
 import type { LayoutPropertiesHost } from "./propertiesHost.js";
+import { bindControlShadowRow, renderControlShadowRow } from "./shadowProperties.js";
 import { colorInputValue, resolveControlTextColors } from "../layoutRenderer.js";
 import { escapeHtml } from "../utils.js";
 
@@ -184,6 +185,7 @@ export class ElementProperties {
       ${renderAlignGroup()}
       ${styleSection}
       ${renderControlImageGroup(control, isResourceControl, (purpose, selected) => this.host.renderImageOptionsHtml(purpose, selected), takesLayoutKnob)}
+      ${renderControlShadowRow(control, layout, isResourceControl)}
 
       <div class="layout-property-group">
         <button type="button" class="btn btn-secondary btn-sm btn-block layout-danger-btn" id="prop-delete-control">Remove from Layout</button>
@@ -194,6 +196,7 @@ export class ElementProperties {
     this.bindControlPropertyHandlers(control);
     bindAlignGroup(this.host, () => onCanvas(`.layout-control-placeholder[data-param-key="${CSS.escape(control.paramKey)}"]`), control.position);
     bindControlImageGroup(control, this.host);
+    bindControlShadowRow(control, this.host);
     if (isResourceControl) bindWidthGroup(this.host, control, () => onCanvas(`.layout-control-placeholder[data-param-key="${CSS.escape(control.paramKey)}"]`));
   }
 

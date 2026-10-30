@@ -14,7 +14,8 @@ import { formatParamValue } from "./paramValueFormat.js";
 // Shared with the signal-path renderer and the designer preview, which import it from here.
 export { formatParamValue };
 import { backgroundImageDrawnWidth, ensureLayoutImagesLoaded, knobFaceDrawnWidth, layoutLargestScale, resolveLayoutImageUrl } from "./layoutImages.js";
-import { applyKnobImageToKnobs, imageKnob, imageToggle, overlayImageStyle, sliderAttributes, styledKnobSizeStyle, withLayoutKnobImage, type ImageCssResolver } from "./layoutControlImages.js";
+import { DEFAULT_KNOB_DIAMETER, applyKnobImageToKnobs, imageKnob, imageToggle, knobDiameter, layoutSize, overlayImageStyle, sliderAttributes, styledKnobSizeStyle, withLayoutKnobImage, type ImageCssResolver } from "./layoutControlImages.js";
+import { applyShadowsToControls, knobShadowSvg, toggleShadowSvg, usableControlShadow } from "./layoutShadows.js";
 import { layoutCanGrow, scalingAttribute } from "./layoutScaling.js";
 import { isLibraryPickerType, libraryPickerControlsHtml, libraryPickerNavigation, librarySlotHasBrowseButton } from "./resourceSlotMarkup.js";
 import type {
@@ -366,7 +367,7 @@ export function renderCustomLayoutBackdrop(
           ${labels}
         </div>
         <div class="custom-layout-default-controls${escapeHtml(colors.classes)}" style="${escapeHtml(wrapperStyle + colors.style)}">
-          ${applyKnobImageToKnobs(innerHtml, layout.knobImage, imageResolverFor(layout))}
+          ${applyShadowsToControls(applyKnobImageToKnobs(innerHtml, layout.knobImage, imageResolverFor(layout)), layout.controlShadow)}
         </div>
       </div>
     </div>
@@ -437,6 +438,8 @@ function renderControls(
 ): string {
   const resourceByKey = new Map(resourceControls.map((resource) => [resource.resourceControlKey, resource]));
   const resolveImage = imageResolverFor(layout);
+  // The layout's light, when its knobs and toggles cast shadows (layoutShadows.ts).
+  const light = usableControlShadow(layout.controlShadow);
 
   return layout.controls
     .map((control) => {
@@ -510,6 +513,8 @@ function renderControls(
       `;
 
       let controlHtml = "";
+      const castsShadow = light !== null && control.style?.castShadow !== false;
+      let shadowed = false;
 
       if (!hideLabel && labelPosition === "top") {
         controlHtml += `<span class="custom-control-label" style="font-size: ${labelSize}px; color: ${escapeHtml(labelColor)}; margin-bottom: 4px;${escapeHtml(fontStyle + labelWidthStyle)}">${escapeHtml(label)}</span>`;
@@ -527,9 +532,14 @@ function renderControls(
       } else if (isToggle) {
         const checked = value >= 0.5;
         const toggleImage = imageToggle(control.style, resolveImage);
+        // An image toggle is drawn at its own size; the standard switch is 36 x 20.
+        const shadow = castsShadow && light ? toggleShadowSvg(light,
+          toggleImage ? layoutSize(control.style?.toggleWidth, 8, 512) ?? 36 : 36,
+          toggleImage ? layoutSize(control.style?.toggleHeight, 8, 512) ?? 20 : 20) : "";
+        shadowed = shadow !== "";
         controlHtml += `
           <label class="toggle-switch${toggleImage ? " custom-image-toggle" : ""}"${toggleImage ? ` style="${escapeHtml(toggleImage.style)}"` : ""}>
-            <input class="node-param-toggle" type="checkbox" data-node-id="${escapeHtml(node.id)}" data-param-key="${escapeHtml(key)}" ${checked ? "checked" : ""}>
+            ${shadow}<input class="node-param-toggle" type="checkbox" data-node-id="${escapeHtml(node.id)}" data-param-key="${escapeHtml(key)}" ${checked ? "checked" : ""}>
             ${toggleImage ? toggleImage.children : `<span class="toggle-slider"></span>`}
           </label>
         `;
@@ -587,6 +597,10 @@ function renderControls(
           : useCustomKnobImage ? `background-image: none;${sizeStyle}` : sizeStyle.trim();
         const customKnobAttr = imageKnobParts ? imageKnobParts.attributes.trim()
           : useCustomKnobImage ? `data-custom-knob-image="true"` : "";
+        // An image knob is its diameter across; a styled one is 38 px, zoomed to its diameter.
+        const shadow = castsShadow && light
+          ? knobShadowSvg(light, imageKnobParts ? knobDiameter(control.style) : DEFAULT_KNOB_DIAMETER) : "";
+        shadowed = shadow !== "";
 
         controlHtml += `
           <div 
@@ -605,7 +619,7 @@ function renderControls(
             ${customKnobAttr}
             style="${escapeHtml(knobBg)}"
           >
-            ${imageKnobParts ? imageKnobParts.children : useCustomKnobImage ? `<div class="custom-knob-face" style="background-image: url('${escapeHtml(knobImageUrl)}');"></div>` : ""}
+            ${shadow}${imageKnobParts ? imageKnobParts.children : useCustomKnobImage ? `<div class="custom-knob-face" style="background-image: url('${escapeHtml(knobImageUrl)}');"></div>` : ""}
             <div class="knob-indicator"></div>
           </div>
         `;
@@ -620,8 +634,8 @@ function renderControls(
       }
 
       // A resource slot given a width fills it (custom-layouts.css), its name ending in an ellipsis.
-      const sizedClass = isResourceControl && control.size ? " has-width" : "";
-      return `<div class="custom-layout-control${sizedClass}" style="${escapeHtml(controlStyle)}">${controlHtml}</div>`;
+      const sizedClass = `${isResourceControl && control.size ? " has-width" : ""}${shadowed ? " has-control-shadow" : ""}`;
+      return `<div class="custom-layout-control${escapeHtml(sizedClass)}" style="${escapeHtml(controlStyle)}">${controlHtml}</div>`;
     })
     .join("");
 }

@@ -234,6 +234,19 @@
   display: block;
 }
 
+/* Generated shadows (layoutShadows.ts): an SVG inside the knob or toggle, behind everything the
+   control draws. Its parent is isolated, so z-index -1 keeps it above the layout's background. */
+.has-control-shadow {
+  isolation: isolate;
+}
+
+.custom-control-shadow {
+  position: absolute;
+  z-index: -1;
+  overflow: visible;
+  pointer-events: none;
+}
+
 /* Image sliders: track and thumb pictures from custom properties (absolute URLs). */
 .custom-layout-slider[data-image-slider] {
   height: 16px;

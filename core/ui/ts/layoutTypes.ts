@@ -11,6 +11,18 @@ import type { LayoutScaling } from "./layoutScaling.js";
 
 export type { LayoutImageRendition, LayoutKnobImage, LayoutScaling };
 
+/** The light of a layout's generated control shadows; every field is optional (CONTROL_SHADOW_DEFAULTS). */
+export interface LayoutControlShadow {
+  /** Where the light comes from, degrees clockwise from the top: 315 is top left. */
+  angle?: number;
+  /** How high the light is above the panel, 15 to 80 degrees: lower casts longer shadows. */
+  elevation?: number;
+  /** Blur, 0 (hard edged) to 1. */
+  softness?: number;
+  /** Darkness, 0 to 1. */
+  opacity?: number;
+}
+
 /** Image reference for layout backgrounds and knobs */
 export interface LayoutImageRef {
   /** Unique ID for the image in the layout library */
@@ -122,6 +134,8 @@ export interface LayoutControl {
     toggleImage?: { onImageId?: string; offImageId?: string };
     /** A slider drawn with a track picture and a thumb picture. */
     sliderImage?: { trackImageId?: string; thumbImageId?: string };
+    /** False: this knob or toggle casts no shadow under the layout's controlShadow light. */
+    castShadow?: boolean;
   };
   /** Custom label text (overrides param name) */
   labelOverride?: string;
@@ -255,6 +269,12 @@ export interface EffectLayout {
    * and a knobStyle of "default" or none. Older apps ignore it and draw standard knobs.
    */
   knobImage?: LayoutKnobImage;
+  /**
+   * The light the layout's knobs and toggles cast shadows from (layoutShadows.ts): each stands as
+   * tall as it is wide and casts its footprint away from the light. Unset: no shadows, as before.
+   * Older apps ignore it.
+   */
+  controlShadow?: LayoutControlShadow;
   /** How the layout fits the params panel (layoutScaling.ts). Unset: the original fit-width rule. */
   scaling?: LayoutScaling;
   /** The designer's snap step (px), also used when the layout is imported. Unset: LAYOUT_GRID_SIZE. */

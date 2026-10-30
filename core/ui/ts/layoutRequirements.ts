@@ -10,6 +10,7 @@
  */
 
 import { usableKnobImage } from "./layoutControlImages.js";
+import { usableControlShadow } from "./layoutShadows.js";
 import { LEGACY_DIMENSION_LIMITS, type EffectLayout } from "./layoutTypes.js";
 
 /** The features, in the order they are listed. */
@@ -22,6 +23,7 @@ export const LAYOUT_FEATURES = [
   "image-toggle",
   "image-slider",
   "image-overlay",
+  "control-shadow",
 ] as const;
 export type LayoutFeature = (typeof LAYOUT_FEATURES)[number];
 
@@ -66,6 +68,7 @@ export function layoutRequirements(layout: EffectLayout): LayoutFeature[] {
   if ((layout.overlays ?? []).some((overlay) => overlay.style?.imageId)) {
     used.add("image-overlay");
   }
+  if (usableControlShadow(layout.controlShadow)) used.add("control-shadow");
 
   return LAYOUT_FEATURES.filter((feature) => used.has(feature));
 }
