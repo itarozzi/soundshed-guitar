@@ -387,7 +387,7 @@ ByteVector MakeGuestModule(const GuestSpec& spec)
 {
     std::vector<FuncTypeDef> types = spec.importTypes;
     const auto firstType = static_cast<uint32_t>(types.size());
-    types.push_back({{WasmValueType::F32, WasmValueType::I32, WasmValueType::I32}, {WasmValueType::I32}});
+    types.push_back({{WasmValueType::F32, WasmValueType::I32}, {WasmValueType::I32}});
     types.push_back({{}, {}});
     types.push_back({{WasmValueType::F32, WasmValueType::F32}, {WasmValueType::F32, WasmValueType::F32}});
     types.push_back({{}, {WasmValueType::I32}});
@@ -637,23 +637,174 @@ ByteVector MakeUnknownIdModule()
     return MakeGuestModule(spec);
 }
 
-ByteVector MakeResourceScalerModule()
+constexpr uint32_t kResourceHandleImport = 0;
+constexpr uint32_t kResourceSizeImport = 1;
+constexpr uint32_t kResourceReadImport = 2;
+// Where the resource fixtures copy what they read; one page of memory ends at kMemoryEnd.
+constexpr uint32_t kResourceDataOffset = 8192;
+constexpr int32_t kMemoryEnd = 65536;
+
+// A module that imports the resource readers and keeps one handle per id in globals 0..N-1, looked
+// up in prepare. Its prepare ends with the handle lookups: the caller appends the status.
+GuestSpec ResourceGuest(ByteVector descriptor, std::vector<std::string> ids)
 {
     GuestSpec spec;
-    spec.importTypes = {{{WasmValueType::I32, WasmValueType::I32}, {WasmValueType::I32}}};
-    spec.imports = {{"host", "read_resource_byte", 0}};
-    spec.descriptor = BuildDescriptorBlob({{"effect.name", "Resource Scaler"}});
+    spec.importTypes = {
+        {{WasmValueType::I32, WasmValueType::I32}, {WasmValueType::I32}},
+        {{WasmValueType::I32}, {WasmValueType::I32}},
+        {{WasmValueType::I32, WasmValueType::I32, WasmValueType::I32, WasmValueType::I32}, {WasmValueType::I32}},
+    };
+    spec.imports = {
+        {"host", "resource_handle", 0},
+        {"host", "resource_size", 1},
+        {"host", "resource_read", 2},
+    };
+    spec.descriptor = std::move(descriptor);
+    spec.ids = std::move(ids);
+    spec.prepareOps.clear();
 
-    for (uint32_t channel = 0; channel < 2; ++channel)
+    uint32_t offset = kIdOffset;
+
+    for (uint32_t index = 0; index < spec.ids.size(); ++index)
     {
-        AppendOp(spec.processOps, LocalGet(channel));
-        AppendOp(spec.processOps, I32Const(1));
-        AppendOp(spec.processOps, I32Const(0));
-        AppendOp(spec.processOps, Call(0));
-        AppendU8(spec.processOps, 0xb2);
+        const auto length = static_cast<int32_t>(spec.ids[index].size());
+        spec.globals.push_back({WasmValueType::I32, true, I32Const(-1)});
+        AppendOp(spec.prepareOps, I32Const(static_cast<int32_t>(offset)));
+        AppendOp(spec.prepareOps, I32Const(length));
+        AppendOp(spec.prepareOps, Call(kResourceHandleImport));
+        AppendOp(spec.prepareOps, GlobalSet(index));
+        offset += static_cast<uint32_t>(length);
+    }
+
+    return spec;
+}
+
+// resource_read(the handle in global `handleGlobal`, offset, destination, length).
+ByteVector ReadResource(uint32_t handleGlobal, int32_t offset, int32_t destination, int32_t length)
+{
+    ByteVector ops = GlobalGet(handleGlobal);
+    AppendOp(ops, I32Const(offset));
+    AppendOp(ops, I32Const(destination));
+    AppendOp(ops, I32Const(length));
+    AppendOp(ops, Call(kResourceReadImport));
+    return ops;
+}
+
+ByteVector ResourceSize(uint32_t handleGlobal)
+{
+    ByteVector ops = GlobalGet(handleGlobal);
+    AppendOp(ops, Call(kResourceSizeImport));
+    return ops;
+}
+
+// i32.load8_u at a fixed address.
+ByteVector LoadByte(int32_t address)
+{
+    ByteVector ops = I32Const(address);
+    AppendOp(ops, {0x2d, 0x00, 0x00});
+    return ops;
+}
+
+// Copies the first byte of resources 'a' and 'b' in prepare and outputs (a / 64, b / 64), whatever
+// order the descriptor declares them in.
+ByteVector MakeResourcePairModule(bool reversed)
+{
+    std::vector<std::pair<std::string, std::string>> entries = {
+        {"resource.a.title", "A"},
+        {"resource.b.title", "B"},
+    };
+
+    if (reversed)
+    {
+        std::swap(entries[0], entries[1]);
+    }
+
+    auto spec = ResourceGuest(BuildDescriptorBlob(entries), {"a", "b"});
+
+    for (uint32_t index = 0; index < 2; ++index)
+    {
+        AppendOp(spec.prepareOps, ReadResource(index, 0, static_cast<int32_t>(kResourceDataOffset + 16 * index), 16));
+        AppendU8(spec.prepareOps, 0x1a);
+    }
+
+    AppendOp(spec.prepareOps, I32Const(0));
+
+    for (uint32_t index = 0; index < 2; ++index)
+    {
+        AppendOp(spec.processOps, LoadByte(static_cast<int32_t>(kResourceDataOffset + 16 * index)));
+        AppendU8(spec.processOps, 0xb3);
         AppendOp(spec.processOps, F32Const(64.0f));
         AppendU8(spec.processOps, 0x95);
-        AppendU8(spec.processOps, 0x94);
+    }
+
+    return MakeGuestModule(spec);
+}
+
+// Prepare checks the resource readers' edges, setting bit i of its status when check i fails, so
+// a failure names itself in lastError. 'data' is given the bytes 1, 2, 3, 4; 'empty' no file.
+// Process outputs 0.125 on both channels.
+ByteVector MakeResourceEdgeModule()
+{
+    auto spec = ResourceGuest(BuildDescriptorBlob({
+                                  {"resource.data.title", "Data"},
+                                  {"resource.empty.title", "Empty"},
+                              }),
+                              {"data", "empty"});
+    constexpr auto kDst = static_cast<int32_t>(kResourceDataOffset);
+
+    const auto handleOf = [](int32_t pointer, int32_t length) {
+        ByteVector ops = I32Const(pointer);
+        AppendOp(ops, I32Const(length));
+        AppendOp(ops, Call(kResourceHandleImport));
+        return ops;
+    };
+
+    const std::vector<std::pair<ByteVector, int32_t>> checks = {
+        {ResourceSize(0), 4},
+        {ReadResource(0, 2, kDst, 100), 2},         // stops at the end of the resource
+        {ReadResource(0, 4, kDst + 32, 1), 0},      // offset at the end
+        {ReadResource(0, -1, kDst + 32, 1), 0},     // negative offset
+        {ReadResource(0, 0, kMemoryEnd - 1, 4), 1}, // stops at the end of guest memory
+        {ReadResource(0, 0, kMemoryEnd, 1), 0},     // destination past memory
+        {ReadResource(0, 0, kDst + 32, -4), 0},     // negative length
+        {ResourceSize(1), 0},                       // declared, no file chosen
+        {ReadResource(1, 0, kDst + 32, 4), 0},
+        {handleOf(static_cast<int32_t>(kIdOffset), 3), -1}, // "dat": undeclared
+        {handleOf(0x7fff0000, 4), -1},                      // id outside memory
+        {handleOf(static_cast<int32_t>(kIdOffset), static_cast<int32_t>(WasmEffect::kMaxGuestIdLength) + 1), -1},
+        {LoadByte(kDst), 3}, // what the second check copied
+        {LoadByte(kDst + 1), 4},
+        {LoadByte(kMemoryEnd - 1), 1},
+    };
+
+    AppendOp(spec.prepareOps, I32Const(0));
+
+    for (std::size_t i = 0; i < checks.size(); ++i)
+    {
+        AppendOp(spec.prepareOps, checks[i].first);
+        AppendOp(spec.prepareOps, I32Const(checks[i].second));
+        AppendU8(spec.prepareOps, 0x47);
+        AppendOp(spec.prepareOps, I32Const(1 << i));
+        AppendU8(spec.prepareOps, 0x6c);
+        AppendU8(spec.prepareOps, 0x72);
+    }
+
+    AppendOp(spec.processOps, F32Const(0.125f));
+    AppendOp(spec.processOps, F32Const(0.125f));
+    return MakeGuestModule(spec);
+}
+
+// Asks resource_size about handles 0 and 1 instead of asking resource_handle.
+ByteVector MakeHardCodedResourceHandleModule()
+{
+    auto spec = ResourceGuest(BuildDescriptorBlob({{"resource.data.title", "Data"}}), {});
+    AppendOp(spec.prepareOps, I32Const(0));
+
+    for (int32_t handle = 0; handle < 2; ++handle)
+    {
+        AppendOp(spec.processOps, I32Const(handle));
+        AppendOp(spec.processOps, Call(kResourceSizeImport));
+        AppendU8(spec.processOps, 0xb3);
     }
 
     return MakeGuestModule(spec);
@@ -1020,12 +1171,17 @@ bool TestOtherInterfacesAreRefused(const TempDir& tempDir)
     GuestSpec futureAbi;
     futureAbi.abiVersion = 3;
 
+    GuestSpec abi1Resources;
+    abi1Resources.importTypes = {{{WasmValueType::I32, WasmValueType::I32}, {WasmValueType::I32}}};
+    abi1Resources.imports = {{"host", "read_resource_byte", 0}};
+
     GuestSpec foreignImport;
     foreignImport.importTypes = {{{WasmValueType::F32}, {WasmValueType::F32}}};
     foreignImport.imports = {{"env", "sinf", 0}};
 
     const std::vector<std::tuple<const char*, GuestSpec, const char*>> cases = {
         {"abi1.wasm", abi1, "host.read_param"},
+        {"abi1_resources.wasm", abi1Resources, "ABI 1 (it imports host.read_resource_byte)"},
         {"unversioned.wasm", unversioned, "audiofx_abi_version"},
         {"future_abi.wasm", futureAbi, "ABI 3"},
         {"foreign_import.wasm", foreignImport, "env.sinf"},
@@ -1064,6 +1220,13 @@ bool TestBadDescriptorsAreRefused(const TempDir& tempDir)
         tooMany.push_back({"param.p" + std::to_string(i) + ".default", "0"});
     }
 
+    std::vector<std::pair<std::string, std::string>> tooManyResources;
+
+    for (std::size_t i = 0; i <= WasmEffect::kMaxGuestResources; ++i)
+    {
+        tooManyResources.push_back({"resource.r" + std::to_string(i) + ".type", "blob"});
+    }
+
     const std::vector<std::pair<std::vector<std::pair<std::string, std::string>>, const char*>> cases = {
         {{{"param.0.id", "gain"}}, "numbers its param"},
         {{{"param.gain.slot", "0"}}, "no 'slot'"},
@@ -1073,6 +1236,13 @@ bool TestBadDescriptorsAreRefused(const TempDir& tempDir)
         {{{"param.9lives.title", "Lives"}}, "must be a letter"},
         {{{"param.gain", "1"}}, "names no field"},
         {tooMany, "the limit is 64"},
+        {{{"resource.0.id", "impulse"}}, "numbers its resource"},
+        {{{"resource.ir.slot", "1"}}, "no 'slot'"},
+        {{{"resource.ir.id", "ir"}}, "no 'id'"},
+        {{{"resource.module.title", "Another Module"}}, "module's own resource"},
+        {{{"resource._ir.title", "Impulse"}}, "must be a letter"},
+        {{{"resource.ir", "x"}}, "names no field"},
+        {tooManyResources, "the limit is 16"},
     };
 
     for (const auto& [entries, expected] : cases)
@@ -1181,47 +1351,280 @@ bool TestSignalGraphStereoModule(const TempDir& tempDir)
     return true;
 }
 
-bool TestResourceBackedModule(const TempDir& tempDir)
+ResourceRef FileRef(const std::filesystem::path& path, const char* type, std::size_t slot)
 {
-    const auto modulePath = tempDir.root / "resource_scaler.wasm";
-    const auto dataPath = tempDir.root / "scale.bin";
+    ResourceRef ref;
+    ref.resourceType = type;
+    ref.filePath = path.string();
+    ref.metadata["resourceSlotIndex"] = std::to_string(slot);
+    return ref;
+}
 
-    if (!WriteBytes(modulePath, MakeResourceScalerModule()) || !WriteBytes(dataPath, {32u}))
+// The pair modules and two one-byte files: 'a' holds 16 (0.25 out) and 'b' 48 (0.75 out).
+struct ResourcePairFiles
+{
+    std::filesystem::path module;
+    std::filesystem::path reversedModule;
+    std::filesystem::path a;
+    std::filesystem::path b;
+};
+
+std::optional<ResourcePairFiles> WriteResourcePairFiles(const TempDir& tempDir)
+{
+    ResourcePairFiles files{tempDir.root / "resource_pair.wasm", tempDir.root / "resource_pair_reversed.wasm",
+                            tempDir.root / "a.bin", tempDir.root / "b.bin"};
+
+    if (!WriteBytes(files.module, MakeResourcePairModule(false)) ||
+        !WriteBytes(files.reversedModule, MakeResourcePairModule(true)) || !WriteBytes(files.a, {16u}) ||
+        !WriteBytes(files.b, {48u}))
     {
-        std::cerr << "Failed to write resource-scaler test files.\n";
+        std::cerr << "Failed to write the resource-pair test files.\n";
+        return std::nullopt;
+    }
+
+    return files;
+}
+
+// Loads `module` with `first` and `second` at node resources 1 and 2, after `resourceIds` if any.
+std::optional<std::pair<float, float>> RunResourcePair(const std::filesystem::path& module,
+                                                       const std::filesystem::path& first,
+                                                       const std::filesystem::path& second,
+                                                       const std::string& resourceIds = {})
+{
+    auto effect = CreateWasmHost();
+
+    if (!resourceIds.empty())
+    {
+        effect->SetConfig(WasmEffect::kResourceIdsConfigKey, resourceIds);
+    }
+
+    if (!effect->LoadResources({FileRef(module, "wasm", 0), FileRef(first, "blob", 1), FileRef(second, "blob", 2)},
+                               {module, first, second}))
+    {
+        std::cerr << "The resource-pair module failed to load: " << effect->GetConfig("lastError") << "\n";
+        return std::nullopt;
+    }
+
+    effect->Prepare(kSampleRate, kBlockSize);
+    return ProcessBlock(*effect, 0.0f, 0.0f);
+}
+
+bool TestResourcesById(const TempDir& tempDir)
+{
+    const auto files = WriteResourcePairFiles(tempDir);
+
+    if (!files)
+    {
+        return false;
+    }
+
+    // With no ids saved, each file is the resource declared at its place.
+    if (const auto out = RunResourcePair(files->module, files->a, files->b);
+        !out || !NearlyEqual(out->first, 0.25f) || !NearlyEqual(out->second, 0.75f))
+    {
+        std::cerr << "Resources read back wrong by declaration order.\n";
+        return false;
+    }
+
+    // Saved ids win over places: here the module declares b first, and the files are where a
+    // module declaring a first put them.
+    if (const auto out = RunResourcePair(files->reversedModule, files->a, files->b, R"(["","a","b"])");
+        !out || !NearlyEqual(out->first, 0.25f) || !NearlyEqual(out->second, 0.75f))
+    {
+        std::cerr << "Saved resource ids did not decide which file a resource reads.\n";
+        return false;
+    }
+
+    // An id the module doesn't declare takes no resource, and a bad one is ignored.
+    if (const auto out = RunResourcePair(files->module, files->a, files->b, R"(["","gone","9bad"])");
+        !out || !NearlyEqual(out->first, 0.0f) || !NearlyEqual(out->second, 0.75f))
+    {
+        std::cerr << "An undeclared or malformed saved resource id still took a file.\n";
+        return false;
+    }
+
+    return true;
+}
+
+// The executor sets the node's config before it loads its resources, so saved ids reach the
+// binding.
+bool TestSignalGraphResourcesById(const TempDir& tempDir)
+{
+    const auto files = WriteResourcePairFiles(tempDir);
+
+    if (!files)
+    {
+        return false;
+    }
+
+    SignalGraph graph;
+    graph.nodes.push_back(GraphNode{"__input__", kNodeTypeInput, "utility", "Input", true});
+
+    GraphNode wasmNode;
+    wasmNode.id = "wasm";
+    wasmNode.type = EffectGuids::kWasmHost;
+    wasmNode.category = "utility";
+    wasmNode.params["mix"] = 1.0;
+    wasmNode.config[WasmEffect::kResourceIdsConfigKey] = R"(["","b","a"])";
+    wasmNode.resources = {FileRef(files->module, "wasm", 0), FileRef(files->b, "blob", 1),
+                          FileRef(files->a, "blob", 2)};
+
+    // The executor stamps slots itself.
+    for (auto& resource : wasmNode.resources)
+    {
+        resource.metadata.clear();
+    }
+
+    graph.nodes.push_back(wasmNode);
+    graph.nodes.push_back(GraphNode{"__output__", kNodeTypeOutput, "utility", "Output", true});
+    graph.edges.push_back(GraphEdge{"__input__", "wasm", 0, 0, 1.0});
+    graph.edges.push_back(GraphEdge{"wasm", "__output__", 0, 0, 1.0});
+
+    ResourceLibrary resourceLibrary;
+    SignalGraphExecutor executor;
+    executor.SetResourceLibrary(&resourceLibrary);
+    executor.SetGraph(graph);
+    executor.Prepare(kSampleRate, kBlockSize);
+
+    std::array<float, kBlockSize> leftIn{};
+    std::array<float, kBlockSize> rightIn{};
+    std::array<float, kBlockSize> leftOut{};
+    std::array<float, kBlockSize> rightOut{};
+    float* inputs[] = {leftIn.data(), rightIn.data()};
+    float* outputs[] = {leftOut.data(), rightOut.data()};
+    executor.Process(inputs, outputs, kBlockSize);
+
+    if (!NearlyEqual(leftOut[0], 0.25f) || !NearlyEqual(rightOut[0], 0.75f))
+    {
+        std::cerr << "The executor did not bind resources by their saved ids: " << leftOut[0] << ", " << rightOut[0]
+                  << "\n";
+        return false;
+    }
+
+    return true;
+}
+
+WasmModuleDescriptor DescriptorWithResources(std::vector<std::string> ids)
+{
+    WasmModuleDescriptor descriptor;
+
+    for (auto& id : ids)
+    {
+        ExposedResource resource;
+        resource.resourceId = std::move(id);
+        descriptor.exposedResources.push_back(std::move(resource));
+    }
+
+    return descriptor;
+}
+
+ResourceRef NamedFile(const char* name)
+{
+    ResourceRef ref;
+    ref.resourceType = "blob";
+    ref.filePath = name;
+    return ref;
+}
+
+// What the controller does to a node when a new version of its module is chosen or a preset loads.
+bool TestRekeyNodeResources()
+{
+    GraphNode node;
+    node.resources = {NamedFile("module.wasm"), NamedFile("a.bin"), NamedFile("b.bin")};
+
+    // Chosen against a module declaring a, b; its new version declares b, a and then c.
+    auto dropped = WasmEffect::RekeyNodeResources(node, DescriptorWithResources({"b", "a", "c"}),
+                                                  DescriptorWithResources({"a", "b"}));
+
+    if (!dropped.empty() || node.resources.size() != 3 || node.resources[0].filePath != "module.wasm" ||
+        node.resources[1].filePath != "b.bin" || node.resources[2].filePath != "a.bin" ||
+        node.config[WasmEffect::kResourceIdsConfigKey] != R"(["","b","a"])")
+    {
+        std::cerr << "Reordered resources did not keep their files by id.\n";
+        return false;
+    }
+
+    // Saved ids now say which file is whose, whatever `placedBy` claims. The next version drops a.
+    dropped = WasmEffect::RekeyNodeResources(node, DescriptorWithResources({"b"}), DescriptorWithResources({"x", "y"}));
+
+    if (dropped != std::vector<std::string>{"a"} || node.resources.size() != 2 ||
+        node.resources[1].filePath != "b.bin" || node.config[WasmEffect::kResourceIdsConfigKey] != R"(["","b"])")
+    {
+        std::cerr << "A resource the module no longer declares was not dropped, or b moved.\n";
+        return false;
+    }
+
+    // A gap stays empty, the trailing empty place goes, and with no guest files the ids go too.
+    node.resources = {NamedFile("module.wasm"), ResourceRef{}, NamedFile("b.bin")};
+    node.config.erase(WasmEffect::kResourceIdsConfigKey);
+    dropped = WasmEffect::RekeyNodeResources(node, DescriptorWithResources({"a", "b", "c"}),
+                                             DescriptorWithResources({"a", "b", "c"}));
+
+    if (!dropped.empty() || node.resources.size() != 3 || node.resources[1].IsValid() ||
+        node.resources[2].filePath != "b.bin")
+    {
+        std::cerr << "A gap between chosen files did not stay where it was.\n";
+        return false;
+    }
+
+    node.resources.resize(1);
+    dropped = WasmEffect::RekeyNodeResources(node, DescriptorWithResources({"a"}), DescriptorWithResources({"a"}));
+
+    if (!dropped.empty() || node.resources.size() != 1 || node.config.contains(WasmEffect::kResourceIdsConfigKey))
+    {
+        std::cerr << "A node with no guest files kept its saved resource ids.\n";
+        return false;
+    }
+
+    return true;
+}
+
+bool TestResourceReadEdges(const TempDir& tempDir)
+{
+    const auto modulePath = tempDir.root / "resource_edges.wasm";
+    const auto dataPath = tempDir.root / "edges.bin";
+
+    if (!WriteBytes(modulePath, MakeResourceEdgeModule()) || !WriteBytes(dataPath, {1u, 2u, 3u, 4u}))
+    {
+        std::cerr << "Failed to write the resource-edge test files.\n";
         return false;
     }
 
     auto effect = CreateWasmHost();
 
-    if (!effect)
+    if (!effect->LoadResources({FileRef(modulePath, "wasm", 0), FileRef(dataPath, "blob", 1)}, {modulePath, dataPath}))
     {
-        std::cerr << "Failed to create WASM effect instance.\n";
-        return false;
-    }
-
-    ResourceRef moduleRef;
-    moduleRef.resourceType = "wasm";
-    moduleRef.filePath = modulePath.string();
-    moduleRef.metadata["resourceSlotIndex"] = "0";
-
-    ResourceRef dataRef;
-    dataRef.resourceType = "blob";
-    dataRef.filePath = dataPath.string();
-    dataRef.metadata["resourceSlotIndex"] = "1";
-
-    if (!effect->LoadResources({moduleRef, dataRef}, {modulePath, dataPath}))
-    {
-        std::cerr << "Resource-backed module failed to load: " << effect->GetConfig("lastError") << "\n";
+        std::cerr << "The resource-edge module failed to load: " << effect->GetConfig("lastError") << "\n";
         return false;
     }
 
     effect->Prepare(kSampleRate, kBlockSize);
 
-    if (const auto [left, right] = ProcessBlock(*effect, 1.0f, 1.0f);
-        !NearlyEqual(left, 0.5f) || !NearlyEqual(right, 0.5f))
+    if (const auto [left, right] = ProcessBlock(*effect, 0.0f, 0.0f);
+        !NearlyEqual(left, 0.125f) || !NearlyEqual(right, 0.125f))
     {
-        std::cerr << "Resource-backed module output mismatch.\n";
+        std::cerr << "A resource reader edge check failed (bit i of the status is check i): "
+                  << effect->GetConfig("lastError") << "\n";
+        return false;
+    }
+
+    return true;
+}
+
+bool TestHardCodedResourceHandleTraps(const TempDir& tempDir)
+{
+    auto effect = LoadPrepared(tempDir, "hard_coded_resource.wasm", MakeHardCodedResourceHandleModule());
+
+    if (!effect)
+    {
+        return false;
+    }
+
+    if (const auto [left, right] = ProcessBlock(*effect, 0.25f, -0.5f);
+        !NearlyEqual(left, 0.25f) || !NearlyEqual(right, -0.5f) ||
+        effect->GetConfig("lastError").find("resource_handle") == std::string::npos)
+    {
+        std::cerr << "A hard-coded resource handle did not trap: " << effect->GetConfig("lastError") << "\n";
         return false;
     }
 
@@ -1537,7 +1940,11 @@ int main()
     allPassed = guitarfx::TestBadDescriptorsAreRefused(tempDir) && allPassed;
     allPassed = guitarfx::TestMonoInputToStereoGuestUsesDualMono(tempDir) && allPassed;
     allPassed = guitarfx::TestSignalGraphStereoModule(tempDir) && allPassed;
-    allPassed = guitarfx::TestResourceBackedModule(tempDir) && allPassed;
+    allPassed = guitarfx::TestResourcesById(tempDir) && allPassed;
+    allPassed = guitarfx::TestSignalGraphResourcesById(tempDir) && allPassed;
+    allPassed = guitarfx::TestRekeyNodeResources() && allPassed;
+    allPassed = guitarfx::TestResourceReadEdges(tempDir) && allPassed;
+    allPassed = guitarfx::TestHardCodedResourceHandleTraps(tempDir) && allPassed;
     allPassed = guitarfx::TestResetStatefulModule(tempDir) && allPassed;
     allPassed =
         guitarfx::TestHostileProcessIsStopped(tempDir, guitarfx::HostileKind::LoopingProcess, "looping_process") &&

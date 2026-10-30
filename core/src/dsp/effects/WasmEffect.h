@@ -48,7 +48,8 @@ class WasmSharedRuntime;
 // Hosts a Custom Effect: a WASM module, which is code from whoever wrote or shared it. It runs in
 // Wasmtime with a few read-only host imports and no WASI, so it cannot reach files or the network.
 // The interface is Custom Effect ABI 2 (docs/wasm-module-authoring.md): the module looks its params
-// up by id with param_handle and reads them with param_value; ABI 1 modules are refused.
+// and resources up by id (param_handle, resource_handle) and reads them through the handles it is
+// given; ABI 1 modules are refused.
 // What is left is bounded here: every call into the guest has an epoch deadline (a guest that
 // loops traps and the node bypasses), the store caps memory and tables, the wasm stack is capped
 // below the smallest audio-thread stack, and modules load only while Custom Effects are enabled.
@@ -57,10 +58,16 @@ class WasmEffect final : public EffectProcessor
   public:
     static constexpr std::int32_t kAbiVersion = 2;
     static constexpr std::size_t kMaxGuestParams = 64;
+    static constexpr std::size_t kMaxGuestResources = 16;
     static constexpr std::size_t kMaxGuestIdLength = 32;
     // SetParam's own keys. A guest param may not take one of these ids.
     static constexpr std::array<std::string_view, 4> kHostParamIds{"mix", "inputGainDb", "outputGainDb", "bpm"};
+    // The module itself, node.resources[0]. A guest resource may not take this id.
+    static constexpr std::string_view kModuleResourceId = "module";
     static constexpr const char* kDescriptorConfigKey = "wasmGuestDescriptor";
+    // A JSON array of guest resource ids, one per node resource ("" for the module), so each file
+    // stays with its resource when a new version of the module declares them in another order.
+    static constexpr const char* kResourceIdsConfigKey = "wasmResourceIds";
 
     static constexpr std::size_t kMaxModuleBytes = 32u * 1024u * 1024u;
     static constexpr std::int64_t kMaxGuestMemoryBytes = 256ll * 1024 * 1024;
@@ -84,6 +91,17 @@ class WasmEffect final : public EffectProcessor
     [[nodiscard]] static std::optional<WasmModuleDescriptor> ParseDescriptorConfig(const std::string& configJson,
                                                                                    std::string* error = nullptr);
     [[nodiscard]] static std::string SerializeDescriptorConfig(const std::vector<WasmMetadataEntry>& entries);
+    // kResourceIdsConfigKey's value; an entry that isn't a valid guest id reads as "".
+    [[nodiscard]] static std::vector<std::string> ParseResourceIdsConfig(const std::string& configJson);
+    [[nodiscard]] static std::string SerializeResourceIdsConfig(const std::vector<std::string>& ids);
+    [[nodiscard]] static bool IsValidGuestId(std::string_view id);
+
+    // Puts each of a Custom Effect node's files at the place `descriptor` gives its resource, and
+    // saves which id each place holds (kResourceIdsConfigKey). A file is known by the id saved
+    // beside it or, where the node has none saved, by the resource `placedBy` (the descriptor it
+    // was chosen against) declares at its place. Returns the ids of files no resource takes now.
+    static std::vector<std::string> RekeyNodeResources(GraphNode& node, const WasmModuleDescriptor& descriptor,
+                                                       const WasmModuleDescriptor& placedBy);
 
     void Prepare(double sampleRate, int maxBlockSize) override;
     void Reset() override;
@@ -130,12 +148,15 @@ class WasmEffect final : public EffectProcessor
     [[nodiscard]] static bool IsHostParamId(std::string_view id);
 
     // The host imports. A handle is opaque: numbered from a base picked afresh at every load, so a
-    // module that hard-codes one instead of asking param_handle fails on its first run.
+    // module that hard-codes one instead of asking param_handle fails on its first run. Param and
+    // resource handles have bases of their own, so one is never taken for the other.
     std::int32_t GuestParamHandle(std::string_view id) const;
     bool ReadGuestParamHandle(std::int32_t handle, float& value) const;
     float GuestTempoBpm() const;
-    int ReadGuestResourceSize(int slot) const;
-    int ReadGuestResourceByte(int slot, int offset) const;
+    std::int32_t GuestResourceHandle(std::string_view id) const;
+    // The resource's bytes (empty when no file is chosen), or null for a handle resource_handle
+    // never gave.
+    const std::vector<uint8_t>* GuestResourceBytes(std::int32_t handle) const;
 
   private:
     bool LoadGuestDescriptor();
@@ -151,6 +172,7 @@ class WasmEffect final : public EffectProcessor
     int QueryLatencySamples();
     void ResetGuestDescriptor();
     void ApplyGuestDescriptor(const WasmModuleDescriptor& descriptor);
+    void BindGuestResources();
     void TeardownRuntime();
     void SetError(const std::string& message);
 
@@ -169,8 +191,14 @@ class WasmEffect final : public EffectProcessor
     std::unordered_map<std::string, double> mPendingGuestParamValues;
     WasmModuleDescriptor mGuestDescriptor;
 
+    // Files by node resource slot, as loaded; a guest resource finds its slot by id when the
+    // descriptor is applied (mGuestResourceSlots, -1 for none chosen).
     std::vector<uint8_t> mModuleBytes;
     std::vector<std::vector<uint8_t>> mResourceBytesBySlot;
+    std::vector<std::string> mResourceIdsBySlot;
+    std::array<int, kMaxGuestResources> mGuestResourceSlots{};
+    std::size_t mGuestResourceCount = 0;
+    std::int32_t mGuestResourceHandleBase = 0;
     std::filesystem::path mModulePath;
 
     // Shared by every Custom Effect; mEngine is its engine, kept here for the many call sites.
