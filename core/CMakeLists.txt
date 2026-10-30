@@ -753,6 +753,17 @@ set(GUITARFX_CORE_SOURCES
     src/models/ModelHasher.h
     src/models/ModelHasher.cpp
 
+    # Music theory for the Scale Guide (docs/plans/scale-guide.md)
+    src/music/MusicTheory.h
+    src/music/MusicTheory.cpp
+    src/music/MusicCatalog.h
+    src/music/MusicCatalog.cpp
+    src/music/Fretboard.h
+    src/music/Fretboard.cpp
+    src/music/ChordShapes.cpp
+    src/music/ScaleGuideView.h
+    src/music/ScaleGuideView.cpp
+
     # Utilities
     src/util/Base64.h
     src/util/Base64.cpp

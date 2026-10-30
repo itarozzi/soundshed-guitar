@@ -166,6 +166,7 @@ set(TEST_SOURCES
     TonePreviewTests.cpp
     ToneSharingLinkTests.cpp
     JamPracticeToolTests.cpp
+    ScaleGuideTests.cpp
     TransposeBenchmark.cpp
     TransposeEffectTests.cpp
     WahEffectTests.cpp
