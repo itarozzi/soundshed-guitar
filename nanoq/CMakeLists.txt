@@ -82,8 +82,14 @@ set(_nanoq_elements_patch PATCH_COMMAND ${CMAKE_COMMAND}
     -DPATCH=${CMAKE_CURRENT_SOURCE_DIR}/patches/elements-macos-tick.patch
     -P ${CMAKE_CURRENT_SOURCE_DIR}/ios/cmake/ApplyPatch.cmake)
 if(NANOQ_IOS)
+    # elements-log-clock.patch: Elements' quill loggers stamp messages with quill's TSC, which
+    # on arm64 reads cntvct_el0; iOS 12 traps that (SIGILL at launch), so iOS takes the system
+    # clock.
     list(APPEND _nanoq_elements_patch COMMAND ${CMAKE_COMMAND}
         -DPATCH=${CMAKE_CURRENT_SOURCE_DIR}/ios/patches/elements.patch
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/ios/cmake/ApplyPatch.cmake
+        COMMAND ${CMAKE_COMMAND}
+        -DPATCH=${CMAKE_CURRENT_SOURCE_DIR}/ios/patches/elements-log-clock.patch
         -P ${CMAKE_CURRENT_SOURCE_DIR}/ios/cmake/ApplyPatch.cmake)
 endif()
 FetchContent_Declare(cycfi_elements

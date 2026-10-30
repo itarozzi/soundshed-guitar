@@ -1,0 +1,38 @@
+diff --git a/lib/src/support/log.cpp b/lib/src/support/log.cpp
+index a167b81d..9f50174c 100644
+--- a/lib/src/support/log.cpp
++++ b/lib/src/support/log.cpp
+@@ -141,6 +141,11 @@ namespace cycfi::elements
+ 
+    namespace
+    {
++      // Timestamps from the system clock, not quill's default TSC: on arm64
++      // its rdtsc() reads cntvct_el0, which iOS 12 does not let an app read
++      // (an illegal instruction on the first message, at launch).
++      constexpr auto log_clock = quill::ClockSourceType::System;
++
+       void log_files(std::string const& name);
+ 
+       // Logging switched off: every category gets a null sink at level None,
+@@ -151,7 +156,8 @@ namespace cycfi::elements
+          for (std::size_t i = 0; i < num_categories; ++i)
+          {
+             auto cat = static_cast<log_cat>(i);
+-            auto lg = log_frontend::create_or_get_logger(category_name(cat), sink);
++            auto lg = log_frontend::create_or_get_logger(
++               category_name(cat), sink, quill::PatternFormatterOptions{}, log_clock);
+             lg->set_log_level(quill::LogLevel::None);
+             the_loggers[i] = lg;
+          }
+@@ -253,8 +259,9 @@ namespace cycfi::elements
+                (cat == log_cat::trace)
+                   ? log_frontend::create_or_get_logger(
+                        category_name(cat), trace_sink,
+-                       quill::PatternFormatterOptions{"%(message)"})
+-                  : log_frontend::create_or_get_logger(category_name(cat), sink);
++                       quill::PatternFormatterOptions{"%(message)"}, log_clock)
++                  : log_frontend::create_or_get_logger(
++                       category_name(cat), sink, quill::PatternFormatterOptions{}, log_clock);
+             the_loggers[i] = lg;
+          }
+ 
