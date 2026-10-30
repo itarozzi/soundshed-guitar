@@ -111,11 +111,11 @@ void TestFavoritesAndCache()
     Expect(jam::SearchCacheJson("  ", {}).is_null(), "nothing kept for an empty query");
 
     Expect(jam::EmbedUrl("a b") == "https://api-guitar.soundshed.com/v1/embed/youtube?v=a%20b", "the wrapper page");
-    Expect(jam::StaysInWebView(jam::EmbedUrl("x")) && jam::StaysInWebView(jam::kScalesUrl) &&
-               jam::StaysInWebView("https://scalex.soundshed.com/minor"),
-           "the player and the scale explorer stay");
+    Expect(jam::StaysInWebView(jam::EmbedUrl("x")), "the player stays");
+    // Scales is drawn natively now (the Scale Guide): the old scale explorer is just another site.
     Expect(!jam::StaysInWebView("https://www.youtube.com/watch?v=x") &&
-               !jam::StaysInWebView("https://scalex.soundshed.com.evil.com/"),
+               !jam::StaysInWebView("https://scalex.soundshed.com/minor") &&
+               !jam::StaysInWebView("https://api-guitar.soundshed.com.evil.com/v1/embed/x"),
            "anything else goes to the browser");
 }
 

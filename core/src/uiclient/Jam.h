@@ -24,8 +24,6 @@ inline constexpr const char* kFavoritesSetting = "jam.favorites";
 inline constexpr const char* kSearchCacheSetting = "jam.searchCache";
 inline constexpr const char* kDefaultQuery = "backing track";
 inline constexpr int kSearchMaxResults = 12;
-/// The Scales section: Soundshed's scale explorer, as the web UI's iframe loads it.
-inline constexpr const char* kScalesUrl = "https://scalex.soundshed.com?src=soundshed-guitar";
 
 struct Video
 {
@@ -79,7 +77,7 @@ struct SearchCache
 [[nodiscard]] std::string EmbedUrl(const std::string& videoId);
 /// The video on YouTube itself, for a UI with no web view.
 [[nodiscard]] std::string WatchUrl(const std::string& videoId);
-/// Whether a page a web view is asked to load is one the player or the scale explorer may show
-/// in place; anything else (a click through to YouTube) goes to the system browser.
+/// Whether a page a web view is asked to load is one the player may show in place; anything else
+/// (a click through to YouTube) goes to the system browser.
 [[nodiscard]] bool StaysInWebView(const std::string& url);
 } // namespace guitarfx::uiclient::jam

@@ -12,7 +12,8 @@ muting tuner never silences the player; Scales mode follows the played note, Cho
 a chroma vector from `dsp/ChromaAnalyzer.h` and a clean strum steps a progression), then phase 5
 (Nano Q: `nanoq/src/ui/ScaleGuidePage.cpp` and `ScaleGuideDraw.cpp` draw the same view model,
 with the web UI's settings and LISTEN rules ported to `core/src/uiclient/ScaleGuide.h`; the Scales
-web view is gone from Nano Q). Phase 6 not started. `ScaleGuideTests --dump <tuning> <key 0-11> <chord>` prints the shapes found, for tuning
+web view is gone from Nano Q), and phase 6 (the scalex links removed: `kScalesUrl`, the
+`StaysInWebView` and `isScalexUrl` cases). The optional audio preview was not built. `ScaleGuideTests --dump <tuning> <key 0-11> <chord>` prints the shapes found, for tuning
 the search's scoring.
 
 ## Why
