@@ -157,6 +157,7 @@
     "setGlobalChainParam",
     "setInputMode",
     "setLayoutImageCategory",
+    "setLayoutImageCredit",
     "setLooper",
     "setLooperLayer",
     "setLoudnessWatch",

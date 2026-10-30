@@ -437,6 +437,102 @@ std::vector<LayoutImageSource> CollectLayoutImageSources(const FileSystem& fileS
     return sources;
 }
 
+bool IsLayoutImageLicense(std::string_view license)
+{
+    static constexpr std::array<std::string_view, 9> kLicenses = {
+        "CC0-1.0",      "CC-BY-4.0",       "CC-BY-SA-4.0", "CC-BY-ND-4.0", "CC-BY-NC-4.0",
+        "CC-BY-NC-SA-4.0", "CC-BY-NC-ND-4.0", "own",          "other"};
+    return std::find(kLicenses.begin(), kLicenses.end(), license) != kLicenses.end();
+}
+
+namespace
+{
+std::filesystem::path ResolveLayoutImageCreditsPath(const FileSystem& fileSystem)
+{
+    return fileSystem.ResolveSettingsDirectory() / "layouts" / "indexes" / "image-credits.json";
+}
+
+/// A credit line as it may be stored: at most 300 bytes, with no control characters.
+bool IsStorableCredit(const std::string& credit)
+{
+    return credit.size() <= 300 &&
+           std::none_of(credit.begin(), credit.end(), [](char c) { return static_cast<unsigned char>(c) < 0x20; });
+}
+} // namespace
+
+std::map<std::string, LayoutImageCredit> LoadLayoutImageCredits(const FileSystem& fileSystem)
+{
+    std::map<std::string, LayoutImageCredit> credits;
+
+    try
+    {
+        std::ifstream input(ResolveLayoutImageCreditsPath(fileSystem));
+        const auto root = nlohmann::json::parse(input, nullptr, false);
+        const auto found = root.is_object() ? root.find("credits") : root.end();
+
+        if (!root.is_object() || found == root.end() || !found->is_object())
+        {
+            return credits;
+        }
+
+        for (const auto& [imageId, entry] : found->items())
+        {
+            if (!entry.is_object())
+            {
+                continue;
+            }
+
+            LayoutImageCredit credit{StringField(entry, "license"), StringField(entry, "credit")};
+
+            if ((credit.license.empty() || IsLayoutImageLicense(credit.license)) && IsStorableCredit(credit.credit))
+            {
+                credits.emplace(imageId, std::move(credit));
+            }
+        }
+    }
+    catch (...)
+    {
+    }
+
+    return credits;
+}
+
+bool SaveLayoutImageCredit(const FileSystem& fileSystem, const std::string& imageId, const LayoutImageCredit& credit)
+{
+    if (imageId.empty() || (!credit.license.empty() && !IsLayoutImageLicense(credit.license)) ||
+        !IsStorableCredit(credit.credit))
+    {
+        return false;
+    }
+
+    nlohmann::json credits = nlohmann::json::object();
+
+    for (const auto& [id, stored] : LoadLayoutImageCredits(fileSystem))
+    {
+        credits[id] = {{"license", stored.license}, {"credit", stored.credit}};
+    }
+
+    if (credit.license.empty() && credit.credit.empty())
+    {
+        credits.erase(imageId);
+    }
+    else
+    {
+        credits[imageId] = {{"license", credit.license}, {"credit", credit.credit}};
+    }
+
+    try
+    {
+        const auto path = ResolveLayoutImageCreditsPath(fileSystem);
+        [[maybe_unused]] const auto ensured = fileSystem.EnsureDirectory(path.parent_path());
+        return util::WriteTextFileAtomic(path, nlohmann::json{{"version", 1}, {"credits", credits}}.dump(2));
+    }
+    catch (...)
+    {
+        return false;
+    }
+}
+
 std::optional<LayoutImageSource> FindIdenticalLayoutImage(const FileSystem& fileSystem,
                                                           const std::filesystem::path& factoryLayoutsDir,
                                                           const std::filesystem::path& file,
@@ -654,6 +750,12 @@ std::vector<std::string> CollectLayoutImageIds(const nlohmann::json& layout)
                             {
                                 add(StringField(*object, key));
                             }
+                        }
+
+                        // A toggle or slider drawn from one strip of frames.
+                        if (const auto strip = object->find("strip"); strip != object->end() && strip->is_object())
+                        {
+                            add(StringField(*strip, "imageId"));
                         }
                     }
                 }

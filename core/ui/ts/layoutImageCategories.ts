@@ -44,6 +44,7 @@ function addLayoutUsage(layout: EffectLayout, usage: Map<string, LayoutImageCate
     use(control.style?.knobImageId, "knob");
     use(control.style?.toggleImage?.onImageId, "switch");
     use(control.style?.toggleImage?.offImageId, "switch");
+    use(control.style?.toggleImage?.strip?.imageId, "switch");
   }
 }
 

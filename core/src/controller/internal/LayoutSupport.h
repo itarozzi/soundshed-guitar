@@ -139,6 +139,24 @@ struct LayoutImageSource
 /// the category is not one IsLayoutImageCategory takes, or the file could not be written.
 bool SaveLayoutImageCategory(const FileSystem& fileSystem, const std::string& imageId, const std::string& category);
 
+/// Where a layout image came from: the licence it was shared under and the credit it asks for.
+struct LayoutImageCredit
+{
+    std::string license;
+    std::string credit;
+};
+
+/// True for a licence the designer offers: the Creative Commons 4.0 licences, CC0, "own" (the
+/// user's own work) and "other".
+[[nodiscard]] bool IsLayoutImageLicense(std::string_view license);
+
+/// The licence and credit recorded for each user image, by id (layouts/indexes/image-credits.json).
+[[nodiscard]] std::map<std::string, LayoutImageCredit> LoadLayoutImageCredits(const FileSystem& fileSystem);
+
+/// Records `credit` for `imageId`, or forgets it when both fields are empty. False for a licence
+/// IsLayoutImageLicense does not take, a credit over 300 bytes, or a file that could not be written.
+bool SaveLayoutImageCredit(const FileSystem& fileSystem, const std::string& imageId, const LayoutImageCredit& credit);
+
 /// Every image a layout can draw on, each id once, in the order the library first lists it.
 /// Ids are shared by every layout, and when two folders hold the same id the later one wins, in
 /// this order: the legacy shared folder, then each indexed layout's folder in index order, then

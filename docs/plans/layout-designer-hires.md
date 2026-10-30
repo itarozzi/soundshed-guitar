@@ -567,6 +567,23 @@ panels:
   - Warnings for a decode over 64 MB, a filmstrip taller than 16,384 px, and
     an image missing from the library.
   - Replace swaps an image everywhere the layout uses it, in one undo step.
+- **Image strips** (`layoutKnobImages.ts`). Strips as knob renderers export
+  them, one image of every frame:
+  - A filmstrip knob counts its own frames and columns when its picture is a
+    strip of square frames, in a column or a row (`squareFrameStrip`).
+  - A toggle can take `toggleImage.strip` (`{imageId, frames, columns?,
+    aspect?}`): off is the first frame, on the last, at the frame's shape.
+  - A slider can take `sliderImage.strip`: the frame for its value, the range
+    input over it unseen; a tall frame runs upwards (`writing-mode`). One
+    document `input` listener moves the frame for drags, the wheel and keys.
+  - Switch and slider frames are seldom square, so their count is set by
+    hand (Strip Frames); the picture gives the layout and frame shape.
+- **Image licence and credit** (`layoutImageCredits.ts`). Each user image can
+  record the licence it was shared under (CC0 and the CC 4.0 licences, own
+  work, other) and a credit line, in Images in this Layout. The engine keeps
+  them in `layouts/indexes/image-credits.json` (`setLayoutImageCredit`), lists
+  them with the image, and an exported layout's manifest carries them back
+  in on import. Nothing shows them in the params panel yet.
 - **Generated control shadows** (`layoutShadows.ts`,
   `layoutDesigner/shadowProperties.ts`). A layout's `controlShadow` is one
   light for the panel: `angle` (where it comes from, 315 = top left),

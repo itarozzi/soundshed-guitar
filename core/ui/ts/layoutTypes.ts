@@ -5,11 +5,11 @@
  * background images, control positioning, and text labels.
  */
 
-import type { LayoutKnobImage } from "./layoutKnobImages.js";
+import type { LayoutImageStrip, LayoutKnobImage } from "./layoutKnobImages.js";
 import type { LayoutImageRendition } from "./layoutRenditions.js";
 import type { LayoutScaling } from "./layoutScaling.js";
 
-export type { LayoutImageRendition, LayoutKnobImage, LayoutScaling };
+export type { LayoutImageRendition, LayoutImageStrip, LayoutKnobImage, LayoutScaling };
 
 /** The light of a layout's generated control shadows; every field is optional (CONTROL_SHADOW_DEFAULTS). */
 export interface LayoutControlShadow {
@@ -49,6 +49,9 @@ export interface LayoutImageRef {
   type?: "background" | "knob" | "switch" | "general";
   /** Shipped with the app: it cannot be refiled under another category. */
   factory?: boolean;
+  /** The licence it was shared under (layoutImageCredits.ts) and the credit it asks for. */
+  license?: string;
+  credit?: string;
 }
 
 /** Background layer configuration */
@@ -130,10 +133,10 @@ export interface LayoutControl {
     toggleHeight?: number;
     /** A knob drawn from images: a turning face or a filmstrip (layoutKnobImages.ts). Wins over knobStyle. */
     knobImage?: LayoutKnobImage;
-    /** A toggle drawn as two pictures, one for off and one for on. */
-    toggleImage?: { onImageId?: string; offImageId?: string };
-    /** A slider drawn with a track picture and a thumb picture. */
-    sliderImage?: { trackImageId?: string; thumbImageId?: string };
+    /** A toggle drawn as two pictures, one for off and one for on, or from a strip, which wins. */
+    toggleImage?: { onImageId?: string; offImageId?: string; strip?: LayoutImageStrip };
+    /** A slider drawn with a track picture and a thumb picture, or from a strip of frames, which wins. */
+    sliderImage?: { trackImageId?: string; thumbImageId?: string; strip?: LayoutImageStrip };
     /** False: this knob or toggle casts no shadow under the layout's controlShadow light. */
     castShadow?: boolean;
   };
@@ -498,6 +501,8 @@ export function visitLayoutImageRefs(
     visitField(style?.toggleImage, "offImageId", `${name}: off`);
     visitField(style?.sliderImage, "trackImageId", `${name}: track`);
     visitField(style?.sliderImage, "thumbImageId", `${name}: thumb`);
+    visitField(style?.toggleImage?.strip, "imageId", `${name}: switch strip`);
+    visitField(style?.sliderImage?.strip, "imageId", `${name}: slider strip`);
   }
   for (const overlay of layout.overlays ?? []) {
     visitField(overlay.style, "imageId", "Rectangle image");

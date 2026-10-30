@@ -7,7 +7,9 @@
  */
 
 import type { LayoutImageCategory } from "../layoutImageCategories.js";
-import type { LayoutControl, LayoutKnobImage, LayoutRectangleOverlay } from "../layoutTypes.js";
+import { squareFrameStrip, stripFor } from "../layoutKnobImages.js";
+import type { LayoutControl, LayoutImageStrip, LayoutKnobImage, LayoutRectangleOverlay } from "../layoutTypes.js";
+import { uiState } from "../state.js";
 import { escapeHtml } from "../utils.js";
 import type { LayoutPropertiesHost } from "./propertiesHost.js";
 
@@ -73,6 +75,22 @@ export function renderKnobImageRows(knobImage: LayoutKnobImage | undefined, opti
   return rows;
 }
 
+/** The library's pixel size for `imageId`, when it knows one. */
+function imageSize(imageId: string | undefined): { width?: number; height?: number } {
+  const image = imageId ? uiState.layoutLibrary?.images.find((img) => img.imageId === imageId) : undefined;
+  return { width: image?.width, height: image?.height };
+}
+
+/** `knobImage` with the frames and columns of its picture, when that is a strip of square frames. */
+function fitFramesToImage(knobImage: LayoutKnobImage): void {
+  const { width, height } = imageSize(knobImage.imageId);
+  const strip = knobImage.mode === "filmstrip" ? squareFrameStrip(width, height) : null;
+  if (!strip) return;
+  knobImage.frames = strip.frames;
+  if (strip.columns > 1) knobImage.columns = strip.columns;
+  else delete knobImage.columns;
+}
+
 /** What holds a knob image: a control's style, or the layout for its knobs' default. */
 interface KnobImageOwner {
   knobImage?: LayoutKnobImage;
@@ -110,9 +128,16 @@ export function bindKnobImageRows(prefix: string, edit: (change: (owner: KnobIma
     // Start from the knob's custom face, if it had one, so switching on keeps the picture.
     const imageId = owner.knobImage?.imageId ?? owner.knobImageId ?? "";
     owner.knobImage = { ...(owner.knobImage ?? {}), mode, imageId, ...(mode === "filmstrip" ? { frames: owner.knobImage?.frames ?? 64 } : {}) } as LayoutKnobImage;
+    fitFramesToImage(owner.knobImage);
   }, true));
 
-  onKnobImage("image", (knobImage, select) => { knobImage.imageId = select.value; });
+  // A filmstrip counts its own frames when it is a strip of square frames; the rows show them.
+  const imageSelect = document.getElementById(`${prefix}-image`) as HTMLSelectElement | null;
+  imageSelect?.addEventListener("change", () => edit((owner) => {
+    if (!owner.knobImage) return;
+    owner.knobImage.imageId = imageSelect.value;
+    fitFramesToImage(owner.knobImage);
+  }, true));
   onKnobImage("base", (knobImage, select) => setOrDelete(knobImage, "baseImageId", select.value || undefined));
   onKnobImage("glare", (knobImage, select) => setOrDelete(knobImage, "glareImageId", select.value || undefined));
   onNumber("frames", "frames", 2, 1024);
@@ -123,6 +148,12 @@ export function bindKnobImageRows(prefix: string, edit: (change: (owner: KnobIma
     if (input.checked) delete knobImage.clip;
     else knobImage.clip = false;
   });
+}
+
+/** A strip's picture and, once it has one, its frame count. */
+function stripRows(id: string, label: string, strip: LayoutImageStrip | undefined, options: ImageOptions, purpose: LayoutImageCategory, framesTitle: string): string {
+  return imageRow(id, label, strip?.imageId, options, purpose)
+    + (strip ? numberRow(`${id}-frames`, "Strip Frames", strip.frames, "2", 2, 1024, 1, framesTitle) : "");
 }
 
 /** The group's markup for `control`, or empty for a resource selector. */
@@ -136,10 +167,14 @@ export function renderControlImageGroup(control: LayoutControl, isResource: bool
     rows += numberRow("prop-ci-toggle-height", "Height", style.toggleHeight, "20", 8, 512);
     rows += imageRow("prop-ci-toggle-off", "Off Image", style.toggleImage?.offImageId, options, "switch");
     rows += imageRow("prop-ci-toggle-on", "On Image", style.toggleImage?.onImageId, options, "switch");
+    rows += stripRows("prop-ci-toggle-strip", "Switch Strip", style.toggleImage?.strip, options, "switch",
+      "Frames in the strip: off is the first, on the last");
   } else if (control.type === "slider") {
     rows += numberRow("prop-ci-slider-length", "Length", style.sliderLength, "80", 24, 2048, 8);
     rows += imageRow("prop-ci-slider-track", "Track Image", style.sliderImage?.trackImageId, options, "general");
     rows += imageRow("prop-ci-slider-thumb", "Thumb Image", style.sliderImage?.thumbImageId, options, "general");
+    rows += stripRows("prop-ci-slider-strip", "Slider Strip", style.sliderImage?.strip, options, "general",
+      "Frames in the strip, first at the bottom of the travel; set it to the number the strip was rendered with");
   } else {
     rows += numberRow("prop-ci-knob-diameter", "Diameter", style.knobDiameter, "38", 16, 512, 1, "Knob size in px; empty is the standard 38 px");
     rows += renderKnobImageRows(style.knobImage, options, "prop-ci-knob", layoutHasKnobImage ? "Layout's knob" : "None");
@@ -191,6 +226,39 @@ export function bindControlImageGroup(control: LayoutControl, host: LayoutProper
   onImage("prop-ci-toggle-off", (style, id) => pair(style, "toggleImage", "offImageId", id));
   onImage("prop-ci-slider-track", (style, id) => pair(style, "sliderImage", "trackImageId", id));
   onImage("prop-ci-slider-thumb", (style, id) => pair(style, "sliderImage", "thumbImageId", id));
+
+  // A strip takes its layout and frame shape from its picture. Its frames are counted by hand:
+  // a switch's or slider's frames are seldom square, so the picture's shape cannot count them.
+  // A toggle's starts at two, a slider's at 64, and a new picture keeps the count.
+  const stripOwner = (style: NonNullable<LayoutControl["style"]>, key: "toggleImage" | "sliderImage") =>
+    (style[key] ??= {}) as { strip?: LayoutImageStrip };
+  const tidy = (style: NonNullable<LayoutControl["style"]>, key: "toggleImage" | "sliderImage") => {
+    if (!Object.values(style[key] ?? {}).some(Boolean)) delete style[key];
+  };
+  const bindStrip = (id: string, key: "toggleImage" | "sliderImage", defaultFrames: number) => {
+    const select = document.getElementById(id) as HTMLSelectElement | null;
+    select?.addEventListener("change", () => edit((style) => {
+      const owner = stripOwner(style, key);
+      const imageId = select.value;
+      if (!imageId) delete owner.strip;
+      else {
+        const { width, height } = imageSize(imageId);
+        const frames = owner.strip?.frames ?? defaultFrames;
+        owner.strip = stripFor(imageId, width, height, frames);
+      }
+      tidy(style, key);
+    }, true));
+    const framesInput = document.getElementById(`${id}-frames`) as HTMLInputElement | null;
+    framesInput?.addEventListener("change", () => edit((style) => {
+      const owner = stripOwner(style, key);
+      const frames = parseInt(framesInput.value, 10);
+      if (!owner.strip || !Number.isFinite(frames)) return;
+      const { width, height } = imageSize(owner.strip.imageId);
+      owner.strip = stripFor(owner.strip.imageId, width, height, Math.max(2, Math.min(1024, frames)));
+    }));
+  };
+  bindStrip("prop-ci-toggle-strip", "toggleImage", 2);
+  bindStrip("prop-ci-slider-strip", "sliderImage", 64);
 
   bindKnobImageRows("prop-ci-knob", (change, rerenderSidebar) => edit((style) => change(style), rerenderSidebar));
 }

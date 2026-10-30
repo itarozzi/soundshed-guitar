@@ -14,7 +14,7 @@ import { formatParamValue } from "./paramValueFormat.js";
 // Shared with the signal-path renderer and the designer preview, which import it from here.
 export { formatParamValue };
 import { backgroundImageDrawnWidth, ensureLayoutImagesLoaded, knobFaceDrawnWidth, layoutLargestScale, resolveLayoutImageUrl } from "./layoutImages.js";
-import { DEFAULT_KNOB_DIAMETER, imageKnob, imageToggle, knobDiameter, layoutSize, overlayImageStyle, sliderAttributes, styledKnobSizeStyle, withLayoutKnobImage, type ImageCssResolver } from "./layoutControlImages.js";
+import { DEFAULT_KNOB_DIAMETER, imageKnob, imageToggle, imageToggleSize, knobDiameter, overlayImageStyle, sliderAttributes, stripSlider, styledKnobSizeStyle, withLayoutKnobImage, type ImageCssResolver } from "./layoutControlImages.js";
 import { knobShadowSvg, toggleShadowSvg, usableControlShadow } from "./layoutShadows.js";
 import { defaultControlsPanelClass, layoutDefaultControlsHtml } from "./layoutDefaultControls.js";
 import { layoutCanGrow, scalingAttribute } from "./layoutScaling.js";
@@ -534,9 +534,8 @@ function renderControls(
         const checked = value >= 0.5;
         const toggleImage = imageToggle(control.style, resolveImage);
         // An image toggle is drawn at its own size; the standard switch is 36 x 20.
-        const shadow = castsShadow && light ? toggleShadowSvg(light,
-          toggleImage ? layoutSize(control.style?.toggleWidth, 8, 512) ?? 36 : 36,
-          toggleImage ? layoutSize(control.style?.toggleHeight, 8, 512) ?? 20 : 20) : "";
+        const toggleSize = toggleImage ? imageToggleSize(control.style) : { width: 36, height: 20 };
+        const shadow = castsShadow && light ? toggleShadowSvg(light, toggleSize.width, toggleSize.height) : "";
         shadowed = shadow !== "";
         controlHtml += `
           <label class="toggle-switch${toggleImage ? " custom-image-toggle" : ""}"${toggleImage ? ` style="${escapeHtml(toggleImage.style)}"` : ""}>
@@ -547,7 +546,9 @@ function renderControls(
       } else if (control.type === "slider" && taper === "log") {
         // A log-taper slider runs over its travel, 0..1; bindNodeParamControls maps it back
         // through data-min/data-max. Unstepped, so a drag is as smooth as a knob's.
-        controlHtml += `
+        const position = valueToTaperPosition(value, min ?? 0, max ?? 1, taper);
+        const strip = stripSlider(control.style, position, resolveImage);
+        controlHtml += `${strip?.open ?? ""}
           <input
             type="range"
             class="custom-layout-slider node-param-slider"
@@ -561,13 +562,14 @@ function renderControls(
             min="0"
             max="1"
             step="any"
-            ${sliderAttributes(control.style, resolveImage)}
-            value="${valueToTaperPosition(value, min ?? 0, max ?? 1, taper)}"
-          >
+            ${strip ? strip.attributes : sliderAttributes(control.style, resolveImage)}
+            value="${position}"
+          >${strip?.close ?? ""}
         `;
       } else if (control.type === "slider") {
-        // Slider
-        controlHtml += `
+        // A strip slider shows the frame for its value, the input laid over it unseen.
+        const strip = stripSlider(control.style, (max ?? 1) > (min ?? 0) ? (value - (min ?? 0)) / ((max ?? 1) - (min ?? 0)) : 0, resolveImage);
+        controlHtml += `${strip?.open ?? ""}
           <input
             type="range"
             class="custom-layout-slider node-param-slider"
@@ -581,8 +583,8 @@ function renderControls(
             value="${value}"
             ${isEnum ? `data-labels="${escapeHtml(labels?.join("|") ?? "")}"` : ""}
             ${blendAttrs}
-            ${sliderAttributes(control.style, resolveImage)}
-          >
+            ${strip ? strip.attributes : sliderAttributes(control.style, resolveImage)}
+          >${strip?.close ?? ""}
         `;
       } else {
         // Knob. A knobImage (a turning face or a filmstrip), its own or the layout's, wins; without

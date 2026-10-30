@@ -370,7 +370,7 @@ export class LayoutStore {
 
     // Add referenced images to zip
     const imagesFolder = zip.folder("images");
-    const imageManifest: Array<{ imageId: string; fileName: string; type?: string }> = [];
+    const imageManifest: Array<{ imageId: string; fileName: string; type?: string; license?: string; credit?: string }> = [];
 
     if (imagesFolder) {
       const images = uiState.layoutLibrary?.images ?? [];
@@ -394,10 +394,13 @@ export class LayoutStore {
         const fileName = img.fileName || `${imageId}.${ext}`;
 
         imagesFolder.file(fileName, await blob.arrayBuffer());
+        // The licence and credit go with the picture.
         imageManifest.push({
           imageId: img.imageId,
           fileName,
           type: img.type,
+          ...(img.license ? { license: img.license } : {}),
+          ...(img.credit ? { credit: img.credit } : {}),
         });
       }
     }
@@ -486,6 +489,8 @@ export class LayoutStore {
           fileName: image.fileName,
           dataUrl: image.dataUrl,
           type: image.type,
+          license: image.license,
+          credit: image.credit,
         });
         postMessage({
           type: "saveLayoutImage",
@@ -493,8 +498,10 @@ export class LayoutStore {
           fileName: image.fileName,
           data: image.base64,
           layoutId: current.layoutId,
-          // The engine files the image under the category the archive gives it.
+          // The engine files the image under the category the archive gives it, with its credit.
           category: image.type,
+          license: image.license,
+          credit: image.credit,
         });
       }
 

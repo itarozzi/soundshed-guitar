@@ -460,6 +460,13 @@ void PluginController::HandleSaveLayoutImageRequest(const nlohmann::json& payloa
             [[maybe_unused]] const auto filed = SaveLayoutImageCategory(mFileSystem, imageId, category);
         }
 
+        // The licence and credit the archive carries go with the image.
+        if (const LayoutImageCredit credit{payload.value("license", ""), payload.value("credit", "")};
+            !credit.license.empty() || !credit.credit.empty())
+        {
+            [[maybe_unused]] const auto credited = SaveLayoutImageCredit(mFileSystem, imageId, credit);
+        }
+
         AppendSessionLog("Layout image saved from import: " + util::PathToUtf8(destPath));
     }
     else
@@ -678,6 +685,7 @@ nlohmann::json PluginController::BuildLayoutImages()
 {
     nlohmann::json images = nlohmann::json::array();
     const auto categories = LoadLayoutImageCategories(mFileSystem);
+    const auto credits = LoadLayoutImageCredits(mFileSystem);
 
     // One entry per id, resolved as every other reader of an image id resolves it.
     for (const auto& source :
@@ -699,6 +707,12 @@ nlohmann::json PluginController::BuildLayoutImages()
         if (source.factory)
         {
             entry["factory"] = true;
+        }
+
+        if (const auto credit = credits.find(source.imageId); credit != credits.end())
+        {
+            entry["license"] = credit->second.license;
+            entry["credit"] = credit->second.credit;
         }
 
         images.push_back(std::move(entry));
@@ -769,6 +783,17 @@ void PluginController::HandleSetLayoutImageCategoryRequest(const nlohmann::json&
     }
 
     AppendSessionLog("Layout image " + imageId + " filed under " + category);
+}
+
+void PluginController::HandleSetLayoutImageCreditRequest(const nlohmann::json& payload)
+{
+    const std::string imageId = payload.value("imageId", "");
+    const LayoutImageCredit credit{payload.value("license", ""), payload.value("credit", "")};
+
+    if (!SaveLayoutImageCredit(mFileSystem, imageId, credit))
+    {
+        AppendSessionLog("SetLayoutImageCredit: could not record the credit for " + imageId);
+    }
 }
 
 void PluginController::HandleSaveLayoutImageRenditionRequest(const nlohmann::json& payload)
