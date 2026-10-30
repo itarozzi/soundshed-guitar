@@ -303,6 +303,8 @@ void PluginController::HandleBrowseLayoutImageRequest(const nlohmann::json& payl
     const int layerIndex = payload.value("layerIndex", 0);
     const std::string paramKey = payload.value("paramKey", "");
     const std::string layoutId = payload.value("layoutId", "");
+    // An image picker's own request, echoed so the reply goes back to that picker.
+    const std::string pickerId = payload.value("pickerId", "");
 
     // An image goes in the folder of the layout it is for. Without an id it would land in the
     // legacy shared folder, which the loader only reads for old layouts' sake.
@@ -314,7 +316,7 @@ void PluginController::HandleBrowseLayoutImageRequest(const nlohmann::json& payl
 
     mHost.BrowseFileAsync(
         BrowseFileType::ImageFile, "Select Image",
-        [this, purpose, layerIndex, paramKey, layoutId](const BrowseFileResult& result) {
+        [this, purpose, layerIndex, paramKey, layoutId, pickerId](const BrowseFileResult& result) {
             if (!result.success)
             {
                 return;
@@ -352,6 +354,12 @@ void PluginController::HandleBrowseLayoutImageRequest(const nlohmann::json& payl
                 message["purpose"] = purpose;
                 message["layerIndex"] = layerIndex;
                 message["paramKey"] = paramKey;
+
+                if (!pickerId.empty())
+                {
+                    message["pickerId"] = pickerId;
+                }
+
                 SendMessageToUI(message.dump());
             };
 

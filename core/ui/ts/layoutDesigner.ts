@@ -238,7 +238,7 @@ export class LayoutDesignerModal {
     this.controlsLayer = document.getElementById("layout-designer-controls");
     this.sidebar = document.getElementById("layout-designer-sidebar");
     this.sidebarContent = document.getElementById("layout-designer-sidebar-content");
-    if (this.sidebarContent) watchSidebar(this.sidebarContent);
+    if (this.sidebarContent) watchSidebar(this.sidebarContent, () => this.layout?.layoutId ?? "");
     this.layersList = document.getElementById("layout-designer-layers");
     bindLayersList(this.layersList, this.layersHost);
 

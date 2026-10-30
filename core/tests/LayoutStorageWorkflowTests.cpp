@@ -903,9 +903,17 @@ bool TestImageCategoriesAreFiledListedAndShipped()
     WriteBytes(wood, PngOfSize(400, 280, 60));
     host.SetBrowsePath(wood);
     controller.HandleUIMessage(
-        nlohmann::json{{"type", "browseLayoutImage"}, {"purpose", "background"}, {"layoutId", "A"}}.dump());
+        nlohmann::json{{"type", "browseLayoutImage"}, {"purpose", "background"}, {"layoutId", "A"}, {"pickerId", "picker-7"}}
+            .dump());
     const auto selected = host.WaitForMessage("layoutImageSelected");
     const std::string woodId = selected ? selected->value("imageId", "") : std::string();
+
+    // An image picker's request id comes back, so the image goes to the picker that asked.
+    if (!selected || selected->value("pickerId", "") != "picker-7")
+    {
+        std::cerr << "The picker's request id did not come back with the image\n";
+        return false;
+    }
     // The library lists a layout's images once the layout is saved.
     SaveLayout(controller, "A", "fx_a", {woodId});
 

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as bridge from "../ts/bridge.js";
-import { enhanceImageSelects } from "../ts/layoutDesigner/imagePicker.js";
+import { enhanceImageSelects, setImagePickerBrowse } from "../ts/layoutDesigner/imagePicker.js";
 import { imageOptionsHtml } from "../ts/layoutDesigner/images.js";
 import { watchSidebar } from "../ts/layoutDesigner/sidebarEnhancements.js";
 import type { LayoutImageRef } from "../ts/layoutTypes.js";
@@ -229,5 +229,33 @@ describe("image categories", () => {
   it("takes the category the engine filed a browsed image under", () => {
     onLayoutImageSelected({ type: "layoutImageSelected", purpose: "knob", imageId: "new", fileName: "new.png", url: "u/new", category: "knob" });
     expect(uiState.layoutLibrary!.images.find((image) => image.imageId === "new")?.type).toBe("knob");
+  });
+});
+
+describe("Browse…", () => {
+  afterEach(() => setImagePickerBrowse(null));
+
+  it("asks for a file filed under the open category, then picks the image it brings in that list", () => {
+    const browse = vi.fn();
+    setImagePickerBrowse(browse);
+    uiState.layoutLibrary = { byEffectType: {}, defaults: {}, images: IMAGES.map((image) => ({ ...image })) };
+    const select = mountSelect("cap");
+    const onChange = vi.fn(() => select.value);
+    select.addEventListener("change", onChange);
+    const picker = open();
+    picker.querySelector<HTMLElement>(".layout-image-picker-browse")!.click();
+    expect(picker.open).toBe(false);
+    expect(browse).toHaveBeenCalledWith("knob", expect.stringMatching(/^picker-/));
+    const pickerId = browse.mock.calls[0][1] as string;
+
+    onLayoutImageSelected({ type: "layoutImageSelected", purpose: "knob", pickerId, imageId: "new_1", fileName: "new_1.png", url: "layout-images/id/new_1?v=1", category: "knob" });
+    expect(onChange).toHaveReturnedWith("new_1");
+    expect(uiState.layoutLibrary!.images.some((image) => image.imageId === "new_1")).toBe(true);
+    expect(document.querySelector(".layout-image-picker-selected .layout-image-picker-name")?.textContent).toBe("new_1.png");
+  });
+
+  it("is offered only when the designer can browse", () => {
+    mountSelect();
+    expect(open().querySelector(".layout-image-picker-browse")).toBeNull();
   });
 });
