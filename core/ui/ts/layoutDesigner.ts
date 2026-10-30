@@ -10,7 +10,7 @@ import { CanvasProperties } from "./layoutDesigner/canvasProperties.js";
 import { LayoutStore } from "./layoutDesigner/layoutStore.js";
 import { ElementProperties } from "./layoutDesigner/elementProperties.js";
 import { getLayoutImageUrl, imageOptionsHtml, reusableLayoutImages } from "./layoutDesigner/images.js";
-import { watchImageSelects } from "./layoutDesigner/imagePicker.js";
+import { watchSidebar } from "./layoutDesigner/sidebarEnhancements.js";
 import { isDialogOpen, showConfirm } from "./dialogs.js";
 import type { CopiedTextLabelPayload, DragState, LayoutResourceCandidate, SelectedElement } from "./layoutDesigner/types.js";
 import { ensureLayoutImagesLoaded } from "./layoutImages.js";
@@ -238,7 +238,7 @@ export class LayoutDesignerModal {
     this.controlsLayer = document.getElementById("layout-designer-controls");
     this.sidebar = document.getElementById("layout-designer-sidebar");
     this.sidebarContent = document.getElementById("layout-designer-sidebar-content");
-    if (this.sidebarContent) watchImageSelects(this.sidebarContent);
+    if (this.sidebarContent) watchSidebar(this.sidebarContent);
     this.layersList = document.getElementById("layout-designer-layers");
     bindLayersList(this.layersList, this.layersHost);
 

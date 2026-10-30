@@ -429,6 +429,47 @@
   margin-bottom: 8px;
 }
 
+/* Groups that fold on their title (collapsibleGroups.ts): a chevron, down while open. */
+.layout-property-group-title[data-collapsible] {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  user-select: none;
+  border-radius: var(--radius-sm);
+}
+
+.layout-property-group-title[data-collapsible]::before {
+  content: "";
+  flex: 0 0 auto;
+  width: 5px;
+  height: 5px;
+  margin: 0 2px 2px 1px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(45deg);
+  transition: transform 0.15s;
+}
+
+.layout-property-group-title[data-collapsible]:hover,
+.layout-property-group-title[data-collapsible]:focus-visible {
+  outline: none;
+  color: var(--ld-text);
+}
+
+.layout-property-group.is-collapsed > .layout-property-group-title {
+  margin-bottom: 0;
+}
+
+.layout-property-group.is-collapsed > .layout-property-group-title::before {
+  margin: 0 3px 0 0;
+  transform: rotate(-45deg);
+}
+
+.layout-property-group.is-collapsed > :not(.layout-property-group-title) {
+  display: none;
+}
+
 .layout-property-row {
   display: flex;
   align-items: center;

@@ -289,12 +289,3 @@ export function enhanceImageSelects(root: ParentNode): void {
     if (!select.dataset[BOUND] && isImageSelect(select)) enhance(select);
   });
 }
-
-/**
- * Keep `root`'s image selects enhanced however its content is replaced: the sidebar is rendered
- * from many places, and some re-render only part of it.
- */
-export function watchImageSelects(root: HTMLElement): void {
-  enhanceImageSelects(root);
-  new MutationObserver(() => enhanceImageSelects(root)).observe(root, { childList: true, subtree: true });
-}

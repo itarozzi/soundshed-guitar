@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as bridge from "../ts/bridge.js";
-import { enhanceImageSelects, watchImageSelects } from "../ts/layoutDesigner/imagePicker.js";
+import { enhanceImageSelects } from "../ts/layoutDesigner/imagePicker.js";
 import { imageOptionsHtml } from "../ts/layoutDesigner/images.js";
+import { watchSidebar } from "../ts/layoutDesigner/sidebarEnhancements.js";
 import type { LayoutImageRef } from "../ts/layoutTypes.js";
 import { layoutImageCategory, layoutImageUsage } from "../ts/layoutImageCategories.js";
 import { onLayoutImageSelected } from "../ts/messages/layoutHandlers.js";
@@ -112,7 +113,7 @@ describe("image picker", () => {
   it("enhances selects rendered into a watched container later", async () => {
     const root = document.createElement("div");
     document.body.append(root);
-    watchImageSelects(root);
+    watchSidebar(root);
     root.innerHTML = `<select>${imageOptionsHtml("knob", "strip")}</select>`;
     await Promise.resolve();
     expect(root.querySelector("details.layout-image-picker .layout-image-picker-name")?.textContent).toBe("strip.png");
