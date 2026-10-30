@@ -1,0 +1,17 @@
+diff --git a/lib/host/macos/base_view.mm b/lib/host/macos/base_view.mm
+index 1372a08c..1ba1157f 100755
+--- a/lib/host/macos/base_view.mm
++++ b/lib/host/macos/base_view.mm
+@@ -479,8 +479,11 @@ - (void) elements_init : (ph::base_view*) view_
+ 
+    _view = view_;
+    _start = true;
++   // Every 10 ms, as before 1.0: a 1 ms timer wakes the main thread 1,000
++   // times a second to poll an io_context that is idle almost all of that
++   // time, ~6% of a core on an idle window.
+    _task =
+-      [NSTimer scheduledTimerWithTimeInterval : 0.001 // 1 millisecond quanta
++      [NSTimer scheduledTimerWithTimeInterval : 0.01
+            target : self
+          selector : @selector(on_tick:)
+          userInfo : nil

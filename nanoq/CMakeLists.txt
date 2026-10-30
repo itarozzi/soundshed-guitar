@@ -63,23 +63,23 @@ if(NANOQ_IOS)
 endif()
 FetchContent_Declare(q
     GIT_REPOSITORY https://github.com/cycfi/q.git
-    GIT_TAG a08c4ca573bb92346ed616bdb6f850c864f59ab4
+    GIT_TAG efe26114f39e4a78bd67c1456a25487d356fb910 # v1.5.4
     ${_nanoq_q_patch})
 
-# Elements is Q's to fetch (q_plug/CMakeLists.txt). Nano Q declares it first, at the same commit
-# and with the same options, to patch it: the first declaration of a name is the one FetchContent
-# uses. When Q's pin moves, move this with it. Every build takes patches/elements-input-redraws.patch:
-# a click no longer redraws the whole window, nor a press or a pointer move over a scroller's
-# content the whole scrolled area (on iOS, where Quartz draws on the CPU, each tap cost two
-# whole-window draws and each touch move one of the editor). And patches/elements-quill-idle-sleep.patch:
-# Elements started its logging backend with quill's 500 ns idle sleep, which macOS honours, so the
-# thread woke ~100,000 times a second and took ~60% of a core with nothing to log. An iOS build
-# takes Artist's patch too.
+# Elements is Q's to fetch (q_plug/CMakeLists.txt). Nano Q declares it first, with the same
+# options, to patch it: the first declaration of a name is the one FetchContent uses. Q v1.5.4
+# pins Elements' q-v1.5.3 branch; Nano Q takes Elements' own release instead, v1.0.2, for the
+# fixes since (among them quill's idle sleep, which at 500 ns took ~60% of a core on macOS).
+# Every build takes patches/elements-input-redraws.patch: a click no longer redraws the whole
+# window, nor a press over a scroller's content the whole scrolled area (on iOS, where Quartz
+# draws on the CPU, each tap cost two whole-window draws). And patches/elements-macos-tick.patch:
+# 1.0 polls a macOS view every 1 ms instead of 10, which cost ~6% of a core with the window idle.
+# An iOS build takes Artist's patch too.
 set(_nanoq_elements_patch PATCH_COMMAND ${CMAKE_COMMAND}
     -DPATCH=${CMAKE_CURRENT_SOURCE_DIR}/patches/elements-input-redraws.patch
     -P ${CMAKE_CURRENT_SOURCE_DIR}/ios/cmake/ApplyPatch.cmake
     COMMAND ${CMAKE_COMMAND}
-    -DPATCH=${CMAKE_CURRENT_SOURCE_DIR}/patches/elements-quill-idle-sleep.patch
+    -DPATCH=${CMAKE_CURRENT_SOURCE_DIR}/patches/elements-macos-tick.patch
     -P ${CMAKE_CURRENT_SOURCE_DIR}/ios/cmake/ApplyPatch.cmake)
 if(NANOQ_IOS)
     list(APPEND _nanoq_elements_patch COMMAND ${CMAKE_COMMAND}
@@ -88,7 +88,7 @@ if(NANOQ_IOS)
 endif()
 FetchContent_Declare(cycfi_elements
     GIT_REPOSITORY https://github.com/cycfi/elements.git
-    GIT_TAG 046ec674e249817b8712c25826ce4e1f3c60b74a
+    GIT_TAG fa180799a4c80d4cd70850c700df766f62917de7 # v1.0.2
     GIT_SUBMODULES lib/artist
     GIT_SUBMODULES_RECURSE OFF
     SOURCE_SUBDIR do-not-add

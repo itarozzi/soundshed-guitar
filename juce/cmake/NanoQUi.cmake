@@ -13,20 +13,17 @@ endif()
 include(FetchContent)
 set(_nanoq_dir "${CMAKE_CURRENT_SOURCE_DIR}/../nanoq")
 
-# Elements at Nano Q's pin, with the patches Nano Q builds it with (nanoq/CMakeLists.txt). Each
+# Elements at Nano Q's pin, with Nano Q's input-redraws patch (nanoq/CMakeLists.txt). Each
 # binary compiles Elements' host layer itself (ELEMENTS_HOST_IN_CONSUMER), as QPlug does, so its
 # window class carries this product's name.
 FetchContent_Declare(cycfi_elements
     GIT_REPOSITORY https://github.com/cycfi/elements.git
-    GIT_TAG 046ec674e249817b8712c25826ce4e1f3c60b74a
+    GIT_TAG fa180799a4c80d4cd70850c700df766f62917de7 # v1.0.2
     GIT_SUBMODULES lib/artist
     GIT_SUBMODULES_RECURSE OFF
     SOURCE_SUBDIR do-not-add
     PATCH_COMMAND ${CMAKE_COMMAND}
         -DPATCH=${_nanoq_dir}/patches/elements-input-redraws.patch
-        -P ${_nanoq_dir}/ios/cmake/ApplyPatch.cmake
-    COMMAND ${CMAKE_COMMAND}
-        -DPATCH=${_nanoq_dir}/patches/elements-quill-idle-sleep.patch
         -P ${_nanoq_dir}/ios/cmake/ApplyPatch.cmake)
 FetchContent_MakeAvailable(cycfi_elements)
 

@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <optional>
 
 namespace nanoq::ui
 {
@@ -57,7 +58,7 @@ template <el::concepts::Element Subject> class ScaledElement : public el::proxy<
     {
         auto& cnv = ctx.canvas;
         const auto b = ctx.bounds;
-        cnv.save();
+        mState.emplace(cnv);
         cnv.translate(b.left, b.top);
         cnv.scale(mSx, mSy);
         ctx.bounds = el::rect{0.0f, 0.0f, b.width() / mSx, b.height() / mSy};
@@ -81,12 +82,14 @@ template <el::concepts::Element Subject> class ScaledElement : public el::proxy<
 
     void restore_subject(el::context& ctx) override
     {
-        ctx.canvas.restore();
+        mState.reset();
     }
 
   private:
     float mSx, mSy, mRadius;
     bool mDrawing = false;
+    // Pushed in prepare_subject and popped in restore_subject, so held in between.
+    std::optional<el::canvas::state> mState;
 };
 
 Ptr Scaled(Ptr content, float sx, float sy, float radius)

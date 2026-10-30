@@ -775,19 +775,57 @@ namespace cycfi::elements
          invalidate_rect : CGRectMake(area.left, area.top, area.width(), area.height())];
    }
 
-   std::string clipboard()
+   // Nothing is dropped on the view (no UIDropInteraction), so the types
+   // are only kept, for accepted_drop_types.
+   void base_view::accept_drop_types(mime_types const& types)
    {
-      NSString* text = [UIPasteboard generalPasteboard].string;
-      return text? std::string{[text UTF8String]} : std::string{};
+      _drop_types = types;
    }
 
-   void clipboard(std::string_view text)
+   // The keyboard is UIKit's, with no composition drawn in the view, so
+   // there is no caret to place anything at.
+   void base_view::text_caret(rect /* bounds */)
    {
+   }
+
+   // The clipboard is the general pasteboard, and holds text only.
+   std::vector<std::string> clipboard_types()
+   {
+      if ([UIPasteboard generalPasteboard].hasStrings)
+         return {"text/plain"};
+      return {};
+   }
+
+   bool clipboard_contains(std::string_view mime_type)
+   {
+      return mime_type == "text/plain" && [UIPasteboard generalPasteboard].hasStrings;
+   }
+
+   payload get_clipboard(mime_types const& types)
+   {
+      payload data;
+      if (types.count("text/plain"))
+      {
+         if (NSString* text = [UIPasteboard generalPasteboard].string)
+            data["text/plain"] = std::string{[text UTF8String]};
+      }
+      return data;
+   }
+
+   // Replaces what the pasteboard holds, as on the other hosts, with the
+   // payload's text (and empties it for a payload with none).
+   void set_clipboard(payload const& data)
+   {
+      auto* pasteboard = [UIPasteboard generalPasteboard];
+      pasteboard.items = @[];
+      if (!contains_plain_text(data))
+         return;
+      auto const text = get_plain_text(data);
       NSString* str = [[NSString alloc] initWithBytes : text.data()
                                                length : text.size()
                                              encoding : NSUTF8StringEncoding];
       if (str)
-         [UIPasteboard generalPasteboard].string = str;
+         pasteboard.string = str;
    }
 
    // No cursor to set on a touch screen. (An iPad's pointer takes its shape

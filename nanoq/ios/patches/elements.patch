@@ -1,5 +1,5 @@
 diff --git a/lib/artist/CMakeLists.txt b/lib/artist/CMakeLists.txt
-index 1a296b8..b3003ae 100644
+index d1bbda6..313cfca 100644
 --- a/lib/artist/CMakeLists.txt
 +++ b/lib/artist/CMakeLists.txt
 @@ -132,7 +132,9 @@ if (MSVC AND ARTIST_DIRECT2D AND MSVC_VERSION LESS 1944)
@@ -14,7 +14,7 @@ index 1a296b8..b3003ae 100644
        set(CMAKE_OSX_ARCHITECTURES ${CMAKE_SYSTEM_PROCESSOR})
     endif()
 diff --git a/lib/artist/lib/impl/macos/quartz2d/canvas.mm b/lib/artist/lib/impl/macos/quartz2d/canvas.mm
-index 86d06ed..6fadf04 100755
+index 0d8d29e..26fdc50 100755
 --- a/lib/artist/lib/impl/macos/quartz2d/canvas.mm
 +++ b/lib/artist/lib/impl/macos/quartz2d/canvas.mm
 @@ -6,7 +6,7 @@
@@ -23,10 +23,10 @@ index 86d06ed..6fadf04 100755
  #include <artist/detail/font_cache.hpp>
 -#include <Quartz/Quartz.h>
 +#include "quartz.hpp"
+ #include <Accelerate/Accelerate.h>
+ #include <cmath>
  #include <stack>
- #include <variant>
- #include "osx_utils.hpp"
-@@ -706,18 +706,15 @@ void round_rect(canvas& c, rect bounds, float radius)
+@@ -961,18 +961,15 @@ void round_rect(canvas& c, rect bounds, float radius)
        // Quartz takes the shadow in base space: pixels for a bitmap context,
        // points for a window. Scale a bitmap's to the image's units.
        auto k = CGBitmapContextGetWidth(ctx) != 0? _state->scale() : 1.0f;
@@ -52,8 +52,8 @@ index 86d06ed..6fadf04 100755
 +      CGColorRelease(color);
     }
  
-    void canvas::global_composite_operation(composite_op_enum mode)
-@@ -794,9 +791,11 @@ CTLineRef measure_text(
+    void canvas::blur_style(float radius)
+@@ -1057,9 +1054,11 @@ CTLineRef measure_text(
         , CGFloat& width, CGFloat& ascent, CGFloat& descent, CGFloat& leading
        )
        {
@@ -81,7 +81,7 @@ index 163c51b..1b05f34 100644
  #include <algorithm>
  #include <cmath>
 diff --git a/lib/artist/lib/impl/macos/quartz2d/font.mm b/lib/artist/lib/impl/macos/quartz2d/font.mm
-index c320d0b..d297379 100644
+index 2f4905c..9fe6c3e 100644
 --- a/lib/artist/lib/impl/macos/quartz2d/font.mm
 +++ b/lib/artist/lib/impl/macos/quartz2d/font.mm
 @@ -5,7 +5,7 @@
@@ -232,7 +232,7 @@ index c320d0b..d297379 100644
     }
  
     font::font()
-@@ -133,6 +258,39 @@ font_impl_ptr make_font_impl(font_descr const& descr)
+@@ -133,6 +258,43 @@ font_impl_ptr make_font_impl(font_descr const& descr)
        return *this;
     }
  
@@ -241,6 +241,8 @@ index c320d0b..d297379 100644
 +   // UIKit's on iOS, and Artist does not link it.
 +   font::metrics_info font::metrics() const
 +   {
++      if (!_ptr)
++         return {};
 +      auto font = CTFontRef(_ptr);
 +      return {
 +         float(CTFontGetAscent(font)),
@@ -251,6 +253,8 @@ index c320d0b..d297379 100644
 +
 +   float font::measure_text(std::string_view str) const
 +   {
++      if (!_ptr)
++         return 0;
 +      auto text = detail::cf_string(str);
 +      if (!text)
 +         return 0;   // not UTF-8
@@ -271,8 +275,8 @@ index c320d0b..d297379 100644
 +#else
     font::metrics_info font::metrics() const
     {
-       NSFont* font = (__bridge NSFont*) _ptr;
-@@ -151,6 +309,7 @@ font_impl_ptr make_font_impl(font_descr const& descr)
+       if (!_ptr)
+@@ -155,6 +317,7 @@ font_impl_ptr make_font_impl(font_descr const& descr)
        const auto textSize = [text sizeWithAttributes : attr];
        return textSize.width;
     }
@@ -320,7 +324,7 @@ index b8e76d4..19c0a51 100755
  #include <infra/support.hpp>
  
 diff --git a/lib/artist/lib/impl/macos/quartz2d/path.mm b/lib/artist/lib/impl/macos/quartz2d/path.mm
-index f5508c9..e71138c 100755
+index 95849de..4aa1925 100755
 --- a/lib/artist/lib/impl/macos/quartz2d/path.mm
 +++ b/lib/artist/lib/impl/macos/quartz2d/path.mm
 @@ -4,7 +4,7 @@
@@ -362,7 +366,7 @@ index 0000000..33ec86f
 +
 +#endif
 diff --git a/lib/artist/lib/impl/macos/quartz2d/text_run.mm b/lib/artist/lib/impl/macos/quartz2d/text_run.mm
-index 0eefb39..74c5f65 100644
+index db412dd..0ba4389 100644
 --- a/lib/artist/lib/impl/macos/quartz2d/text_run.mm
 +++ b/lib/artist/lib/impl/macos/quartz2d/text_run.mm
 @@ -155,9 +155,9 @@

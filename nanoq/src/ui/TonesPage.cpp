@@ -1279,7 +1279,7 @@ void Shell::OpenToneAccount(el::rect anchor)
 
 void Shell::ShareTone(const tones::Tone& tone)
 {
-    el::clipboard(tones::ShareLink(tone));
+    el::set_clipboard({{"text/plain", tones::ShareLink(tone)}});
     ShowToast("Link copied", tone.title, false);
 }
 } // namespace nanoq::ui

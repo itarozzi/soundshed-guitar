@@ -2150,7 +2150,7 @@ void Shell::OpenLibraryResourceMenu(const std::string& resourceType, const std::
 
     if (!path.empty())
     {
-        items.push_back({"Copy the file's path", false, false, [path] { el::clipboard(path); }});
+        items.push_back({"Copy the file's path", false, false, [path] { el::set_clipboard({{"text/plain", path}}); }});
     }
 
     items.push_back({"Delete...", false, false, [this, resourceType, resourceId, anchor] {
