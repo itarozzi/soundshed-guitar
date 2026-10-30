@@ -43,6 +43,13 @@
                         <label class="sg-label" for="sg-scale">Scale</label>
                         <select class="sg-select" id="sg-scale"></select>
                       </span>
+                      <span class="sg-field sg-field-wide" id="sg-progression-field" hidden>
+                        <label class="sg-label" for="sg-progression">Play</label>
+                        <span class="sg-field-row">
+                          <select class="sg-select" id="sg-progression"></select>
+                          <button type="button" class="sg-button" id="sg-progression-edit" hidden>Edit</button>
+                        </span>
+                      </span>
                       <span class="sg-field sg-field-wide" id="sg-chord-field" hidden>
                         <label class="sg-label" for="sg-chord">Chord</label>
                         <select class="sg-select" id="sg-chord"></select>
@@ -70,6 +77,38 @@
                         <span class="sg-segmented" id="sg-positions" role="group" aria-labelledby="sg-position-label"></span>
                       </span>
                       <label class="sg-check"><input type="checkbox" id="sg-left-handed" /> Left-handed</label>
+                    </div>
+                    <div class="sg-controls-row sg-controls-steps" id="sg-steps-row" hidden>
+                      <span class="sg-label" id="sg-steps-label">Steps</span>
+                      <span class="sg-steps" id="sg-steps" role="group" aria-labelledby="sg-steps-label"></span>
+                      <span class="sg-step-buttons">
+                        <button type="button" class="sg-button sg-button-icon" data-sg-step="prev" title="Previous chord (←)" aria-label="Previous chord">◀</button>
+                        <button type="button" class="sg-button sg-button-icon" data-sg-step="next" title="Next chord (→)" aria-label="Next chord">▶</button>
+                        <button type="button" class="sg-button sg-button-icon" data-sg-step="first" title="Back to the first chord" aria-label="Back to the first chord">↺</button>
+                      </span>
+                    </div>
+                    <div class="sg-controls-row sg-editor" id="sg-editor" hidden>
+                      <span class="sg-field">
+                        <label class="sg-label" for="sg-editor-name">Name</label>
+                        <input class="sg-input" id="sg-editor-name" maxlength="40" spellcheck="false" placeholder="My progression" />
+                      </span>
+                      <span class="sg-field sg-editor-chords-field">
+                        <span class="sg-label">Chords</span>
+                        <span class="sg-editor-chords" id="sg-editor-chords"></span>
+                      </span>
+                      <span class="sg-field">
+                        <label class="sg-label" for="sg-editor-degree">Add a chord</label>
+                        <span class="sg-field-row">
+                          <select class="sg-select" id="sg-editor-degree" aria-label="Degree"></select>
+                          <select class="sg-select" id="sg-editor-quality" aria-label="Quality"></select>
+                          <button type="button" class="sg-button" id="sg-editor-add">Add</button>
+                        </span>
+                      </span>
+                      <span class="sg-editor-actions">
+                        <button type="button" class="sg-button sg-button-primary" id="sg-editor-save">Save</button>
+                        <button type="button" class="sg-button" id="sg-editor-cancel">Cancel</button>
+                        <button type="button" class="sg-button sg-button-danger" id="sg-editor-delete" hidden>Delete</button>
+                      </span>
                     </div>
                   </div>
                   <div class="sg-neck" id="sg-neck"><p class="sg-note">Loading the neck…</p></div>

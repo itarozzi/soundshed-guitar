@@ -10,7 +10,9 @@ import type { IncomingPayload } from "../messages/types.js";
 import { escapeHtml } from "../utils.js";
 import { renderChordBoxSvg } from "./chordBox.js";
 import { renderNeckSvg } from "./neck.js";
-import { loadSettings, MAX_CAPO, saveSettings, viewRequest } from "./state.js";
+import { MAX_PROGRESSION_CHORDS, loadProgressions, newProgressionId, romanToken, saveProgressions, type UserProgression } from "./progressions.js";
+import { NEW_PROGRESSION, degreeOptions, editorChordsMarkup, numeralTokens, progressionOptions, qualityOptions, stepsMarkup, stripMarkup } from "./progressionView.js";
+import { loadSettings, MAX_CAPO, saveSettings, viewRequest, type ProgressionRequest } from "./state.js";
 import type { ScaleGuideCatalog, ScaleGuideLabels, ScaleGuideMode, ScaleGuideSettings, ScaleGuideView } from "./types.js";
 
 const FALLBACK_KEYS = ["C", "C♯/D♭", "D", "D♯/E♭", "E", "F", "F♯/G♭", "G", "G♯/A♭", "A", "A♯/B♭", "B"];
@@ -29,6 +31,13 @@ let latestRequestId = 0;
 let catalogRequested = false;
 let pickersBuilt = false;
 let bound = false;
+/** The progression step showing; the engine wraps it and says where it landed. */
+let step = 0;
+/** The shape to lead from, sent once with the next request after a step. */
+let pendingPrevious: number[] | undefined;
+/** A progression being written or changed: `id` null for a new one (or a built-in's copy). */
+let draft: { id: string | null; name: string; chords: string[] } | null = null;
+let userProgressions: UserProgression[] | null = null;
 
 function element<T extends HTMLElement>(id: string): T | null {
   return document.getElementById(id) as T | null;
@@ -37,6 +46,48 @@ function element<T extends HTMLElement>(id: string): T | null {
 function current(): ScaleGuideSettings {
   settings ??= loadSettings();
   return settings;
+}
+
+function mine(): UserProgression[] {
+  userProgressions ??= loadProgressions();
+  return userProgressions;
+}
+
+/** What the request adds in Chords mode: the draft being edited, or the chosen progression. */
+function progressionRequest(): ProgressionRequest {
+  const state = current();
+  const previousFrets = pendingPrevious;
+  pendingPrevious = undefined;
+
+  if (state.mode !== "chord") {
+    return {};
+  }
+
+  if (draft) {
+    return draft.chords.length ? { progressionChords: [...draft.chords], progressionName: draft.name, step: Math.min(step, draft.chords.length - 1) } : {};
+  }
+
+  if (state.progression.startsWith("b:")) {
+    return { progression: state.progression.slice(2), step, previousFrets };
+  }
+
+  const own = state.progression.startsWith("u:") ? mine().find((p) => p.id === state.progression.slice(2)) : undefined;
+  return own ? { progressionChords: [...own.chords], progressionName: own.name, step, previousFrets } : {};
+}
+
+/** Steps a progression; the next chord takes the shape nearest the one showing, or `frets` when given. */
+function goStep(index: number, frets?: number[]): void {
+  const progression = view?.progression;
+
+  if (!view || !progression || progression.chords.length === 0) {
+    return;
+  }
+
+  const count = progression.chords.length;
+  const showing = view.position > 0 ? view.shapes?.[view.position - 1] : undefined;
+  pendingPrevious = frets ?? showing?.frets;
+  step = ((index % count) + count) % count;
+  requestView();
 }
 
 /** Draws the guide into its section; called whenever Jam → Scales is shown. */
@@ -63,19 +114,24 @@ export function renderScaleGuidePanel(): void {
 
 function requestView(): void {
   latestRequestId += 1;
-  postMessage({ type: "scaleGuide", action: "view", requestId: latestRequestId, request: viewRequest(current()) });
+  postMessage({ type: "scaleGuide", action: "view", requestId: latestRequestId, request: viewRequest(current(), progressionRequest()) });
 }
 
 /** Applies a change: saved, drawn and asked for again. A new scale, chord, tuning or mode starts on the whole neck. */
 function change(patch: Partial<ScaleGuideSettings>): void {
   const before = current();
   const next = { ...before, ...patch };
-  const reshaped = ["mode", "scale", "chord", "tuning"].some(
+  const reshaped = ["mode", "scale", "chord", "progression", "tuning"].some(
     (key) => key in patch && patch[key as keyof ScaleGuideSettings] !== before[key as keyof ScaleGuideSettings],
   );
 
   if (reshaped && !("position" in patch)) {
     next.position = 0;
+  }
+
+  if (next.mode !== before.mode || next.progression !== before.progression) {
+    step = 0;
+    draft = next.mode === before.mode ? draft : null;
   }
 
   settings = next;
@@ -118,6 +174,7 @@ export function onScaleGuideView(payload: IncomingPayload): void {
   }
 
   view = payload.view as ScaleGuideView;
+  step = view.progression?.step ?? step;
 
   // The engine falls back to the whole neck for a position the new scale or tuning lacks.
   if (settings && settings.position !== view.position) {
@@ -129,7 +186,9 @@ export function onScaleGuideView(payload: IncomingPayload): void {
 
 function bindEvents(root: HTMLElement): void {
   root.addEventListener("click", (event) => {
-    const target = (event.target as HTMLElement | null)?.closest<HTMLElement>("[data-sg-mode],[data-sg-labels],[data-sg-position],[data-sg-chord-root]");
+    const target = (event.target as HTMLElement | null)?.closest<HTMLElement>(
+      "[data-sg-mode],[data-sg-labels],[data-sg-position],[data-sg-chord-root],[data-sg-goto],[data-sg-step],[data-sg-remove]",
+    );
 
     if (!target || !root.contains(target)) {
       return;
@@ -145,9 +204,37 @@ function bindEvents(root: HTMLElement): void {
       change({ position: Number(data.sgPosition) });
     } else if (data.sgChordRoot !== undefined) {
       // A chord of the scale: open it in Chords mode.
-      change({ mode: "chord", key: Number(data.sgChordRoot), chord: DIATONIC_CHORDS[data.sgChordQuality ?? ""] ?? "maj" });
+      change({ mode: "chord", key: Number(data.sgChordRoot), chord: DIATONIC_CHORDS[data.sgChordQuality ?? ""] ?? "maj", progression: "" });
+    } else if (data.sgGoto !== undefined) {
+      const index = Number(data.sgGoto);
+      goStep(index, target.classList.contains("sg-strip-box") ? (view?.progression?.chords[index]?.shape?.frets ?? undefined) : undefined);
+    } else if (data.sgStep) {
+      goStep(data.sgStep === "first" ? 0 : step + (data.sgStep === "next" ? 1 : -1));
+    } else if (data.sgRemove !== undefined && draft) {
+      draft.chords.splice(Number(data.sgRemove), 1);
+      step = Math.min(step, Math.max(0, draft.chords.length - 1));
+      renderControls();
+      requestView();
     }
   });
+
+  // The arrow keys step a progression, unless a field has them.
+  document.addEventListener("keydown", (event) => {
+    const target = event.target as HTMLElement | null;
+
+    if ((event.key !== "ArrowLeft" && event.key !== "ArrowRight") || !view?.progression || draft) {
+      return;
+    }
+
+    if (!root.isConnected || root.closest("[hidden], .tab-panel:not(.active)") || (target && /^(INPUT|SELECT|TEXTAREA)$/.test(target.tagName))) {
+      return;
+    }
+
+    event.preventDefault();
+    goStep(step + (event.key === "ArrowRight" ? 1 : -1));
+  });
+
+  bindEditor();
 
   element<HTMLSelectElement>("sg-key")?.addEventListener("change", (event) => change({ key: Number((event.target as HTMLSelectElement).value) }));
   element<HTMLSelectElement>("sg-scale")?.addEventListener("change", (event) => change({ scale: (event.target as HTMLSelectElement).value }));
@@ -155,6 +242,142 @@ function bindEvents(root: HTMLElement): void {
   element<HTMLSelectElement>("sg-tuning")?.addEventListener("change", (event) => change({ tuning: (event.target as HTMLSelectElement).value }));
   element<HTMLSelectElement>("sg-capo")?.addEventListener("change", (event) => change({ capo: Number((event.target as HTMLSelectElement).value) }));
   element<HTMLInputElement>("sg-left-handed")?.addEventListener("change", (event) => change({ leftHanded: (event.target as HTMLInputElement).checked }));
+}
+
+function bindEditor(): void {
+  element<HTMLSelectElement>("sg-progression")?.addEventListener("change", (event) => {
+    const value = (event.target as HTMLSelectElement).value;
+
+    if (value === NEW_PROGRESSION) {
+      draft = { id: null, name: "", chords: [] };
+      step = 0;
+      renderControls();
+      requestView();
+      return;
+    }
+
+    draft = null;
+    change({ progression: value });
+  });
+
+  element<HTMLButtonElement>("sg-progression-edit")?.addEventListener("click", () => {
+    const chosen = current().progression;
+    const builtIn = chosen.startsWith("b:") ? catalog?.progressions.find((p) => p.id === chosen.slice(2)) : undefined;
+    const own = chosen.startsWith("u:") ? mine().find((p) => p.id === chosen.slice(2)) : undefined;
+
+    if (builtIn) {
+      // A built-in is never changed: editing it makes the player a copy.
+      draft = { id: null, name: `${builtIn.name} (mine)`, chords: numeralTokens(builtIn.numerals) };
+    } else if (own) {
+      draft = { id: own.id, name: own.name, chords: [...own.chords] };
+    } else {
+      return;
+    }
+
+    step = 0;
+    renderControls();
+    requestView();
+  });
+
+  element<HTMLInputElement>("sg-editor-name")?.addEventListener("input", (event) => {
+    if (draft) {
+      draft.name = (event.target as HTMLInputElement).value;
+    }
+  });
+
+  element<HTMLButtonElement>("sg-editor-add")?.addEventListener("click", () => {
+    const degree = Number(element<HTMLSelectElement>("sg-editor-degree")?.value ?? 0);
+    const quality = element<HTMLSelectElement>("sg-editor-quality")?.value ?? "maj";
+
+    if (!draft || draft.chords.length >= MAX_PROGRESSION_CHORDS) {
+      return;
+    }
+
+    draft.chords.push(romanToken(degree, quality));
+    step = draft.chords.length - 1;
+    renderControls();
+    requestView();
+  });
+
+  element<HTMLButtonElement>("sg-editor-save")?.addEventListener("click", () => {
+    if (!draft || draft.chords.length === 0) {
+      return;
+    }
+
+    const list = [...mine()];
+    const id = draft.id ?? newProgressionId(list);
+    const saved: UserProgression = { id, name: draft.name.trim() || "My progression", chords: [...draft.chords] };
+    const index = list.findIndex((p) => p.id === id);
+
+    if (index >= 0) {
+      list[index] = saved;
+    } else {
+      list.push(saved);
+    }
+
+    userProgressions = list;
+    saveProgressions(list);
+    draft = null;
+    change({ progression: `u:${id}` });
+  });
+
+  element<HTMLButtonElement>("sg-editor-cancel")?.addEventListener("click", () => {
+    draft = null;
+    step = 0;
+    renderControls();
+    requestView();
+  });
+
+  element<HTMLButtonElement>("sg-editor-delete")?.addEventListener("click", () => {
+    if (!draft?.id) {
+      return;
+    }
+
+    const id = draft.id;
+    userProgressions = mine().filter((p) => p.id !== id);
+    saveProgressions(userProgressions);
+    draft = null;
+    change({ progression: "" });
+  });
+}
+
+function renderEditor(state: ScaleGuideSettings): void {
+  const editor = element<HTMLElement>("sg-editor");
+  editor?.toggleAttribute("hidden", !draft || state.mode !== "chord");
+
+  if (!draft) {
+    return;
+  }
+
+  const name = element<HTMLInputElement>("sg-editor-name");
+
+  if (name && document.activeElement !== name) {
+    name.value = draft.name;
+  }
+
+  const chords = element<HTMLElement>("sg-editor-chords");
+
+  if (chords) {
+    chords.innerHTML = editorChordsMarkup(draft.chords, view);
+  }
+
+  const degree = element<HTMLSelectElement>("sg-editor-degree");
+
+  if (degree) {
+    const chosen = degree.value;
+    degree.innerHTML = degreeOptions(catalog?.keys.length === 12 ? catalog.keys : FALLBACK_KEYS, state.key);
+    degree.value = chosen || "0";
+  }
+
+  const quality = element<HTMLSelectElement>("sg-editor-quality");
+
+  if (quality && (quality.options.length === 0 || quality.options.length !== (catalog?.chords.length ?? 0))) {
+    quality.innerHTML = qualityOptions(catalog);
+  }
+
+  element<HTMLButtonElement>("sg-editor-delete")?.toggleAttribute("hidden", draft.id === null);
+  element<HTMLButtonElement>("sg-editor-save")?.toggleAttribute("disabled", draft.chords.length === 0);
+  element<HTMLButtonElement>("sg-editor-add")?.toggleAttribute("disabled", draft.chords.length >= MAX_PROGRESSION_CHORDS);
 }
 
 function buildPickers(): void {
@@ -214,12 +437,26 @@ function renderControls(): void {
 
   const keyLabel = element<HTMLElement>("sg-key-label");
 
+  const singleChord = chordMode && !state.progression && !draft;
+
   if (keyLabel) {
-    keyLabel.textContent = chordMode ? "Root" : "Key";
+    keyLabel.textContent = singleChord ? "Root" : "Key";
   }
 
   element<HTMLElement>("sg-scale-field")?.toggleAttribute("hidden", chordMode);
-  element<HTMLElement>("sg-chord-field")?.toggleAttribute("hidden", !chordMode);
+  element<HTMLElement>("sg-progression-field")?.toggleAttribute("hidden", !chordMode);
+  element<HTMLElement>("sg-chord-field")?.toggleAttribute("hidden", !singleChord);
+  element<HTMLElement>("sg-progression-edit")?.toggleAttribute("hidden", !chordMode || !state.progression || draft !== null);
+
+  const progressionSelect = element<HTMLSelectElement>("sg-progression");
+
+  if (progressionSelect) {
+    progressionSelect.innerHTML = progressionOptions(catalog, mine());
+    const wanted = draft ? NEW_PROGRESSION : state.progression;
+    progressionSelect.value = Array.from(progressionSelect.options).some((option) => option.value === wanted) ? wanted : "";
+  }
+
+  renderEditor(state);
 
   const setValue = (id: string, value: string): void => {
     const select = element<HTMLSelectElement>(id);
@@ -303,9 +540,11 @@ function renderSummary(model: ScaleGuideView): void {
   setText(
     "sg-reference",
     chordMode
-      ? shape
-        ? `${shape.caged ? `The ${shape.caged} shape. ` : ""}Numbers are fingers; × is a string you don't play.`
-        : "Pick a shape to see one way to play it; All shows every chord tone."
+      ? model.progression
+        ? `Next: ${model.progression.next}. ◀ ▶ or the arrow keys step through; each chord takes the shape nearest the last.`
+        : shape
+          ? `${shape.caged ? `The ${shape.caged} shape. ` : ""}Numbers are fingers; × is a string you don't play.`
+          : "Pick a shape to see one way to play it; All shows every chord tone."
       : `Steps ${model.scale?.steps ?? ""}. Pick a position for one box; All shows the whole neck. Tap a chord to open it.`,
   );
 
@@ -340,10 +579,23 @@ function renderView(): void {
         : renderNeckSvg(model, { labels: state.labels, leftHanded: state.leftHanded });
   }
 
+  const progression = model.mode === "chord" ? model.progression : undefined;
+  element<HTMLElement>("sg-steps-row")?.toggleAttribute("hidden", !progression);
+  const steps = element<HTMLElement>("sg-steps");
+
+  if (steps) {
+    steps.innerHTML = progression ? stepsMarkup(model) : "";
+  }
+
   const boxes = element<HTMLElement>("sg-boxes");
 
-  if (boxes) {
+  if (boxes && progression) {
+    boxes.toggleAttribute("hidden", false);
+    boxes.classList.add("sg-strip");
+    boxes.innerHTML = stripMarkup(model, state.leftHanded);
+  } else if (boxes) {
     const shapes = model.mode === "chord" ? (model.shapes ?? []) : [];
+    boxes.classList.remove("sg-strip");
     boxes.toggleAttribute("hidden", shapes.length === 0);
     boxes.innerHTML = shapes
       .map(
@@ -354,6 +606,10 @@ function renderView(): void {
   }
 
   renderSummary(model);
+
+  if (draft) {
+    renderEditor(state);
+  }
 }
 
 /** For tests: forget everything, as on a fresh page. */
@@ -365,4 +621,8 @@ export function resetScaleGuideForTests(): void {
   catalogRequested = false;
   pickersBuilt = false;
   bound = false;
+  step = 0;
+  pendingPrevious = undefined;
+  draft = null;
+  userProgressions = null;
 }

@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ScaleGuideShape, ScaleGuideView } from "../ts/scaleGuide/types";
 
@@ -12,7 +14,10 @@ vi.mock("../ts/appSettingsStore.js", () => ({
 import { boxBaseFret, renderChordBoxSvg } from "../ts/scaleGuide/chordBox";
 import { dotLabel, noteX, renderNeckSvg } from "../ts/scaleGuide/neck";
 import { onScaleGuideCatalog, onScaleGuideView, renderScaleGuidePanel, resetScaleGuideForTests } from "../ts/scaleGuide/panel";
+import { normalizeProgressions, PROGRESSIONS_SETTING, romanToken } from "../ts/scaleGuide/progressions";
 import { DEFAULT_SETTINGS, normalizeSettings, SCALE_GUIDE_SETTING } from "../ts/scaleGuide/state";
+
+const JAM_PANEL = readFileSync(join(__dirname, "..", "ui-components", "panels", "jam-panel.html"), "utf8");
 
 const OPEN_C: ScaleGuideShape = { frets: [0, 0, 0, 3], fingers: [0, 0, 0, 1], barres: [], position: 3, caged: "" };
 
@@ -136,22 +141,38 @@ describe("scale guide settings", () => {
   });
 });
 
+describe("scale guide progressions", () => {
+  it("writes chords as the roman numerals the engine reads", () => {
+    expect(romanToken(0, "maj")).toBe("I");
+    expect(romanToken(10, "maj")).toBe("bVII");
+    expect(romanToken(2, "m7")).toBe("ii7");
+    expect(romanToken(11, "m7b5")).toBe("viiø7");
+    expect(romanToken(6, "dim")).toBe("bv°");
+    expect(romanToken(0, "5")).toBe("I5");
+    expect(romanToken(5, "mMaj7")).toBe("ivmaj7");
+  });
+
+  it("keeps only well-formed saved progressions", () => {
+    expect(
+      normalizeProgressions([
+        { id: "p1", name: " Mine ", chords: ["I", "bVII", "<script>"] },
+        { id: "p1", name: "Duplicate", chords: ["I"] },
+        { id: "bad id", chords: ["I"] },
+        { id: "p2", chords: [] },
+        "junk",
+      ]),
+    ).toEqual([{ id: "p1", name: "Mine", chords: ["I", "bVII"] }]);
+  });
+});
+
 describe("scale guide panel", () => {
   beforeEach(() => {
     resetScaleGuideForTests();
     postMessage.mockClear();
     settingsStore.clear();
-    document.body.innerHTML = `
-      <div class="scale-guide" id="scale-guide">
-        <button data-sg-mode="scale"></button><button data-sg-mode="chord"></button>
-        <span id="sg-title"></span><span id="sg-key-label"></span><select id="sg-key"></select>
-        <select id="sg-scale"></select><select id="sg-chord"></select><select id="sg-tuning"></select><select id="sg-capo"></select>
-        <button data-sg-labels="name"></button><input type="checkbox" id="sg-left-handed" />
-        <span id="sg-position-label"></span><div id="sg-positions"></div>
-        <div id="sg-neck"></div><div id="sg-boxes" hidden></div>
-        <span id="sg-root-badge"></span><span id="sg-summary-label"></span><span id="sg-summary-name"></span><span id="sg-tones"></span>
-        <span id="sg-info-label"></span><div id="sg-info"></div><span id="sg-reference"></span>
-      </div>`;
+    document.body.innerHTML = JAM_PANEL;
+    document.getElementById("panel-jam")?.classList.add("active");
+    document.getElementById("jam-section-panel-scales")?.removeAttribute("hidden");
   });
 
   function lastViewRequest(): { requestId: number; request: Record<string, unknown> } {
@@ -181,7 +202,7 @@ describe("scale guide panel", () => {
     expect(lastViewRequest().request.key).toBe(9);
 
     onScaleGuideView({ type: "scaleGuideView", requestId: first, view: ukuleleView({ title: "Stale" }) });
-    expect(document.getElementById("sg-neck")?.innerHTML).toBe("");
+    expect(document.getElementById("sg-neck")?.innerHTML).not.toContain("sg-neck-svg");
 
     onScaleGuideView({ type: "scaleGuideView", requestId: second, view: ukuleleView() });
     expect(document.getElementById("sg-neck")?.innerHTML).toContain("sg-neck-svg");
@@ -245,6 +266,107 @@ describe("scale guide panel", () => {
     const before = postMessage.mock.calls.length;
     (document.querySelector('[data-sg-labels="name"]') as HTMLElement).click();
     expect(postMessage.mock.calls.length).toBe(before);
+  });
+
+  function progressionView(step: number): ScaleGuideView {
+    const f: ScaleGuideShape = { frets: [2, 0, 1, 0], fingers: [2, 0, 1, 0], barres: [], position: 1, caged: "" };
+    return ukuleleView({
+      position: 1,
+      progression: {
+        id: "mine",
+        name: "Mine",
+        step,
+        next: step === 0 ? "F" : "C",
+        chords: [
+          { name: "C", numeral: "I", rootPitchClass: 0, shape: OPEN_C },
+          { name: "F", numeral: "IV", rootPitchClass: 5, shape: f },
+        ],
+      },
+    });
+  }
+
+  function choose(id: string, value: string): void {
+    const select = document.getElementById(id) as HTMLSelectElement;
+    select.value = value;
+    select.dispatchEvent(new Event("change"));
+  }
+
+  const CATALOG = {
+    type: "scaleGuideCatalog",
+    keys: ["C", "C♯/D♭", "D", "D♯/E♭", "E", "F", "F♯/G♭", "G", "G♯/A♭", "A", "A♯/B♭", "B"],
+    scales: [{ id: "minpent", name: "Minor Pentatonic", group: "Common", formula: "R ♭3 4 5 ♭7" }],
+    chords: [
+      { id: "maj", name: "Major", symbol: "" },
+      { id: "m7", name: "Minor 7", symbol: "m7" },
+    ],
+    progressions: [{ id: "classicrock", name: "Classic rock", numerals: ["I", "♭VII", "IV", "I"] }],
+    tunings: [{ id: "std", name: "Standard E", instrument: "guitar", strings: [40, 45, 50, 55, 59, 64], stringNames: [] }],
+  };
+
+  it("plays a built-in progression and steps it, the next chord led from the shape showing", () => {
+    renderScaleGuidePanel();
+    onScaleGuideCatalog(CATALOG);
+    (document.querySelector('[data-sg-mode="chord"]') as HTMLElement).click();
+    choose("sg-progression", "b:classicrock");
+    expect(lastViewRequest().request).toMatchObject({ mode: "chord", progression: "classicrock", step: 0 });
+    expect(document.getElementById("sg-chord-field")?.hidden).toBe(true);
+    expect(document.getElementById("sg-key-label")?.textContent).toBe("Key");
+
+    onScaleGuideView({ type: "scaleGuideView", requestId: lastViewRequest().requestId, view: progressionView(0) });
+    expect(document.getElementById("sg-steps-row")?.hidden).toBe(false);
+    expect(document.querySelectorAll("#sg-steps .sg-step")).toHaveLength(2);
+    expect(document.querySelectorAll("#sg-boxes .sg-strip-box")).toHaveLength(2);
+
+    (document.querySelector('[data-sg-step="next"]') as HTMLElement).click();
+    expect(lastViewRequest().request).toMatchObject({ step: 1, previousFrets: OPEN_C.frets });
+
+    onScaleGuideView({ type: "scaleGuideView", requestId: lastViewRequest().requestId, view: progressionView(1) });
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight" }));
+    expect(lastViewRequest().request.step).toBe(0);
+
+    // A box in the strip shows that chord in exactly the shape it draws.
+    (document.querySelector('#sg-boxes [data-sg-goto="1"]') as HTMLElement).click();
+    expect(lastViewRequest().request).toMatchObject({ step: 1, previousFrets: [2, 0, 1, 0] });
+  });
+
+  it("writes, saves and deletes a progression of the player's own", () => {
+    renderScaleGuidePanel();
+    onScaleGuideCatalog(CATALOG);
+    (document.querySelector('[data-sg-mode="chord"]') as HTMLElement).click();
+    choose("sg-progression", "+new");
+    expect(document.getElementById("sg-editor")?.hidden).toBe(false);
+
+    choose("sg-editor-degree", "0");
+    (document.getElementById("sg-editor-add") as HTMLElement).click();
+    choose("sg-editor-degree", "10");
+    (document.getElementById("sg-editor-add") as HTMLElement).click();
+    expect(lastViewRequest().request).toMatchObject({ progressionChords: ["I", "bVII"] });
+    expect(document.querySelectorAll("#sg-editor-chords .sg-editor-pill")).toHaveLength(2);
+
+    const name = document.getElementById("sg-editor-name") as HTMLInputElement;
+    name.value = "Rock";
+    name.dispatchEvent(new Event("input"));
+    (document.getElementById("sg-editor-save") as HTMLElement).click();
+    expect(settingsStore.get(PROGRESSIONS_SETTING)).toEqual([{ id: "p1", name: "Rock", chords: ["I", "bVII"] }]);
+    expect(settingsStore.get(SCALE_GUIDE_SETTING)).toMatchObject({ progression: "u:p1" });
+    expect(lastViewRequest().request).toMatchObject({ progressionChords: ["I", "bVII"], progressionName: "Rock" });
+    expect(document.getElementById("sg-editor")?.hidden).toBe(true);
+
+    (document.getElementById("sg-progression-edit") as HTMLElement).click();
+    (document.getElementById("sg-editor-delete") as HTMLElement).click();
+    expect(settingsStore.get(PROGRESSIONS_SETTING)).toEqual([]);
+    expect(settingsStore.get(SCALE_GUIDE_SETTING)).toMatchObject({ progression: "" });
+  });
+
+  it("edits a copy of a built-in progression, never the built-in", () => {
+    renderScaleGuidePanel();
+    onScaleGuideCatalog(CATALOG);
+    (document.querySelector('[data-sg-mode="chord"]') as HTMLElement).click();
+    choose("sg-progression", "b:classicrock");
+    (document.getElementById("sg-progression-edit") as HTMLElement).click();
+    expect((document.getElementById("sg-editor-name") as HTMLInputElement).value).toBe("Classic rock (mine)");
+    expect(lastViewRequest().request).toMatchObject({ progressionChords: ["I", "bVII", "IV", "I"] });
+    expect(document.getElementById("sg-editor-delete")?.hidden).toBe(true);
   });
 
   it("fills the pickers from the catalogue", () => {

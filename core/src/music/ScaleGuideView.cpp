@@ -2,6 +2,9 @@
 
 #include <algorithm>
 #include <array>
+#include <iterator>
+#include <optional>
+#include <utility>
 
 namespace guitarfx::music
 {
@@ -134,6 +137,58 @@ json ShapeJson(const ChordShape& shape, int capo)
             {"barres", barres},
             {"position", shape.position + capo},
             {"caged", shape.caged}};
+}
+
+/// Every chord of a progression with a shape, voice-led from the one showing: walking on from
+/// the current step, each chord takes the shape nearest the last, as stepping through it would.
+json ProgressionStrip(const Neck& neck, const std::vector<SpelledChord>& chords, int step,
+                      const std::vector<ChordShape>& currentShapes, int anchor, bool allowInversions, int capo)
+{
+    const int count = static_cast<int>(chords.size());
+    std::vector<json> strip(count);
+    std::vector<std::pair<std::string, std::vector<ChordShape>>> searched;
+    std::optional<ChordShape> previous;
+
+    for (int k = 0; k < count; ++k)
+    {
+        const int index = (step + k) % count;
+        const auto& chord = chords[index];
+        const std::vector<ChordShape>* shapes = &currentShapes;
+
+        if (k > 0)
+        {
+            const std::string key = std::to_string(chord.rootPitchClass) + chord.def->id;
+            auto found = std::find_if(searched.begin(), searched.end(), [&](const auto& s) { return s.first == key; });
+
+            if (found == searched.end())
+            {
+                ChordSearch search;
+                search.rootPitchClass = chord.rootPitchClass;
+                search.intervals = chord.def->intervals;
+                search.allowInversions = allowInversions;
+                searched.emplace_back(key, ChordShapes(neck, search));
+                found = std::prev(searched.end());
+            }
+
+            shapes = &found->second;
+        }
+
+        json shape = nullptr;
+
+        if (!shapes->empty())
+        {
+            const int pick = k == 0 ? anchor : previous ? std::max(0, NearestShape(*shapes, *previous)) : 0;
+            previous = (*shapes)[pick];
+            shape = ShapeJson((*shapes)[pick], capo);
+        }
+
+        strip[index] = {{"name", chord.name},
+                        {"numeral", RomanNumeral(*chord.roman)},
+                        {"rootPitchClass", chord.rootPitchClass},
+                        {"shape", shape}};
+    }
+
+    return strip;
 }
 
 std::vector<int> ShiftedFrets(const std::vector<int>& frets, int capo)
@@ -288,6 +343,8 @@ json BuildScaleGuideView(const ScaleGuideRequest& request)
     {
         SpelledChord chord;
         json progressionJson;
+        std::vector<SpelledChord> progressionChords;
+        int step = 0;
         std::vector<RomanChord> romans = request.progressionChords;
         std::string progressionId = romans.empty() ? std::string() : "custom";
         std::string progressionName = request.progressionName;
@@ -304,22 +361,13 @@ json BuildScaleGuideView(const ScaleGuideRequest& request)
 
         if (!romans.empty())
         {
-            const auto chords = ChordsInKey(request.key, romans);
-            const int step = request.step % static_cast<int>(chords.size());
-            chord = chords[step];
-
-            json steps = json::array();
-
-            for (const auto& c : chords)
-            {
-                steps.push_back({{"name", c.name}, {"numeral", RomanNumeral(*c.roman)}});
-            }
-
+            progressionChords = ChordsInKey(request.key, romans);
+            step = request.step % static_cast<int>(progressionChords.size());
+            chord = progressionChords[step];
             progressionJson = {{"id", progressionId},
                                {"name", progressionName},
                                {"step", step},
-                               {"chords", steps},
-                               {"next", chords[(step + 1) % chords.size()].name}};
+                               {"next", progressionChords[(step + 1) % progressionChords.size()].name}};
         }
         else
         {
@@ -369,6 +417,9 @@ json BuildScaleGuideView(const ScaleGuideRequest& request)
 
         if (!progressionJson.is_null())
         {
+            const int anchor = position >= 1 && position <= static_cast<int>(shapes.size()) ? position - 1 : 0;
+            progressionJson["chords"] =
+                ProgressionStrip(playing, progressionChords, step, shapes, anchor, request.allowInversions, capo);
             view["progression"] = progressionJson;
         }
     }

@@ -11,6 +11,12 @@ import type { ScaleGuideShape, ScaleGuideView } from "./types.js";
 export interface ChordBoxOptions {
   leftHanded: boolean;
   selected?: boolean;
+  /** The chord's name, when the box is not the view's own chord (a progression's strip). */
+  chordName?: string;
+  /** Its root, to mark; the view's own root otherwise. */
+  rootPitchClass?: number;
+  /** Text under the box in place of the CAGED name. */
+  caption?: string;
 }
 
 const STRING_GAP = 16;
@@ -37,7 +43,7 @@ export function renderChordBoxSvg(shape: ScaleGuideShape, view: ScaleGuideView, 
   const rows = Math.max(MIN_ROWS, highest - base + 1);
   const width = PAD_X * 2 + (strings - 1) * STRING_GAP;
   const height = TOP + rows * FRET_GAP + 22;
-  const rootPitchClass = view.tones[0]?.pitchClass ?? -1;
+  const rootPitchClass = options.rootPitchClass ?? view.tones[0]?.pitchClass ?? -1;
   const x = (string: number): number => PAD_X + (options.leftHanded ? strings - 1 - string : string) * STRING_GAP;
   const rowY = (fret: number): number => TOP + (fret - base + 0.5) * FRET_GAP;
   const parts: string[] = [];
@@ -90,10 +96,12 @@ export function renderChordBoxSvg(shape: ScaleGuideShape, view: ScaleGuideView, 
     }
   });
 
-  if (shape.caged) {
-    parts.push(`<text class="sg-box-caged" x="${width / 2}" y="${height - 4}" text-anchor="middle">${escapeHtml(shape.caged)} shape</text>`);
+  const caption = options.caption ?? (shape.caged ? `${shape.caged} shape` : "");
+
+  if (caption) {
+    parts.push(`<text class="sg-box-caged" x="${width / 2}" y="${height - 4}" text-anchor="middle">${escapeHtml(caption)}</text>`);
   }
 
-  const label = `${view.title} at fret ${shape.position}`;
+  const label = `${options.chordName ?? view.title} at fret ${shape.position}`;
   return `<svg class="sg-box-svg${options.selected ? " selected" : ""}" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" role="img" aria-label="${escapeHtml(label)}">${parts.join("")}</svg>`;
 }

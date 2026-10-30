@@ -42,6 +42,14 @@ export interface ScaleGuideShape {
   caged: string;
 }
 
+/** One chord of a progression, with the shape voice-led from the one showing. */
+export interface ScaleGuideProgressionChord {
+  name: string;
+  numeral: string;
+  rootPitchClass: number;
+  shape: ScaleGuideShape | null;
+}
+
 export interface ScaleGuideTone {
   name: string;
   interval: string;
@@ -73,6 +81,7 @@ export interface ScaleGuideView {
     diatonic: Array<{ name: string; numeral: string; quality: string; rootPitchClass: number }>;
   };
   chord?: { id: string; name: string; quality: string; formula: string };
+  progression?: { id: string; name: string; step: number; next: string; chords: ScaleGuideProgressionChord[] };
 }
 
 /** What the player has chosen; kept in the `scaleGuide.view` app setting. */
@@ -81,6 +90,8 @@ export interface ScaleGuideSettings {
   key: number;
   scale: string;
   chord: string;
+  /** "" for a single chord, "b:<id>" a built-in progression, "u:<id>" one of the player's own. */
+  progression: string;
   tuning: string;
   labels: ScaleGuideLabels;
   /** 0 is the whole neck (all tones); 1 … n a position or shape. */

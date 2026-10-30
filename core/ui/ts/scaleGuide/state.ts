@@ -15,6 +15,7 @@ export const DEFAULT_SETTINGS: Readonly<ScaleGuideSettings> = {
   key: 4,
   scale: "minpent",
   chord: "maj",
+  progression: "",
   tuning: "std",
   labels: "name",
   position: 0,
@@ -25,6 +26,7 @@ export const DEFAULT_SETTINGS: Readonly<ScaleGuideSettings> = {
 const LABELS: readonly ScaleGuideLabels[] = ["name", "interval", "degree", "none"];
 const MODES: readonly ScaleGuideMode[] = ["scale", "chord"];
 const ID = /^[\w-]{1,32}$/;
+const PROGRESSION = /^[bu]:[\w-]{1,32}$/;
 
 function wholeNumber(value: unknown, fallback: number, lowest: number, highest: number): number {
   return typeof value === "number" && Number.isInteger(value) ? Math.min(highest, Math.max(lowest, value)) : fallback;
@@ -43,6 +45,7 @@ export function normalizeSettings(value: unknown): ScaleGuideSettings {
     key: wholeNumber(stored.key, defaults.key, 0, 11),
     scale: id(stored.scale, defaults.scale),
     chord: id(stored.chord, defaults.chord),
+    progression: typeof stored.progression === "string" && PROGRESSION.test(stored.progression) ? stored.progression : "",
     tuning: id(stored.tuning, defaults.tuning),
     labels: LABELS.includes(stored.labels as ScaleGuideLabels) ? (stored.labels as ScaleGuideLabels) : defaults.labels,
     position: wholeNumber(stored.position, defaults.position, 0, 99),
@@ -59,8 +62,18 @@ export function saveSettings(settings: ScaleGuideSettings): void {
   updateAppSetting(SCALE_GUIDE_SETTING, { ...settings } as unknown as AppSettingValue);
 }
 
+/** What a request adds for a progression: its chords (or a built-in's id) and the step showing. */
+export interface ProgressionRequest {
+  progression?: string;
+  progressionChords?: string[];
+  progressionName?: string;
+  step?: number;
+  /** The shape last shown, so the next chord takes the shape nearest it. */
+  previousFrets?: number[];
+}
+
 /** The engine request for these choices (core/src/music/ScaleGuideView.h). */
-export function viewRequest(settings: ScaleGuideSettings): Record<string, unknown> {
+export function viewRequest(settings: ScaleGuideSettings, progression: ProgressionRequest = {}): Record<string, unknown> {
   return {
     mode: settings.mode,
     key: settings.key,
@@ -69,5 +82,6 @@ export function viewRequest(settings: ScaleGuideSettings): Record<string, unknow
     tuning: settings.tuning,
     capo: settings.capo,
     position: settings.position,
+    ...progression,
   };
 }

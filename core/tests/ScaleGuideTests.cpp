@@ -530,6 +530,21 @@ void TestView()
     Expect(view["title"] == "B7" && view["progression"]["next"] == "A7", "a 12-bar's ninth bar is B7, then A7");
     Expect(view["progression"]["chords"][4]["numeral"] == "IV7", "the steps carry numerals");
     Expect(!view["shapes"].empty(), "a progression chord has shapes");
+    Expect(view["progression"]["chords"].size() == 12, "every chord of the progression is listed");
+
+    for (const auto& chord : view["progression"]["chords"])
+    {
+        Expect(chord["shape"].is_object(), "every chord in the strip has a shape: " + chord["name"].get<std::string>());
+    }
+
+    // The strip is what stepping gives: the next chord's shape is the one nearest this one.
+    const auto stripNext = view["progression"]["chords"][9]["shape"]["frets"];
+    const auto showing = view["shapes"][view["position"].get<int>() > 0 ? view["position"].get<int>() - 1 : 0];
+    request = {{"mode", "chord"}, {"key", 4},        {"progression", "blues12"},
+               {"step", 9},       {"tuning", "std"}, {"previousFrets", showing["frets"]}};
+    const auto stepped = music::BuildScaleGuideView(music::ParseScaleGuideRequest(request));
+    Expect(stepped["shapes"][stepped["position"].get<int>() - 1]["frets"] == stripNext,
+           "stepping on lands on the strip's next shape");
 
     request = {{"mode", "chord"}, {"key", 0}, {"chord", "maj"}, {"tuning", "std"}, {"capo", 2}};
     view = music::BuildScaleGuideView(music::ParseScaleGuideRequest(request));
