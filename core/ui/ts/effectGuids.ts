@@ -33,6 +33,7 @@ export const EffectGuids = {
   // Drive
   kOverdrive:            "fa9e05a8-168a-4293-aa91-6b770de3da1d",
   kDistortion:           "686773c9-30ac-4f33-b0f8-9222146d45b1",
+  kMultibandDistortion:  "86222aa0-53a4-4768-a05a-c68ef29a2bf4",
   kFuzz:                 "3a38b19c-1d97-4989-b5bb-12bcc59d1e6b",
 
   // EQ
@@ -117,6 +118,7 @@ export const EFFECT_ALIAS_MAP: Record<string, string> = {
   dynamics_multiband_compressor: EffectGuids.kMultibandCompressor,
   overdrive:             EffectGuids.kOverdrive,
   distortion:            EffectGuids.kDistortion,
+  multiband_distortion:  EffectGuids.kMultibandDistortion,
   fuzz:                  EffectGuids.kFuzz,
   eq_parametric:         EffectGuids.kEqParametric,
   eq_graphic:            EffectGuids.kEqGraphic,

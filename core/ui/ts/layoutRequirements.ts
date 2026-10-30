@@ -53,6 +53,7 @@ export function layoutRequirements(layout: EffectLayout): LayoutFeature[] {
     used.add("text-style");
   }
 
+  if (usableKnobImage(layout.knobImage)) used.add("knob-image");
   for (const control of layout.controls) {
     const style = control.style;
     if (isSet(style?.knobDiameter) || isSet(style?.sliderLength) || isSet(style?.toggleWidth) || isSet(style?.toggleHeight)) {

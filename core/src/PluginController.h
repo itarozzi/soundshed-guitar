@@ -476,6 +476,8 @@ class PluginController
     void HandleSaveLayoutImageRequest(const nlohmann::json& payload);
     /// Stores a smaller copy of a large layout image, made by the UI, in the renditions folder.
     void HandleSaveLayoutImageRenditionRequest(const nlohmann::json& payload);
+    /// Files a user image under a category for the designer's image lists (setLayoutImageCategory).
+    void HandleSetLayoutImageCategoryRequest(const nlohmann::json& payload);
     void HandleRequestLayoutImagesRequest();
     void HandleCleanupResourceLibraryRequest(const nlohmann::json& payload);
     void HandleSaveCompositeDefinitionRequest(const nlohmann::json& payload);

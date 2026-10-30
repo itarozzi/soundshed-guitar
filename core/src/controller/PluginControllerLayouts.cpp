@@ -339,6 +339,52 @@ void PluginController::HandleBrowseLayoutImageRequest(const nlohmann::json& payl
             }
 
             const auto imagesDir = ResolveLayoutDir(mFileSystem, layoutId) / "images";
+
+            const auto sendSelected = [&](const std::string& imageId, const std::filesystem::path& path,
+                                          const std::string& category, bool factory) {
+                // The UI fetches the pixels from the entry's URL; the layout may not be saved yet,
+                // which ResolveLayoutImageFile allows for. "type" is the message's own, so the
+                // image's category goes as "category".
+                auto message = LayoutImageEntry(imageId, path);
+                message["type"] = "layoutImageSelected";
+                message["category"] = category;
+                message["factory"] = factory;
+                message["purpose"] = purpose;
+                message["layerIndex"] = layerIndex;
+                message["paramKey"] = paramKey;
+                SendMessageToUI(message.dump());
+            };
+
+            // A picture the library already has is used as it is, not copied again under a new id.
+            // Saving the layout copies it into this layout's folder if it lives in another's.
+            if (const auto existing = FindIdenticalLayoutImage(
+                    mFileSystem, ResolveFactoryLayoutsDir(mHost.GetBundledAssetsPath()), selectedPath, imagesDir))
+            {
+                AppendSessionLog("Layout image already in the library as " + existing->imageId);
+
+                // An image with no category yet takes the one it was picked for.
+                std::string category = existing->category;
+
+                if (!existing->factory)
+                {
+                    const auto categories = LoadLayoutImageCategories(mFileSystem);
+                    const auto filed = categories.find(existing->imageId);
+
+                    if (filed != categories.end())
+                    {
+                        category = filed->second;
+                    }
+                    else if (IsLayoutImageCategory(purpose) &&
+                             SaveLayoutImageCategory(mFileSystem, existing->imageId, purpose))
+                    {
+                        category = purpose;
+                    }
+                }
+
+                sendSelected(existing->imageId, existing->path, category, existing->factory);
+                return;
+            }
+
             [[maybe_unused]] const auto ensuredImagesDir = mFileSystem.EnsureDirectory(imagesDir);
 
             // The extension in lower case, so "IMG_0042.JPG" is read back like any other JPEG.
@@ -355,14 +401,9 @@ void PluginController::HandleBrowseLayoutImageRequest(const nlohmann::json& payl
                 std::filesystem::copy_file(selectedPath, destPath, std::filesystem::copy_options::overwrite_existing);
                 InvalidateLayoutImageIndex();
 
-                // The UI fetches the pixels from the entry's URL; the layout may not be saved yet,
-                // which ResolveLayoutImageFile allows for.
-                auto message = LayoutImageEntry(imageId, destPath);
-                message["type"] = "layoutImageSelected";
-                message["purpose"] = purpose;
-                message["layerIndex"] = layerIndex;
-                message["paramKey"] = paramKey;
-                SendMessageToUI(message.dump());
+                // A new image is filed under what it was picked for: a knob or a background.
+                const bool filed = IsLayoutImageCategory(purpose) && SaveLayoutImageCategory(mFileSystem, imageId, purpose);
+                sendSelected(imageId, destPath, filed ? purpose : std::string(), false);
             }
             catch (const std::exception& e)
             {
@@ -413,6 +454,12 @@ void PluginController::HandleSaveLayoutImageRequest(const nlohmann::json& payloa
     if (WriteFile(destPath, decodedBytes))
     {
         InvalidateLayoutImageIndex();
+
+        if (const std::string category = payload.value("category", ""); IsLayoutImageCategory(category))
+        {
+            [[maybe_unused]] const auto filed = SaveLayoutImageCategory(mFileSystem, imageId, category);
+        }
+
         AppendSessionLog("Layout image saved from import: " + util::PathToUtf8(destPath));
     }
     else
@@ -630,12 +677,31 @@ void PluginController::LoadLayoutLibrary()
 nlohmann::json PluginController::BuildLayoutImages()
 {
     nlohmann::json images = nlohmann::json::array();
+    const auto categories = LoadLayoutImageCategories(mFileSystem);
 
     // One entry per id, resolved as every other reader of an image id resolves it.
     for (const auto& source :
          CollectLayoutImageSources(mFileSystem, ResolveFactoryLayoutsDir(mHost.GetBundledAssetsPath())))
     {
-        images.push_back(LayoutImageEntry(source.imageId, source.path));
+        auto entry = LayoutImageEntry(source.imageId, source.path);
+        const auto filed = categories.find(source.imageId);
+
+        // A factory category folder decides; otherwise the category the designer filed it under.
+        if (!source.category.empty())
+        {
+            entry["type"] = source.category;
+        }
+        else if (filed != categories.end())
+        {
+            entry["type"] = filed->second;
+        }
+
+        if (source.factory)
+        {
+            entry["factory"] = true;
+        }
+
+        images.push_back(std::move(entry));
     }
 
     return images;
@@ -684,6 +750,25 @@ nlohmann::json PluginController::LayoutImageEntry(const std::string& imageId, co
     }
 
     return entry;
+}
+
+void PluginController::HandleSetLayoutImageCategoryRequest(const nlohmann::json& payload)
+{
+    const std::string imageId = payload.value("imageId", "");
+    const std::string category = payload.value("category", "");
+
+    // A factory image keeps the category it ships under.
+    const auto sources = CollectLayoutImageSources(mFileSystem, ResolveFactoryLayoutsDir(mHost.GetBundledAssetsPath()), true);
+    const auto source = std::find_if(sources.begin(), sources.end(),
+                                     [&imageId](const LayoutImageSource& s) { return s.imageId == imageId; });
+
+    if (source == sources.end() || source->factory || !SaveLayoutImageCategory(mFileSystem, imageId, category))
+    {
+        AppendSessionLog("SetLayoutImageCategory: could not file " + imageId + " under " + category);
+        return;
+    }
+
+    AppendSessionLog("Layout image " + imageId + " filed under " + category);
 }
 
 void PluginController::HandleSaveLayoutImageRenditionRequest(const nlohmann::json& payload)

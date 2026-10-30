@@ -33,7 +33,8 @@ in ─ LR4 split @x1 ─┬─ band 1 ─ AP x2 · AP x3 ─ × g1 ─┐
 - **Detector per band:** the band's mean square over a short window that suits the band
   (8, 4, 2 and 1 ms, low band first), so a low note's ripple does not read as level.
   Linked across channels (the louder side decides), separate in dual mono.
-- **Gain computer per band:** soft knee (6 dB), threshold and ratio per band, in dB, worked
+- **Gain computer per band:** threshold, ratio and knee (0-24 dB, default 6; 0 is hard) per
+  band, in dB, worked
   out every 16 samples. The gain reduction is smoothed in the dB domain with Attack and
   Release; the low band's times are doubled and the low mid's 1.5×, since a fast release on a
   low note pumps and distorts its waveform.
@@ -41,6 +42,9 @@ in ─ LR4 split @x1 ─┬─ band 1 ─ AP x2 · AP x3 ─ × g1 ─┐
   uncompressed, so dry and wet share the crossover's phase and a half-way Mix does not comb.
   Makeup applies to the compressed part only; Output trims the sum. Makeup, Mix and Output
   glide over 20 ms, as the VCA compressor's do.
+- **On and Solo per band** (added after the first commit). Off passes the band untouched and
+  meters no reduction; while any band is soloed only the soloed ones are heard. Both glide
+  over 20 ms with the levels.
 - **No latency.**
 
 ## Parameters
@@ -87,14 +91,17 @@ The node panel opens with a plot on the EQ's log-frequency axis:
 - `SignalGraphExecutor::ReadWatchedSpectrum` fills a `WatchedSpectrum` (input bins, optional
   output bins, band meters). `sldS` gains `o` (output bins, same range as `s`) and `b`:
   `[[lowHz, highHz, gainReductionDb, levelDb], …]`, both only for such a node. Older readers
-  ignore them; the EQ's frames are unchanged.
+  ignore them; the EQ's frames are unchanged. Each band also carries its threshold
+  (`BandMeter::thresholdDb`, a fifth element), added for the Distortion; this panel still
+  draws the mark from the knobs so it follows a turn at once.
 
 ### Web UI
 
 - `eqSpectrum.ts` parses `o` and `b` into `EqSpectrum.outputBinsDb` and `.bands`.
-- `signalPath/paramsPanel/multibandCompressorPanel.ts` builds the section, draws on the shared
-  `eqPlot.ts` axis and spectrum, and handles crossover drags. CSS in
-  `css/multiband-compressor.css`.
+- `signalPath/paramsPanel/multibandPanel.ts` builds the section, draws on the shared
+  `eqPlot.ts` axis and spectrum, and handles crossover drags; `multibandPlot.ts` draws. Both
+  are shared with the Multi-band Distortion (docs/plans/multiband-distortion.md). CSS in
+  `css/multiband.css`.
 - Nano Q gets the knobs from the catalogue like any effect. A native band view is a follow-up.
 
 ## Tests (`core/tests/MultibandCompressorEffectTests.cpp`)
@@ -107,8 +114,12 @@ The node panel opens with a plot on the EQ's log-frequency axis:
   knee's reach), per band.
 - Crossover ordering: crossovers set out of order are kept a third of an octave apart.
 - Mix 0 is the uncompressed all-pass; Makeup and Output move the level by what they say.
+- Knee: the curve's hard and wide cases, and a tone on its threshold through each.
+- On and Solo: off passes untouched and meters nothing; solo keeps only the soloed bands;
+  switching either has no step larger than the signal's own.
 - Band meters report the crossovers in use, and gain reduction where a band is compressing.
 - Mono/stereo parity, dual mono, NaN recovery (also in `FastMathNanTests`), factory presets
   (`EffectFactoryPresetTests`).
 - Executor: a watched multi-band node yields output bins and band meters; an EQ node does not.
-- UI: `sldS` parsing of `o` and `b`; the panel's crossover drag maths.
+- UI: `sldS` parsing of `o` and `b`; the panel's crossover drag maths; the knees and band
+  states the plot draws.

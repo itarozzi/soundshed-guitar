@@ -672,6 +672,8 @@ set(GUITARFX_CORE_SOURCES
     src/dsp/effects/MultibandGateSupport.h
     src/dsp/effects/MultibandCompressorEffect.h
     src/dsp/effects/MultibandCompressorSupport.h
+    src/dsp/effects/MultibandDistortionEffect.h
+    src/dsp/effects/MultibandDistortionSupport.h
     src/dsp/effects/ParametricEQEffect.h
     src/dsp/effects/DelayEffect.h
     src/dsp/effects/ReverbEffect.h

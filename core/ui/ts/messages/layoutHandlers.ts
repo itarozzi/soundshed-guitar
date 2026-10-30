@@ -3,6 +3,7 @@
  */
 
 import { layoutDesigner } from "../layoutDesigner.js";
+import { isLayoutImageCategory } from "../layoutImageCategories.js";
 import { areLayoutImagesLoaded, ensureLayoutImagesLoaded, markLayoutImagesLoaded } from "../layoutImages.js";
 import { renderLayoutList } from "../layoutManager.js";
 import type { LayoutImageRef, LayoutLibrary } from "../layoutTypes.js";
@@ -77,21 +78,32 @@ export function onLayoutImageSelected(payload: IncomingPayload): void {
     width?: number;
     height?: number;
     bytes?: number;
+    version?: string;
+    renditions?: LayoutImageRef["renditions"];
+    /** The category the engine filed it under; the message's own "type" is taken. */
+    category?: string;
+    factory?: boolean;
     layerIndex?: number;
     paramKey?: string;
   };
   if (imgPayload.purpose && imgPayload.imageId && imgPayload.fileName) {
-    // Add image to layout library so it can be resolved
+    // Add image to layout library so it can be resolved. The engine answers with an image the
+    // library already has when the picked file is identical to it; that entry keeps its copies.
     if (uiState.layoutLibrary) {
       const existingIdx = uiState.layoutLibrary.images.findIndex(img => img.imageId === imgPayload.imageId);
+      const existing = existingIdx >= 0 ? uiState.layoutLibrary.images[existingIdx] : undefined;
       const imageEntry: LayoutImageRef = {
+        ...existing,
         imageId: imgPayload.imageId,
         fileName: imgPayload.fileName,
         url: imgPayload.url,
         width: imgPayload.width,
         height: imgPayload.height,
         bytes: imgPayload.bytes,
-        type: imgPayload.purpose as "background" | "knob" | "general"
+        version: imgPayload.version ?? existing?.version,
+        renditions: imgPayload.renditions ?? existing?.renditions,
+        type: isLayoutImageCategory(imgPayload.category) ? imgPayload.category : existing?.type,
+        factory: imgPayload.factory ?? existing?.factory,
       };
       if (existingIdx >= 0) {
         uiState.layoutLibrary.images[existingIdx] = imageEntry;

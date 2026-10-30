@@ -59,7 +59,13 @@ class TestHost final : public guitarfx::IPluginHost
     void BrowseFileAsync(guitarfx::BrowseFileType, const std::string&,
                          std::function<void(const guitarfx::BrowseFileResult&)> callback) override
     {
-        callback(guitarfx::BrowseFileResult{});
+        callback(mBrowsePath.empty() ? guitarfx::BrowseFileResult{} : guitarfx::BrowseFileResult{true, mBrowsePath});
+    }
+
+    /// The file the next Browse picks; empty cancels it.
+    void SetBrowsePath(fs::path path)
+    {
+        mBrowsePath = std::move(path);
     }
 
     void SaveFileAsync(guitarfx::BrowseFileType, const std::string&, const std::string&,
@@ -136,6 +142,7 @@ class TestHost final : public guitarfx::IPluginHost
 
   private:
     fs::path mRoot;
+    fs::path mBrowsePath;
     std::vector<std::string> mMessages;
     std::condition_variable mMessageCv;
     std::mutex mMessageMutex;
@@ -816,8 +823,139 @@ bool TestRenditionsAreStoredListedAndServed()
     return true;
 }
 
-/// Images an image knob, toggle, slider or overlay draws on are the layout's like any other: a
-/// save copies each into its own folder, so they survive the layout they came from.
+/// Browsing for a picture the library already holds answers with that image rather than copying the
+/// file again under a new id, from any layout's folder; a different picture is still added.
+bool TestPickingTheSameImageAgainReusesIt()
+{
+    const fs::path sandbox = FreshSandbox("same-image-again");
+    const ScopedPlatformRoot root(sandbox);
+    const fs::path content = ContentDir(sandbox);
+
+    TestHost host(sandbox);
+    guitarfx::PluginController controller(host);
+
+    const auto browse = [&](const fs::path& file, const std::string& layoutId) -> std::string {
+        const auto before = host.CountMessages("layoutImageSelected");
+        host.SetBrowsePath(file);
+        controller.HandleUIMessage(
+            nlohmann::json{{"type", "browseLayoutImage"}, {"purpose", "knob"}, {"layoutId", layoutId}}.dump());
+        const auto selected = host.WaitForMessage("layoutImageSelected");
+        return selected && host.CountMessages("layoutImageSelected") == before + 1 ? selected->value("imageId", "")
+                                                                                   : std::string();
+    };
+    const auto imageCount = [&](const std::string& layoutId) {
+        std::error_code ec;
+        const auto dir = content / layoutId / "images";
+        return fs::is_directory(dir, ec)
+                   ? std::distance(fs::directory_iterator(dir, ec), fs::directory_iterator())
+                   : std::ptrdiff_t{0};
+    };
+
+    const fs::path face = sandbox / "picked" / "face.png";
+    const fs::path sameFace = sandbox / "elsewhere" / "face copy.png";
+    const fs::path otherFace = sandbox / "picked" / "other.png";
+    WriteBytes(face, PngOfSize(64, 64, 80));
+    WriteBytes(sameFace, PngOfSize(64, 64, 80));
+    WriteBytes(otherFace, PngOfSize(64, 32, 80));
+
+    const std::string first = browse(face, "A");
+    const std::string again = browse(sameFace, "A");
+
+    if (first.empty() || again != first || imageCount("A") != 1)
+    {
+        std::cerr << "Picking the same picture again added a copy: " << first << " then " << again << ", "
+                  << imageCount("A") << " files\n";
+        return false;
+    }
+
+    // Another layout reuses it too; saving that layout is what copies it into its own folder.
+    if (const std::string fromB = browse(sameFace, "B"); fromB != first || imageCount("B") != 0)
+    {
+        std::cerr << "Another layout copied a picture the library holds: " << fromB << "\n";
+        return false;
+    }
+
+    if (const std::string other = browse(otherFace, "A"); other.empty() || other == first || imageCount("A") != 2)
+    {
+        std::cerr << "A different picture was not added: " << other << "\n";
+        return false;
+    }
+
+    return true;
+}
+
+/// Each image is listed with its category: a browsed one under what it was picked for, an imported
+/// one under its archive's, one refiled under the new one, and a factory image under the folder it
+/// ships in, which refiling cannot change.
+bool TestImageCategoriesAreFiledListedAndShipped()
+{
+    const fs::path sandbox = FreshSandbox("image-categories");
+    const ScopedPlatformRoot root(sandbox);
+
+    TestHost host(sandbox);
+    guitarfx::PluginController controller(host);
+
+    WriteBytes(sandbox / "ui" / "assets" / "layout-images" / "switch" / "factory-bat.png", PngOfSize(32, 48));
+    const auto listed = [&](const std::string& imageId) { return ListedImage(host, controller, imageId); };
+    const auto category = [&](const std::string& imageId) { return listed(imageId).value("type", ""); };
+
+    const fs::path wood = sandbox / "picked" / "wood.png";
+    WriteBytes(wood, PngOfSize(400, 280, 60));
+    host.SetBrowsePath(wood);
+    controller.HandleUIMessage(
+        nlohmann::json{{"type", "browseLayoutImage"}, {"purpose", "background"}, {"layoutId", "A"}}.dump());
+    const auto selected = host.WaitForMessage("layoutImageSelected");
+    const std::string woodId = selected ? selected->value("imageId", "") : std::string();
+    // The library lists a layout's images once the layout is saved.
+    SaveLayout(controller, "A", "fx_a", {woodId});
+
+    if (woodId.empty() || selected->value("category", "") != "background" || category(woodId) != "background")
+    {
+        std::cerr << "A browsed background was not filed as one: " << (selected ? selected->dump() : "none") << "\n";
+        return false;
+    }
+
+    controller.HandleUIMessage(
+        nlohmann::json{{"type", "setLayoutImageCategory"}, {"imageId", woodId}, {"category", "switch"}}.dump());
+    controller.HandleUIMessage(
+        nlohmann::json{{"type", "setLayoutImageCategory"}, {"imageId", woodId}, {"category", "drawer"}}.dump());
+
+    if (category(woodId) != "switch")
+    {
+        std::cerr << "Refiling did not stick, or an unknown category was taken: " << category(woodId) << "\n";
+        return false;
+    }
+
+    controller.HandleUIMessage(nlohmann::json{{"type", "saveLayoutImage"},
+                                              {"imageId", "imported_1"},
+                                              {"fileName", "imported_1.png"},
+                                              {"data", guitarfx::util::EncodeBase64(PngBytes())},
+                                              {"layoutId", "A"},
+                                              {"category", "knob"}}
+                                   .dump());
+
+    if (category("imported_1") != "knob")
+    {
+        std::cerr << "An imported image did not take its archive's category\n";
+        return false;
+    }
+
+    controller.HandleUIMessage(
+        nlohmann::json{{"type", "setLayoutImageCategory"}, {"imageId", "factory-bat"}, {"category", "knob"}}.dump());
+    const auto factory = listed("factory-bat");
+
+    if (factory.value("type", "") != "switch" || !factory.value("factory", false))
+    {
+        std::cerr << "The factory image was not listed under its folder, or was refiled: " << factory.dump() << "\n";
+        return false;
+    }
+
+    return true;
+}
+
+/// Images an image knob, toggle, slider or overlay draws on, and the layout's own knob image, are
+/// the layout's like any other: a save copies each into its own folder, so they survive the layout
+/// they came from.
 bool TestImageControlReferencesAreCopiedOnSave()
 {
     const fs::path sandbox = FreshSandbox("image-controls");
@@ -826,8 +964,8 @@ bool TestImageControlReferencesAreCopiedOnSave()
 
     TestHost host(sandbox);
     guitarfx::PluginController controller(host);
-    const std::vector<std::string> ids = {"strip_1", "skirt_1", "glare_1", "on_1",
-                                          "off_1",   "rail_1",  "cap_1",   "logo_1"};
+    const std::vector<std::string> ids = {"face_1", "face_base_1", "strip_1", "skirt_1", "glare_1",
+                                          "on_1",   "off_1",       "rail_1",  "cap_1",   "logo_1"};
 
     for (const auto& id : ids)
     {
@@ -842,6 +980,7 @@ bool TestImageControlReferencesAreCopiedOnSave()
         {"version", 2},
         {"dimensions", {{"width", 400}, {"height", 280}}},
         {"backgrounds", nlohmann::json::array()},
+        {"knobImage", {{"mode", "rotate"}, {"imageId", "face_1"}, {"baseImageId", "face_base_1"}}},
         {"controls",
          {{{"paramKey", "a"},
            {"type", "knob"},
@@ -968,6 +1107,8 @@ int main()
         {"Image sizes are read from headers", TestImageSizesAreReadFromHeaders},
         {"Large imported images are stored", TestLargeImportedImagesAreStored},
         {"Renditions are stored, listed and served", TestRenditionsAreStoredListedAndServed},
+        {"Picking the same image again reuses it", TestPickingTheSameImageAgainReusesIt},
+        {"Image categories are filed, listed and shipped", TestImageCategoriesAreFiledListedAndShipped},
         {"Image control references are copied on save", TestImageControlReferencesAreCopiedOnSave},
         {"A failed save is reported", TestFailedSaveIsReported},
         {"Delete removes the layout from every key", TestDeleteRemovesTheLayoutFromEveryKey},

@@ -126,6 +126,7 @@ export const EFFECTS: Readonly<Record<string, EffectPresentation>> = {
   [EffectGuids.kCompressorOpto]: { icon: "bulb" },
   [EffectGuids.kOverdrive]: { icon: "flame" },
   [EffectGuids.kDistortion]: { icon: "flame" },
+  [EffectGuids.kMultibandDistortion]: { icon: "flame" },
   [EffectGuids.kFuzz]: { icon: "flame" },
   [EffectGuids.kAmpBuiltin]: { icon: "amp" },
   [EffectGuids.kAmpNamOptimized]: { icon: "amp" },

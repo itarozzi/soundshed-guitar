@@ -33,8 +33,10 @@ export interface LayoutImageRef {
   version?: string;
   /** Smaller copies of a large image, made for this version (layoutRenditions.ts). */
   renditions?: LayoutImageRendition[];
-  /** Image type/category */
-  type?: "background" | "knob" | "general";
+  /** The category the designer files it under (layoutImageCategories.ts); "general" is Misc. */
+  type?: "background" | "knob" | "switch" | "general";
+  /** Shipped with the app: it cannot be refiled under another category. */
+  factory?: boolean;
 }
 
 /** Background layer configuration */
@@ -247,6 +249,12 @@ export interface EffectLayout {
   controlValueFontSize?: number;
   controlFontFamily?: string;
   controlLabelMaxWidth?: number;
+  /**
+   * The knob image every knob in the layout is drawn from unless it has its own: the default
+   * controls' knobs (useDefaultControls), and each positioned knob with no knobImage of its own
+   * and a knobStyle of "default" or none. Older apps ignore it and draw standard knobs.
+   */
+  knobImage?: LayoutKnobImage;
   /** How the layout fits the params panel (layoutScaling.ts). Unset: the original fit-width rule. */
   scaling?: LayoutScaling;
   /** The designer's snap step (px), also used when the layout is imported. Unset: LAYOUT_GRID_SIZE. */
@@ -449,6 +457,9 @@ export function visitLayoutImageRefs(
     const id = owner?.[key];
     if (owner && typeof id === "string" && id) visit(id, (next) => { (owner as Record<keyof T, unknown>)[key] = next; }, where);
   };
+  visitField(layout.knobImage, "imageId", `Layout knob: ${layout.knobImage?.mode === "filmstrip" ? "filmstrip" : "turning face"}`);
+  visitField(layout.knobImage, "baseImageId", "Layout knob: base");
+  visitField(layout.knobImage, "glareImageId", "Layout knob: glare");
   for (const control of layout.controls ?? []) {
     const style = control.style;
     const name = control.labelOverride || control.paramKey;

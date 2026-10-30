@@ -3,11 +3,12 @@
 #include "dsp/BiquadDesign.h"
 #include "dsp/FiniteCheck.h"
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 
 /**
- * A multi-band split for the multi-band dynamics effects (the Multi-band Gate and Compressor):
+ * A multi-band split for the multi-band effects (the Multi-band Gate, Compressor and Distortion):
  * fourth-order Linkwitz-Riley crossovers in a cascade with all-pass compensation, so the bands
  * sum to a single all-pass of the input, flat in level, whenever every band is at unity.
  *
@@ -16,6 +17,31 @@
  */
 namespace guitarfx::lr_crossover
 {
+/// A crossover the player moves is kept at least this ratio above the one below it (a third of
+/// an octave), so a band never closes up whatever order the knobs are in.
+inline constexpr double kMinSplitRatio = 1.2599210498948732;
+
+/// The crossovers as an effect uses them: each at least kMinSplitRatio above the one below,
+/// pushed up from the lowest, and the top one pulled back under `nyquistGuardHz` (pulling the
+/// ones below with it) so no split lands past what the sample rate can hold.
+template <std::size_t kSplits>
+[[nodiscard]] std::array<double, kSplits> OrderedSplits(std::array<double, kSplits> hz, double nyquistGuardHz)
+{
+    for (std::size_t split = 1; split < kSplits; ++split)
+    {
+        hz[split] = std::max(hz[split], hz[split - 1] * kMinSplitRatio);
+    }
+
+    hz[kSplits - 1] = std::min(hz[kSplits - 1], nyquistGuardHz);
+
+    for (std::size_t split = kSplits - 1; split > 0; --split)
+    {
+        hz[split - 1] = std::min(hz[split - 1], hz[split] / kMinSplitRatio);
+    }
+
+    return hz;
+}
+
 /// What the crossover's channels share: per split, one Butterworth section of the Linkwitz-Riley
 /// low-pass and high-pass (each runs it twice) and the all-pass the two add up to.
 template <int kBands> struct Design

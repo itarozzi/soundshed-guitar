@@ -1,0 +1,82 @@
+/* The multi-band effects' plot (ts/multibandPlot.ts), for the Multi-band Compressor and
+   Distortion: their bands over the spectrum in and out, how hard each band works hanging from
+   the top (gain reduction, or drive into the clipper) and its level under the plot. Drawn on a
+   canvas; the colours come from these tokens, set on the section so the legend can use them. */
+
+.mb-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+
+  --mb-depth-fill: rgba(232, 128, 72, 0.3);
+  --mb-depth-edge: rgba(240, 150, 90, 0.95);
+  --mb-crossover: rgba(255, 255, 255, 0.38);
+  --mb-label: rgba(240, 240, 248, 0.72);
+  --mb-level: rgba(240, 240, 248, 0.42);
+  --mb-level-over: rgba(240, 150, 90, 0.85);
+  --mb-strip-bg: rgba(0, 0, 0, 0.28);
+  --mb-knee: rgba(72, 168, 224, 0.3);
+  --mb-unheard: rgba(0, 0, 0, 0.5);
+  --mb-solo: rgba(240, 200, 80, 0.95);
+}
+
+.theme-light .mb-section {
+  --mb-depth-fill: rgba(181, 82, 30, 0.22);
+  --mb-depth-edge: rgba(181, 82, 30, 0.95);
+  --mb-crossover: rgba(17, 19, 24, 0.35);
+  --mb-label: rgba(17, 19, 24, 0.72);
+  --mb-level: rgba(58, 74, 96, 0.42);
+  --mb-level-over: rgba(181, 82, 30, 0.85);
+  --mb-strip-bg: rgba(17, 19, 24, 0.08);
+  --mb-knee: rgba(30, 110, 170, 0.22);
+  --mb-unheard: rgba(232, 236, 242, 0.65);
+  --mb-solo: rgba(150, 100, 0, 0.95);
+}
+
+/* The distortion's drive is red, so it does not read as the compressor's cut. */
+.mb-section.mb-distortion {
+  --mb-depth-fill: rgba(226, 72, 72, 0.28);
+  --mb-depth-edge: rgba(240, 100, 100, 0.95);
+  --mb-level-over: rgba(240, 100, 100, 0.85);
+}
+
+.theme-light .mb-section.mb-distortion {
+  --mb-depth-fill: rgba(176, 36, 36, 0.2);
+  --mb-depth-edge: rgba(176, 36, 36, 0.95);
+  --mb-level-over: rgba(176, 36, 36, 0.85);
+}
+
+/* Scoped by the section: .eq-curve-canvas, which sets 140px, loads after this sheet. */
+.mb-section .mb-canvas {
+  height: 200px;
+  touch-action: none;
+}
+
+/* The header's key to what the plot draws. */
+.mb-legend {
+  display: inline-flex;
+  gap: 10px;
+}
+
+.mb-legend > span::before {
+  content: "";
+  display: inline-block;
+  width: 10px;
+  height: 3px;
+  margin-right: 4px;
+  vertical-align: middle;
+  border-radius: 1px;
+}
+
+.mb-legend-in::before {
+  background: var(--eq-curve-spectrum-line, rgba(255, 255, 255, 0.28));
+}
+
+.mb-legend-out::before {
+  background: var(--eq-curve-response, rgba(72, 168, 224, 0.9));
+}
+
+.mb-legend-depth::before {
+  height: 6px;
+  background: var(--mb-depth-edge);
+}

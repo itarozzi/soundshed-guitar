@@ -1911,24 +1911,10 @@ void PluginController::RefreshWasmNodeDescriptor(GraphNode& node)
     {
         currentGuestParamIds.insert(guestParam.definition.id);
 
-        if (node.params.count(guestParam.definition.id) > 0)
+        if (node.params.count(guestParam.definition.id) == 0)
         {
-            continue;
+            node.params[guestParam.definition.id] = guestParam.definition.defaultValue;
         }
-
-        double initialValue = guestParam.definition.defaultValue;
-
-        if (!previousDescriptor.has_value())
-        {
-            const std::string legacyParamKey = "param" + std::to_string(guestParam.slot + 1);
-
-            if (const auto legacyIt = node.params.find(legacyParamKey); legacyIt != node.params.end())
-            {
-                initialValue = legacyIt->second;
-            }
-        }
-
-        node.params[guestParam.definition.id] = initialValue;
     }
 
     if (previousDescriptor)

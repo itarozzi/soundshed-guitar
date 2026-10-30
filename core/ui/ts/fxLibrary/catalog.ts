@@ -64,7 +64,7 @@ export function fxPayloadIdentity(payload: FxPointerDragPayload): FxItemIdentity
 
 export function getCatalogEffects(options?: { excludeTypes?: string[] }): EffectTypeInfo[] {
   const excludedTypes = new Set([EffectGuids.kMixer, ...(options?.excludeTypes ?? [])]);
-  const experimentalEffectTypes = new Set<string>([EffectGuids.kTransposeStft, EffectGuids.kTransposeHybrid]);
+  const experimentalEffectTypes = new Set<string>([EffectGuids.kTransposeStft, EffectGuids.kTransposeHybrid, EffectGuids.kEqPitchTracking]);
   return EffectTypeRegistry.getAll().filter((effect) => {
     const resolvedType = EffectTypeRegistry.resolve(effect.type);
     if (effect.catalogHidden) return false;

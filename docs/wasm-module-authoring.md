@@ -1,5 +1,9 @@
 # WASM Module Authoring Guide
 
+> **Out of date.** This guide still describes Custom Effect ABI 1 (`read_param(index)`, numbered
+> `param.N` blocks), which the host no longer loads. ABI 2 looks params up by id; see
+> [plans/custom-effect-abi-v2.md](plans/custom-effect-abi-v2.md) until this guide is rewritten.
+
 This document describes how to create a guest WebAssembly module that works with the AudioFX WASM host in this repo.
 
 The target audience is another AI or code generator that needs to emit new modules dynamically.

@@ -17,6 +17,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -347,7 +348,7 @@ ByteVector MakeModule(const std::vector<FuncTypeDef>& types, const std::vector<I
     return module;
 }
 
-ByteVector BuildDescriptorBlob(std::initializer_list<std::pair<std::string, std::string>> entries)
+ByteVector BuildDescriptorBlob(const std::vector<std::pair<std::string, std::string>>& entries)
 {
     ByteVector blob;
 
@@ -362,252 +363,330 @@ ByteVector BuildDescriptorBlob(std::initializer_list<std::pair<std::string, std:
     return blob;
 }
 
-ByteVector MakeGainModule()
+// Every fixture is a Custom Effect ABI 2 module laid out the same way: its imports, then prepare,
+// reset, process, latency, the descriptor's pointer and length, audiofx_abi_version and an
+// optional start function. The descriptor sits at offset 0 of memory, the id strings at kIdOffset.
+constexpr uint32_t kIdOffset = 4096;
+
+struct GuestSpec
 {
-    const std::vector<FuncTypeDef> types = {
-        {{WasmValueType::I32}, {WasmValueType::F32}},
-        {{WasmValueType::F32, WasmValueType::I32, WasmValueType::I32}, {WasmValueType::I32}},
-        {{}, {}},
-        {{WasmValueType::F32, WasmValueType::F32}, {WasmValueType::F32, WasmValueType::F32}},
-        {{}, {WasmValueType::I32}},
-    };
-
-    const std::vector<ImportFuncDef> imports = {
-        {"host", "read_param", 0},
-    };
-
-    const ByteVector descriptorBlob = BuildDescriptorBlob({
-        {"effect.name", "WASM Gain"},
-        {"effect.version", "1.2.3"},
-        {"effect.category", "utility"},
-        {"effect.description", "Simple gain module with self-described guest metadata."},
-        {"effect.thumbnailBase64", "dGVzdA=="},
-        {"param.0.id", "gain"},
-        {"param.0.title", "Gain"},
-        {"param.0.slot", "0"},
-        {"param.0.default", "0.5"},
-        {"param.0.min", "0.0"},
-        {"param.0.max", "2.0"},
-        {"param.0.unit", "amount"},
-    });
-
-    ByteVector prepareOps;
-    AppendOp(prepareOps, I32Const(0));
-
+    std::vector<FuncTypeDef> importTypes;
+    std::vector<ImportFuncDef> imports;
+    std::vector<GlobalDef> globals;
+    ByteVector descriptor;
+    std::vector<std::string> ids;
+    ByteVector prepareOps = I32Const(0);
+    ByteVector resetOps;
     ByteVector processOps;
-    AppendOp(processOps, LocalGet(0));
-    AppendOp(processOps, I32Const(0));
-    AppendOp(processOps, Call(0));
-    AppendU8(processOps, 0x94);
-    AppendOp(processOps, LocalGet(1));
-    AppendOp(processOps, I32Const(0));
-    AppendOp(processOps, Call(0));
-    AppendU8(processOps, 0x94);
+    ByteVector startOps;
+    std::optional<int32_t> abiVersion = WasmEffect::kAbiVersion;
+    uint32_t memoryMinPages = 1;
+};
 
-    ByteVector latencyOps;
-    AppendOp(latencyOps, I32Const(0));
+ByteVector MakeGuestModule(const GuestSpec& spec)
+{
+    std::vector<FuncTypeDef> types = spec.importTypes;
+    const auto firstType = static_cast<uint32_t>(types.size());
+    types.push_back({{WasmValueType::F32, WasmValueType::I32, WasmValueType::I32}, {WasmValueType::I32}});
+    types.push_back({{}, {}});
+    types.push_back({{WasmValueType::F32, WasmValueType::F32}, {WasmValueType::F32, WasmValueType::F32}});
+    types.push_back({{}, {WasmValueType::I32}});
 
-    ByteVector descriptorPtrOps;
-    AppendOp(descriptorPtrOps, I32Const(0));
+    ByteVector processOps = spec.processOps;
 
-    ByteVector descriptorLenOps;
-    AppendOp(descriptorLenOps, I32Const(static_cast<int32_t>(descriptorBlob.size())));
+    if (processOps.empty())
+    {
+        AppendOp(processOps, LocalGet(0));
+        AppendOp(processOps, LocalGet(1));
+    }
 
-    const std::vector<DefinedFuncDef> functions = {
-        {1, prepareOps}, {2, {}}, {3, processOps}, {4, latencyOps}, {4, descriptorPtrOps}, {4, descriptorLenOps},
+    std::vector<DefinedFuncDef> functions = {
+        {firstType, spec.prepareOps},
+        {firstType + 1, spec.resetOps},
+        {firstType + 2, processOps},
+        {firstType + 3, I32Const(0)},
+        {firstType + 3, I32Const(0)},
+        {firstType + 3, I32Const(static_cast<int32_t>(spec.descriptor.size()))},
+        {firstType + 3, I32Const(spec.abiVersion.value_or(0))},
     };
 
-    return MakeModule(types, imports, {}, functions,
-                      {
-                          {"audiofx_prepare", 1},
-                          {"audiofx_reset", 2},
-                          {"audiofx_process", 3},
-                          {"audiofx_get_latency_samples", 4},
-                          {"audiofx_descriptor_ptr", 5},
-                          {"audiofx_descriptor_len", 6},
-                      },
-                      true, {{0, descriptorBlob}});
+    const auto first = static_cast<uint32_t>(spec.imports.size());
+    std::vector<std::pair<std::string, uint32_t>> exports = {
+        {"audiofx_prepare", first},
+        {"audiofx_reset", first + 1},
+        {"audiofx_process", first + 2},
+        {"audiofx_get_latency_samples", first + 3},
+        {"audiofx_descriptor_ptr", first + 4},
+        {"audiofx_descriptor_len", first + 5},
+    };
+
+    if (spec.abiVersion)
+    {
+        exports.push_back({"audiofx_abi_version", first + 6});
+    }
+
+    std::optional<uint32_t> startFunction;
+
+    if (!spec.startOps.empty())
+    {
+        functions.push_back({firstType + 1, spec.startOps});
+        startFunction = first + 7;
+    }
+
+    std::vector<DataSegmentDef> data;
+
+    if (!spec.descriptor.empty())
+    {
+        data.push_back({0, spec.descriptor});
+    }
+
+    ByteVector idBytes;
+
+    for (const auto& id : spec.ids)
+    {
+        idBytes.insert(idBytes.end(), id.begin(), id.end());
+    }
+
+    if (!idBytes.empty())
+    {
+        data.push_back({kIdOffset, idBytes});
+    }
+
+    return MakeModule(types, spec.imports, spec.globals, functions, exports, true, data, spec.memoryMinPages,
+                      startFunction);
 }
 
+constexpr uint32_t kParamHandleImport = 0;
+constexpr uint32_t kParamValueImport = 1;
+constexpr uint32_t kTempoImport = 2;
+
+// A module that imports the param readers and keeps one handle per id in globals 0..N-1, looked up
+// in prepare as the authoring guide says.
+GuestSpec ParamGuest(ByteVector descriptor, std::vector<std::string> ids)
+{
+    GuestSpec spec;
+    spec.importTypes = {
+        {{WasmValueType::I32, WasmValueType::I32}, {WasmValueType::I32}},
+        {{WasmValueType::I32}, {WasmValueType::F32}},
+        {{}, {WasmValueType::F32}},
+    };
+    spec.imports = {
+        {"host", "param_handle", 0},
+        {"host", "param_value", 1},
+        {"host", "tempo_bpm", 2},
+    };
+    spec.descriptor = std::move(descriptor);
+    spec.ids = std::move(ids);
+    spec.prepareOps.clear();
+
+    uint32_t offset = kIdOffset;
+
+    for (uint32_t index = 0; index < spec.ids.size(); ++index)
+    {
+        const auto length = static_cast<int32_t>(spec.ids[index].size());
+        spec.globals.push_back({WasmValueType::I32, true, I32Const(-1)});
+        AppendOp(spec.prepareOps, I32Const(static_cast<int32_t>(offset)));
+        AppendOp(spec.prepareOps, I32Const(length));
+        AppendOp(spec.prepareOps, Call(kParamHandleImport));
+        AppendOp(spec.prepareOps, GlobalSet(index));
+        offset += static_cast<uint32_t>(length);
+    }
+
+    AppendOp(spec.prepareOps, I32Const(0));
+    return spec;
+}
+
+// param_value(the handle for ids[index]).
+ByteVector ReadParam(uint32_t index)
+{
+    ByteVector ops = GlobalGet(index);
+    AppendOp(ops, Call(kParamValueImport));
+    return ops;
+}
+
+// Scales each channel by the 'gain' param.
+ByteVector MakeGainModule()
+{
+    auto spec = ParamGuest(BuildDescriptorBlob({
+                               {"effect.name", "WASM Gain"},
+                               {"effect.version", "1.2.3"},
+                               {"effect.category", "utility"},
+                               {"effect.description", "Simple gain module with self-described guest metadata."},
+                               {"effect.thumbnailBase64", "dGVzdA=="},
+                               {"param.gain.title", "Gain"},
+                               {"param.gain.default", "0.5"},
+                               {"param.gain.min", "0.0"},
+                               {"param.gain.max", "2.0"},
+                               {"param.gain.unit", "amount"},
+                           }),
+                           {"gain"});
+
+    AppendOp(spec.processOps, LocalGet(0));
+    AppendOp(spec.processOps, ReadParam(0));
+    AppendU8(spec.processOps, 0x94);
+    AppendOp(spec.processOps, LocalGet(1));
+    AppendOp(spec.processOps, ReadParam(0));
+    AppendU8(spec.processOps, 0x94);
+    return MakeGuestModule(spec);
+}
+
+// Both outputs are (left + right) / 2 scaled by 'gain'.
 ByteVector MakeStereoAverageModule()
 {
-    const std::vector<FuncTypeDef> types = {
-        {{WasmValueType::I32}, {WasmValueType::F32}},
-        {{WasmValueType::F32, WasmValueType::I32, WasmValueType::I32}, {WasmValueType::I32}},
-        {{}, {}},
-        {{WasmValueType::F32, WasmValueType::F32}, {WasmValueType::F32, WasmValueType::F32}},
-        {{}, {WasmValueType::I32}},
+    auto spec = ParamGuest(BuildDescriptorBlob({
+                               {"effect.name", "Stereo Average"},
+                               {"effect.category", "utility"},
+                               {"param.gain.title", "Output Gain"},
+                               {"param.gain.default", "1.0"},
+                               {"param.gain.min", "0.0"},
+                               {"param.gain.max", "2.0"},
+                           }),
+                           {"gain"});
+
+    for (int channel = 0; channel < 2; ++channel)
+    {
+        AppendOp(spec.processOps, LocalGet(0));
+        AppendOp(spec.processOps, LocalGet(1));
+        AppendU8(spec.processOps, 0x92);
+        AppendOp(spec.processOps, F32Const(0.5f));
+        AppendU8(spec.processOps, 0x94);
+        AppendOp(spec.processOps, ReadParam(0));
+        AppendU8(spec.processOps, 0x94);
+    }
+
+    return MakeGuestModule(spec);
+}
+
+// Outputs (param 'a', param 'b'), whatever order the descriptor declares them in.
+ByteVector MakePairModule(bool reversed)
+{
+    std::vector<std::pair<std::string, std::string>> entries = {
+        {"param.a.default", "0.1"},
+        {"param.b.default", "0.9"},
     };
 
-    const std::vector<ImportFuncDef> imports = {
-        {"host", "read_param", 0},
+    if (reversed)
+    {
+        std::swap(entries[0], entries[1]);
+    }
+
+    auto spec = ParamGuest(BuildDescriptorBlob(entries), {"a", "b"});
+    AppendOp(spec.processOps, ReadParam(0));
+    AppendOp(spec.processOps, ReadParam(1));
+    return MakeGuestModule(spec);
+}
+
+// Outputs (param 'last', tempo_bpm()).
+ByteVector MakeTempoModule()
+{
+    auto spec = ParamGuest(BuildDescriptorBlob({
+                               {"effect.name", "Tempo"},
+                               {"param.first.default", "0.1"},
+                               {"param.last.default", "0.75"},
+                           }),
+                           {"first", "last"});
+
+    AppendOp(spec.processOps, ReadParam(1));
+    AppendOp(spec.processOps, Call(kTempoImport));
+    return MakeGuestModule(spec);
+}
+
+// Reads params at 0 and 1, the way ABI 1 numbered them, without asking param_handle.
+ByteVector MakeHardCodedHandleModule()
+{
+    auto spec = ParamGuest(BuildDescriptorBlob({{"param.gain.default", "1.0"}}), {});
+
+    AppendOp(spec.processOps, I32Const(0));
+    AppendOp(spec.processOps, Call(kParamValueImport));
+    AppendOp(spec.processOps, I32Const(1));
+    AppendOp(spec.processOps, Call(kParamValueImport));
+    return MakeGuestModule(spec);
+}
+
+// Prepare succeeds only if param_handle answers -1 to an undeclared id, an id outside memory, an
+// empty id and an over-long one. Process then outputs 0.125 on both channels.
+ByteVector MakeUnknownIdModule()
+{
+    auto spec = ParamGuest(BuildDescriptorBlob({{"param.gain.default", "1.0"}}), {"missing"});
+    spec.globals.clear();
+    spec.prepareOps.clear();
+
+    const std::vector<std::pair<int32_t, int32_t>> lookups = {
+        {static_cast<int32_t>(kIdOffset), 7},
+        {0x7fff0000, 4},
+        {static_cast<int32_t>(kIdOffset), 0},
+        {static_cast<int32_t>(kIdOffset), static_cast<int32_t>(WasmEffect::kMaxGuestIdLength) + 1},
     };
 
-    const ByteVector descriptorBlob = BuildDescriptorBlob({
-        {"effect.name", "Stereo Average"},
-        {"effect.category", "utility"},
-        {"param.0.id", "gain"},
-        {"param.0.title", "Output Gain"},
-        {"param.0.slot", "0"},
-        {"param.0.default", "1.0"},
-        {"param.0.min", "0.0"},
-        {"param.0.max", "2.0"},
-        {"param.0.unit", "amount"},
-    });
+    for (std::size_t i = 0; i < lookups.size(); ++i)
+    {
+        AppendOp(spec.prepareOps, I32Const(lookups[i].first));
+        AppendOp(spec.prepareOps, I32Const(lookups[i].second));
+        AppendOp(spec.prepareOps, Call(kParamHandleImport));
+        AppendOp(spec.prepareOps, I32Const(1));
+        AppendU8(spec.prepareOps, 0x6a);
 
-    ByteVector prepareOps;
-    AppendOp(prepareOps, I32Const(0));
+        if (i > 0)
+        {
+            AppendU8(spec.prepareOps, 0x72);
+        }
+    }
 
-    ByteVector processOps;
-    AppendOp(processOps, LocalGet(0));
-    AppendOp(processOps, LocalGet(1));
-    AppendU8(processOps, 0x92);
-    AppendOp(processOps, F32Const(0.5f));
-    AppendU8(processOps, 0x94);
-    AppendOp(processOps, I32Const(0));
-    AppendOp(processOps, Call(0));
-    AppendU8(processOps, 0x94);
-
-    AppendOp(processOps, LocalGet(1));
-    AppendOp(processOps, LocalGet(0));
-    AppendU8(processOps, 0x92);
-    AppendOp(processOps, F32Const(0.5f));
-    AppendU8(processOps, 0x94);
-    AppendOp(processOps, I32Const(0));
-    AppendOp(processOps, Call(0));
-    AppendU8(processOps, 0x94);
-
-    ByteVector latencyOps;
-    AppendOp(latencyOps, I32Const(0));
-
-    ByteVector descriptorPtrOps;
-    AppendOp(descriptorPtrOps, I32Const(0));
-
-    ByteVector descriptorLenOps;
-    AppendOp(descriptorLenOps, I32Const(static_cast<int32_t>(descriptorBlob.size())));
-
-    const std::vector<DefinedFuncDef> functions = {
-        {1, prepareOps}, {2, {}}, {3, processOps}, {4, latencyOps}, {4, descriptorPtrOps}, {4, descriptorLenOps},
-    };
-
-    return MakeModule(types, imports, {}, functions,
-                      {
-                          {"guitarfx_prepare", 1},
-                          {"guitarfx_reset", 2},
-                          {"guitarfx_process", 3},
-                          {"guitarfx_get_latency_samples", 4},
-                          {"guitarfx_descriptor_ptr", 5},
-                          {"guitarfx_descriptor_len", 6},
-                      },
-                      true, {{0, descriptorBlob}});
+    AppendOp(spec.processOps, F32Const(0.125f));
+    AppendOp(spec.processOps, F32Const(0.125f));
+    return MakeGuestModule(spec);
 }
 
 ByteVector MakeResourceScalerModule()
 {
-    const std::vector<FuncTypeDef> types = {
-        {{WasmValueType::I32, WasmValueType::I32}, {WasmValueType::I32}},
-        {{WasmValueType::F32, WasmValueType::I32, WasmValueType::I32}, {WasmValueType::I32}},
-        {{}, {}},
-        {{WasmValueType::F32, WasmValueType::F32}, {WasmValueType::F32, WasmValueType::F32}},
-        {{}, {WasmValueType::I32}},
-    };
+    GuestSpec spec;
+    spec.importTypes = {{{WasmValueType::I32, WasmValueType::I32}, {WasmValueType::I32}}};
+    spec.imports = {{"host", "read_resource_byte", 0}};
+    spec.descriptor = BuildDescriptorBlob({{"effect.name", "Resource Scaler"}});
 
-    const std::vector<ImportFuncDef> imports = {
-        {"host", "read_resource_byte", 0},
-    };
+    for (uint32_t channel = 0; channel < 2; ++channel)
+    {
+        AppendOp(spec.processOps, LocalGet(channel));
+        AppendOp(spec.processOps, I32Const(1));
+        AppendOp(spec.processOps, I32Const(0));
+        AppendOp(spec.processOps, Call(0));
+        AppendU8(spec.processOps, 0xb2);
+        AppendOp(spec.processOps, F32Const(64.0f));
+        AppendU8(spec.processOps, 0x95);
+        AppendU8(spec.processOps, 0x94);
+    }
 
-    ByteVector prepareOps;
-    AppendOp(prepareOps, I32Const(0));
-
-    ByteVector processOps;
-    AppendOp(processOps, LocalGet(0));
-    AppendOp(processOps, I32Const(1));
-    AppendOp(processOps, I32Const(0));
-    AppendOp(processOps, Call(0));
-    AppendU8(processOps, 0xb2);
-    AppendOp(processOps, F32Const(64.0f));
-    AppendU8(processOps, 0x95);
-    AppendU8(processOps, 0x94);
-
-    AppendOp(processOps, LocalGet(1));
-    AppendOp(processOps, I32Const(1));
-    AppendOp(processOps, I32Const(0));
-    AppendOp(processOps, Call(0));
-    AppendU8(processOps, 0xb2);
-    AppendOp(processOps, F32Const(64.0f));
-    AppendU8(processOps, 0x95);
-    AppendU8(processOps, 0x94);
-
-    ByteVector latencyOps;
-    AppendOp(latencyOps, I32Const(0));
-
-    const std::vector<DefinedFuncDef> functions = {
-        {1, prepareOps},
-        {2, {}},
-        {3, processOps},
-        {4, latencyOps},
-    };
-
-    return MakeModule(types, imports, {}, functions,
-                      {
-                          {"audiofx_prepare", 1},
-                          {"audiofx_reset", 2},
-                          {"audiofx_process", 3},
-                          {"audiofx_get_latency_samples", 4},
-                      });
+    return MakeGuestModule(spec);
 }
 
 ByteVector MakeStatefulBiasModule()
 {
-    const std::vector<FuncTypeDef> types = {
-        {{WasmValueType::F32, WasmValueType::I32, WasmValueType::I32}, {WasmValueType::I32}},
-        {{}, {}},
-        {{WasmValueType::F32, WasmValueType::F32}, {WasmValueType::F32, WasmValueType::F32}},
-        {{}, {WasmValueType::I32}},
-    };
+    GuestSpec spec;
+    spec.globals = {{WasmValueType::F32, true, F32Const(0.0f)}};
 
-    ByteVector prepareOps;
-    AppendOp(prepareOps, I32Const(0));
+    AppendOp(spec.resetOps, F32Const(0.0f));
+    AppendOp(spec.resetOps, GlobalSet(0));
 
-    ByteVector resetOps;
-    AppendOp(resetOps, F32Const(0.0f));
-    AppendOp(resetOps, GlobalSet(0));
+    AppendOp(spec.processOps, GlobalGet(0));
+    AppendOp(spec.processOps, F32Const(0.01f));
+    AppendU8(spec.processOps, 0x92);
+    AppendOp(spec.processOps, GlobalSet(0));
 
-    ByteVector processOps;
-    AppendOp(processOps, GlobalGet(0));
-    AppendOp(processOps, F32Const(0.01f));
-    AppendU8(processOps, 0x92);
-    AppendOp(processOps, GlobalSet(0));
+    for (uint32_t channel = 0; channel < 2; ++channel)
+    {
+        AppendOp(spec.processOps, LocalGet(channel));
+        AppendOp(spec.processOps, GlobalGet(0));
+        AppendU8(spec.processOps, 0x92);
+    }
 
-    AppendOp(processOps, LocalGet(0));
-    AppendOp(processOps, GlobalGet(0));
-    AppendU8(processOps, 0x92);
+    return MakeGuestModule(spec);
+}
 
-    AppendOp(processOps, LocalGet(1));
-    AppendOp(processOps, GlobalGet(0));
-    AppendU8(processOps, 0x92);
-
-    ByteVector latencyOps;
-    AppendOp(latencyOps, I32Const(0));
-
-    const std::vector<GlobalDef> globals = {
-        {WasmValueType::F32, true, F32Const(0.0f)},
-    };
-
-    const std::vector<DefinedFuncDef> functions = {
-        {0, prepareOps},
-        {1, resetOps},
-        {2, processOps},
-        {3, latencyOps},
-    };
-
-    return MakeModule(types, {}, globals, functions,
-                      {
-                          {"audiofx_prepare", 0},
-                          {"audiofx_reset", 1},
-                          {"audiofx_process", 2},
-                          {"audiofx_get_latency_samples", 3},
-                      });
+ByteVector MakeDescriptorModule(const ByteVector& descriptorBlob)
+{
+    GuestSpec spec;
+    spec.descriptor = descriptorBlob;
+    return MakeGuestModule(spec);
 }
 
 bool WriteBytes(const std::filesystem::path& path, const ByteVector& bytes)
@@ -633,6 +712,63 @@ std::unique_ptr<EffectProcessor> CreateWasmHost()
     return EffectRegistry::Instance().Create(EffectGuids::kWasmHost);
 }
 
+std::unique_ptr<EffectProcessor> LoadModuleFile(const std::filesystem::path& modulePath, bool& loaded)
+{
+    auto effect = CreateWasmHost();
+    loaded = false;
+
+    if (!effect)
+    {
+        return nullptr;
+    }
+
+    ResourceRef moduleRef;
+    moduleRef.resourceType = "wasm";
+    moduleRef.filePath = modulePath.string();
+    loaded = effect->LoadResources({moduleRef}, {modulePath});
+    return effect;
+}
+
+// Writes the module, loads it into a fresh effect and prepares it; null if any step fails.
+std::unique_ptr<EffectProcessor> LoadPrepared(const TempDir& tempDir, const char* fileName, const ByteVector& module)
+{
+    const auto modulePath = tempDir.root / fileName;
+
+    if (!WriteBytes(modulePath, module))
+    {
+        std::cerr << "Failed to write " << fileName << ".\n";
+        return nullptr;
+    }
+
+    bool loaded = false;
+    auto effect = LoadModuleFile(modulePath, loaded);
+
+    if (!effect || !loaded)
+    {
+        std::cerr << fileName << " failed to load: " << (effect ? effect->GetConfig("lastError") : std::string{})
+                  << "\n";
+        return nullptr;
+    }
+
+    effect->Prepare(kSampleRate, kBlockSize);
+    return effect;
+}
+
+// One block of the given constant input; returns the first output sample of each channel.
+std::pair<float, float> ProcessBlock(EffectProcessor& effect, float left, float right)
+{
+    std::array<float, kBlockSize> leftIn{};
+    std::array<float, kBlockSize> rightIn{};
+    std::array<float, kBlockSize> leftOut{};
+    std::array<float, kBlockSize> rightOut{};
+    leftIn.fill(left);
+    rightIn.fill(right);
+    float* inputs[] = {leftIn.data(), rightIn.data()};
+    float* outputs[] = {leftOut.data(), rightOut.data()};
+    effect.Process(inputs, outputs, kBlockSize);
+    return {leftOut[0], rightOut[0]};
+}
+
 bool TestRegistryMetadata()
 {
     const auto info = EffectRegistry::Instance().GetTypeInfo(EffectGuids::kWasmHost);
@@ -648,6 +784,15 @@ bool TestRegistryMetadata()
     {
         std::cerr << "WASM host metadata is missing required resource or slot information.\n";
         return false;
+    }
+
+    for (const auto& param : info->parameters)
+    {
+        if (!WasmEffect::IsHostParamId(param.id))
+        {
+            std::cerr << "Host param '" << param.id << "' is missing from WasmEffect::kHostParamIds.\n";
+            return false;
+        }
     }
 
     return true;
@@ -673,10 +818,18 @@ bool TestDescriptorInspection(const TempDir& tempDir)
     }
 
     if (descriptor->displayName != "WASM Gain" || descriptor->version != "1.2.3" ||
-        descriptor->thumbnailDataUrl != "data:image/png;base64,dGVzdA==" || descriptor->parameters.size() != 1 ||
-        descriptor->parameters.front().definition.id != "gain")
+        descriptor->thumbnailDataUrl != "data:image/png;base64,dGVzdA==" || descriptor->parameters.size() != 1)
     {
         std::cerr << "Descriptor inspection returned unexpected metadata.\n";
+        return false;
+    }
+
+    const auto& gain = descriptor->parameters.front().definition;
+
+    if (gain.id != "gain" || gain.displayName != "Gain" || gain.defaultValue != 0.5 || gain.maxValue != 2.0 ||
+        gain.unit != "amount")
+    {
+        std::cerr << "The 'gain' param's fields were not read from param.gain.*.\n";
         return false;
     }
 
@@ -685,159 +838,261 @@ bool TestDescriptorInspection(const TempDir& tempDir)
 
 bool TestDirectGainModule(const TempDir& tempDir)
 {
-    const auto modulePath = tempDir.root / "gain.wasm";
-
-    if (!WriteBytes(modulePath, MakeGainModule()))
-    {
-        std::cerr << "Failed to write gain WASM module.\n";
-        return false;
-    }
-
-    auto effect = CreateWasmHost();
+    auto effect = LoadPrepared(tempDir, "gain.wasm", MakeGainModule());
 
     if (!effect)
     {
-        std::cerr << "Failed to create WASM effect instance.\n";
         return false;
     }
 
-    ResourceRef moduleRef;
-    moduleRef.resourceType = "wasm";
-    moduleRef.filePath = modulePath.string();
-
-    if (!effect->LoadResources({moduleRef}, {modulePath}))
+    // The descriptor's default first, then a value set after the load.
+    if (const auto [left, right] = ProcessBlock(*effect, 1.0f, -0.5f);
+        !NearlyEqual(left, 0.5f) || !NearlyEqual(right, -0.25f))
     {
-        std::cerr << "Gain module failed to load.\n";
+        std::cerr << "Gain module did not read its default through its handle: " << left << ", " << right << "\n";
         return false;
     }
 
-    effect->SetParam("gain", 0.5);
+    effect->SetParam("gain", 2.0);
+
+    if (const auto [left, right] = ProcessBlock(*effect, 1.0f, -0.5f);
+        !NearlyEqual(left, 2.0f) || !NearlyEqual(right, -1.0f))
+    {
+        std::cerr << "Gain module did not follow SetParam: " << left << ", " << right << "\n";
+        return false;
+    }
+
+    // A rebuild keeps the value.
     effect->Prepare(kSampleRate, kBlockSize);
 
-    std::array<float, kBlockSize> leftIn{};
-    std::array<float, kBlockSize> rightIn{};
-    std::array<float, kBlockSize> leftOut{};
-    std::array<float, kBlockSize> rightOut{};
-    leftIn[0] = 1.0f;
-    rightIn[0] = -0.5f;
-
-    float* inputs[] = {leftIn.data(), rightIn.data()};
-    float* outputs[] = {leftOut.data(), rightOut.data()};
-    effect->Process(inputs, outputs, kBlockSize);
-
-    if (!NearlyEqual(leftOut[0], 0.5f) || !NearlyEqual(rightOut[0], -0.25f))
+    if (const auto [left, right] = ProcessBlock(*effect, 1.0f, -0.5f); !NearlyEqual(left, 2.0f))
     {
-        std::cerr << "Gain module output mismatch.\n";
+        std::cerr << "Gain lost its value across Prepare: " << left << "\n";
+        return false;
+    }
+
+    // An id the module didn't declare is not kept once a descriptor has loaded.
+    effect->SetParam("notDeclared", 1.0);
+
+    if (effect->GetParam("notDeclared") != 0.0 || effect->GetParam("gain") != 2.0)
+    {
+        std::cerr << "SetParam kept a value for an id the module never declared.\n";
         return false;
     }
 
     return true;
 }
 
-// Outputs (read_param(32), read_param(8)): the last guest slot and the tempo.
-ByteVector MakeHighSlotModule()
+// The tempo has its own import; it never shares a numbering with params again.
+bool TestTempoImport(const TempDir& tempDir)
 {
-    const std::vector<FuncTypeDef> types = {
-        {{WasmValueType::I32}, {WasmValueType::F32}},
-        {{WasmValueType::F32, WasmValueType::I32, WasmValueType::I32}, {WasmValueType::I32}},
-        {{}, {}},
-        {{WasmValueType::F32, WasmValueType::F32}, {WasmValueType::F32, WasmValueType::F32}},
-        {{}, {WasmValueType::I32}},
-    };
+    auto effect = LoadPrepared(tempDir, "tempo.wasm", MakeTempoModule());
 
-    const std::vector<ImportFuncDef> imports = {
-        {"host", "read_param", 0},
-    };
-
-    const ByteVector descriptorBlob = BuildDescriptorBlob({
-        {"effect.name", "High Slot"},
-        {"param.0.id", "first"},
-        {"param.0.slot", "0"},
-        {"param.1.id", "last"},
-        {"param.1.slot", "31"},
-        {"param.1.default", "0.75"},
-    });
-
-    ByteVector processOps;
-    AppendOp(processOps, I32Const(32));
-    AppendOp(processOps, Call(0));
-    AppendOp(processOps, I32Const(8));
-    AppendOp(processOps, Call(0));
-
-    const std::vector<DefinedFuncDef> functions = {
-        {1, I32Const(0)}, {2, {}},          {3, processOps},
-        {4, I32Const(0)}, {4, I32Const(0)}, {4, I32Const(static_cast<int32_t>(descriptorBlob.size()))},
-    };
-
-    return MakeModule(types, imports, {}, functions,
-                      {
-                          {"audiofx_prepare", 1},
-                          {"audiofx_reset", 2},
-                          {"audiofx_process", 3},
-                          {"audiofx_get_latency_samples", 4},
-                          {"audiofx_descriptor_ptr", 5},
-                          {"audiofx_descriptor_len", 6},
-                      },
-                      true, {{0, descriptorBlob}});
-}
-
-// Slots 8..31 read at read_param(9..32); read_param(8) stays the tempo for older modules.
-bool TestHighParamSlotsKeepTempoIndex(const TempDir& tempDir)
-{
-    const auto modulePath = tempDir.root / "high_slot.wasm";
-
-    if (!WriteBytes(modulePath, MakeHighSlotModule()))
+    if (!effect)
     {
-        std::cerr << "Failed to write the high-slot module.\n";
         return false;
     }
 
-    std::string error;
-    const auto descriptor = WasmEffect::InspectModuleFile(modulePath, &error);
-
-    if (!descriptor || descriptor->parameters.size() != 2 || descriptor->parameters[1].slot != 31)
+    if (const auto [left, right] = ProcessBlock(*effect, 0.0f, 0.0f);
+        !NearlyEqual(left, 0.75f) || !NearlyEqual(right, 120.0f))
     {
-        std::cerr << "A descriptor param in slot 31 was not accepted: " << error << "\n";
-        return false;
-    }
-
-    auto effect = CreateWasmHost();
-    ResourceRef moduleRef;
-    moduleRef.resourceType = "wasm";
-    moduleRef.filePath = modulePath.string();
-
-    if (!effect || !effect->LoadResources({moduleRef}, {modulePath}))
-    {
-        std::cerr << "High-slot module failed to load.\n";
-        return false;
-    }
-
-    effect->Prepare(kSampleRate, kBlockSize);
-
-    std::array<float, kBlockSize> leftIn{};
-    std::array<float, kBlockSize> rightIn{};
-    std::array<float, kBlockSize> leftOut{};
-    std::array<float, kBlockSize> rightOut{};
-    float* inputs[] = {leftIn.data(), rightIn.data()};
-    float* outputs[] = {leftOut.data(), rightOut.data()};
-
-    effect->Process(inputs, outputs, kBlockSize);
-
-    if (!NearlyEqual(leftOut[0], 0.75f) || !NearlyEqual(rightOut[0], 120.0f))
-    {
-        std::cerr << "Slot 31 default or tempo read back wrong: " << leftOut[0] << ", " << rightOut[0] << "\n";
+        std::cerr << "Param default or tempo read back wrong: " << left << ", " << right << "\n";
         return false;
     }
 
     effect->SetParam("last", 0.25);
     effect->SetParam("bpm", 90.0);
-    effect->Process(inputs, outputs, kBlockSize);
 
-    if (!NearlyEqual(leftOut[0], 0.25f) || !NearlyEqual(rightOut[0], 90.0f) ||
-        !NearlyEqual(static_cast<float>(effect->GetParam("param32")), 0.25f))
+    if (const auto [left, right] = ProcessBlock(*effect, 0.0f, 0.0f);
+        !NearlyEqual(left, 0.25f) || !NearlyEqual(right, 90.0f) || effect->GetParam("last") != 0.25)
     {
-        std::cerr << "Slot 31 or tempo did not follow SetParam: " << leftOut[0] << ", " << rightOut[0] << "\n";
+        std::cerr << "Param or tempo did not follow SetParam: " << left << ", " << right << "\n";
         return false;
+    }
+
+    return true;
+}
+
+// A new version of a module that declares the same ids in another order reads the same values:
+// nothing depends on where a param sits in the descriptor.
+bool TestReorderedDescriptorKeepsValuesById(const TempDir& tempDir)
+{
+    const auto firstPath = tempDir.root / "pair.wasm";
+    const auto reorderedPath = tempDir.root / "pair_reordered.wasm";
+
+    if (!WriteBytes(firstPath, MakePairModule(false)) || !WriteBytes(reorderedPath, MakePairModule(true)))
+    {
+        std::cerr << "Failed to write the pair modules.\n";
+        return false;
+    }
+
+    bool loaded = false;
+    auto effect = LoadModuleFile(firstPath, loaded);
+
+    if (!effect || !loaded)
+    {
+        std::cerr << "The pair module failed to load.\n";
+        return false;
+    }
+
+    effect->SetParam("a", 0.2);
+    effect->SetParam("b", 0.7);
+
+    ResourceRef moduleRef;
+    moduleRef.resourceType = "wasm";
+    moduleRef.filePath = reorderedPath.string();
+
+    if (!effect->LoadResources({moduleRef}, {reorderedPath}))
+    {
+        std::cerr << "The reordered pair module failed to load.\n";
+        return false;
+    }
+
+    effect->Prepare(kSampleRate, kBlockSize);
+
+    if (const auto [left, right] = ProcessBlock(*effect, 0.0f, 0.0f);
+        !NearlyEqual(left, 0.2f) || !NearlyEqual(right, 0.7f))
+    {
+        std::cerr << "Reordering the descriptor moved values between params: " << left << ", " << right << "\n";
+        return false;
+    }
+
+    return true;
+}
+
+// A module that reads 0 and 1 instead of asking param_handle traps, and the node passes dry.
+bool TestHardCodedHandleTraps(const TempDir& tempDir)
+{
+    auto effect = LoadPrepared(tempDir, "hard_coded.wasm", MakeHardCodedHandleModule());
+
+    if (!effect)
+    {
+        return false;
+    }
+
+    if (const auto [left, right] = ProcessBlock(*effect, 0.25f, -0.5f);
+        !NearlyEqual(left, 0.25f) || !NearlyEqual(right, -0.5f))
+    {
+        std::cerr << "A hard-coded handle did not leave the node passing dry: " << left << ", " << right << "\n";
+        return false;
+    }
+
+    if (effect->GetConfig("lastError").find("param_handle") == std::string::npos)
+    {
+        std::cerr << "A hard-coded handle's trap was not reported: " << effect->GetConfig("lastError") << "\n";
+        return false;
+    }
+
+    return true;
+}
+
+bool TestUnknownIdsHaveNoHandle(const TempDir& tempDir)
+{
+    auto effect = LoadPrepared(tempDir, "unknown_id.wasm", MakeUnknownIdModule());
+
+    if (!effect)
+    {
+        return false;
+    }
+
+    if (const auto [left, right] = ProcessBlock(*effect, 0.0f, 0.0f);
+        !NearlyEqual(left, 0.125f) || !NearlyEqual(right, 0.125f))
+    {
+        std::cerr << "param_handle gave a handle for an undeclared, out-of-bounds, empty or over-long id: "
+                  << effect->GetConfig("lastError") << "\n";
+        return false;
+    }
+
+    return true;
+}
+
+// Each must be refused before it runs, with a message that says why.
+bool TestOtherInterfacesAreRefused(const TempDir& tempDir)
+{
+    GuestSpec abi1;
+    abi1.importTypes = {{{WasmValueType::I32}, {WasmValueType::F32}}};
+    abi1.imports = {{"host", "read_param", 0}};
+    abi1.abiVersion = std::nullopt;
+
+    GuestSpec unversioned;
+    unversioned.abiVersion = std::nullopt;
+
+    GuestSpec futureAbi;
+    futureAbi.abiVersion = 3;
+
+    GuestSpec foreignImport;
+    foreignImport.importTypes = {{{WasmValueType::F32}, {WasmValueType::F32}}};
+    foreignImport.imports = {{"env", "sinf", 0}};
+
+    const std::vector<std::tuple<const char*, GuestSpec, const char*>> cases = {
+        {"abi1.wasm", abi1, "host.read_param"},
+        {"unversioned.wasm", unversioned, "audiofx_abi_version"},
+        {"future_abi.wasm", futureAbi, "ABI 3"},
+        {"foreign_import.wasm", foreignImport, "env.sinf"},
+    };
+
+    for (const auto& [fileName, spec, expected] : cases)
+    {
+        const auto modulePath = tempDir.root / fileName;
+
+        if (!WriteBytes(modulePath, MakeGuestModule(spec)))
+        {
+            std::cerr << "Failed to write " << fileName << ".\n";
+            return false;
+        }
+
+        bool loaded = false;
+        auto effect = LoadModuleFile(modulePath, loaded);
+        const std::string error = effect ? effect->GetConfig("lastError") : std::string{};
+
+        if (loaded || error.find(expected) == std::string::npos)
+        {
+            std::cerr << fileName << " was not refused with a message naming '" << expected << "': " << error << "\n";
+            return false;
+        }
+    }
+
+    return true;
+}
+
+bool TestBadDescriptorsAreRefused(const TempDir& tempDir)
+{
+    std::vector<std::pair<std::string, std::string>> tooMany;
+
+    for (std::size_t i = 0; i <= WasmEffect::kMaxGuestParams; ++i)
+    {
+        tooMany.push_back({"param.p" + std::to_string(i) + ".default", "0"});
+    }
+
+    const std::vector<std::pair<std::vector<std::pair<std::string, std::string>>, const char*>> cases = {
+        {{{"param.0.id", "gain"}}, "numbers its param"},
+        {{{"param.gain.slot", "0"}}, "no 'slot'"},
+        {{{"param.gain.id", "gain"}}, "no 'id'"},
+        {{{"param.mix.title", "Guest Mix"}}, "host's own controls"},
+        {{{"param.bpm.title", "Guest Tempo"}}, "host's own controls"},
+        {{{"param.9lives.title", "Lives"}}, "must be a letter"},
+        {{{"param.gain", "1"}}, "names no field"},
+        {tooMany, "the limit is 64"},
+    };
+
+    for (const auto& [entries, expected] : cases)
+    {
+        const auto modulePath = tempDir.root / "bad_descriptor.wasm";
+
+        if (!WriteBytes(modulePath, MakeDescriptorModule(BuildDescriptorBlob(entries))))
+        {
+            std::cerr << "Failed to write a bad-descriptor module.\n";
+            return false;
+        }
+
+        std::string error;
+
+        if (WasmEffect::InspectModuleFile(modulePath, &error) || error.find(expected) == std::string::npos)
+        {
+            std::cerr << "A descriptor starting '" << entries.front().first << "' was not refused with '" << expected
+                      << "': " << error << "\n";
+            return false;
+        }
     }
 
     return true;
@@ -845,34 +1100,12 @@ bool TestHighParamSlotsKeepTempoIndex(const TempDir& tempDir)
 
 bool TestMonoInputToStereoGuestUsesDualMono(const TempDir& tempDir)
 {
-    const auto modulePath = tempDir.root / "stereo_average_mono_input.wasm";
-
-    if (!WriteBytes(modulePath, MakeStereoAverageModule()))
-    {
-        std::cerr << "Failed to write stereo-average WASM module for mono-input test.\n";
-        return false;
-    }
-
-    auto effect = CreateWasmHost();
+    auto effect = LoadPrepared(tempDir, "stereo_average_mono_input.wasm", MakeStereoAverageModule());
 
     if (!effect)
     {
-        std::cerr << "Failed to create WASM effect instance.\n";
         return false;
     }
-
-    ResourceRef moduleRef;
-    moduleRef.resourceType = "wasm";
-    moduleRef.filePath = modulePath.string();
-
-    if (!effect->LoadResources({moduleRef}, {modulePath}))
-    {
-        std::cerr << "Stereo-average module failed to load for mono-input test.\n";
-        return false;
-    }
-
-    effect->SetParam("gain", 1.0);
-    effect->Prepare(kSampleRate, kBlockSize);
 
     std::array<float, kBlockSize> leftIn{};
     std::array<float, kBlockSize> leftOut{};
@@ -892,6 +1125,7 @@ bool TestMonoInputToStereoGuestUsesDualMono(const TempDir& tempDir)
     return true;
 }
 
+// The node's params reach the module through the executor, by id.
 bool TestSignalGraphStereoModule(const TempDir& tempDir)
 {
     const auto modulePath = tempDir.root / "stereo_average.wasm";
@@ -910,7 +1144,7 @@ bool TestSignalGraphStereoModule(const TempDir& tempDir)
     wasmNode.type = EffectGuids::kWasmHost;
     wasmNode.category = "utility";
     wasmNode.label = "WASM Host";
-    wasmNode.params["gain"] = 1.0;
+    wasmNode.params["gain"] = 0.5;
     wasmNode.resources.resize(1);
     wasmNode.resources[0].resourceType = "wasm";
     wasmNode.resources[0].filePath = modulePath.string();
@@ -938,9 +1172,9 @@ bool TestSignalGraphStereoModule(const TempDir& tempDir)
     float* outputs[] = {leftOut.data(), rightOut.data()};
     executor.Process(inputs, outputs, kBlockSize);
 
-    if (!NearlyEqual(leftOut[0], 0.5f) || !NearlyEqual(rightOut[0], 0.5f))
+    if (!NearlyEqual(leftOut[0], 0.25f) || !NearlyEqual(rightOut[0], 0.25f))
     {
-        std::cerr << "Signal graph stereo WASM node output mismatch.\n";
+        std::cerr << "Signal graph stereo WASM node output mismatch: " << leftOut[0] << ", " << rightOut[0] << "\n";
         return false;
     }
 
@@ -978,24 +1212,14 @@ bool TestResourceBackedModule(const TempDir& tempDir)
 
     if (!effect->LoadResources({moduleRef, dataRef}, {modulePath, dataPath}))
     {
-        std::cerr << "Resource-backed module failed to load.\n";
+        std::cerr << "Resource-backed module failed to load: " << effect->GetConfig("lastError") << "\n";
         return false;
     }
 
     effect->Prepare(kSampleRate, kBlockSize);
 
-    std::array<float, kBlockSize> leftIn{};
-    std::array<float, kBlockSize> rightIn{};
-    std::array<float, kBlockSize> leftOut{};
-    std::array<float, kBlockSize> rightOut{};
-    leftIn[0] = 1.0f;
-    rightIn[0] = 1.0f;
-
-    float* inputs[] = {leftIn.data(), rightIn.data()};
-    float* outputs[] = {leftOut.data(), rightOut.data()};
-    effect->Process(inputs, outputs, kBlockSize);
-
-    if (!NearlyEqual(leftOut[0], 0.5f) || !NearlyEqual(rightOut[0], 0.5f))
+    if (const auto [left, right] = ProcessBlock(*effect, 1.0f, 1.0f);
+        !NearlyEqual(left, 0.5f) || !NearlyEqual(right, 0.5f))
     {
         std::cerr << "Resource-backed module output mismatch.\n";
         return false;
@@ -1006,51 +1230,17 @@ bool TestResourceBackedModule(const TempDir& tempDir)
 
 bool TestResetStatefulModule(const TempDir& tempDir)
 {
-    const auto modulePath = tempDir.root / "stateful_bias.wasm";
-
-    if (!WriteBytes(modulePath, MakeStatefulBiasModule()))
-    {
-        std::cerr << "Failed to write stateful-bias WASM module.\n";
-        return false;
-    }
-
-    auto effect = CreateWasmHost();
+    auto effect = LoadPrepared(tempDir, "stateful_bias.wasm", MakeStatefulBiasModule());
 
     if (!effect)
     {
-        std::cerr << "Failed to create WASM effect instance.\n";
         return false;
     }
 
-    ResourceRef moduleRef;
-    moduleRef.resourceType = "wasm";
-    moduleRef.filePath = modulePath.string();
-
-    if (!effect->LoadResources({moduleRef}, {modulePath}))
-    {
-        std::cerr << "Stateful module failed to load.\n";
-        return false;
-    }
-
-    effect->Prepare(kSampleRate, kBlockSize);
-
-    std::array<float, kBlockSize> leftIn{};
-    std::array<float, kBlockSize> rightIn{};
-    std::array<float, kBlockSize> leftOut{};
-    std::array<float, kBlockSize> rightOut{};
-
-    float* inputs[] = {leftIn.data(), rightIn.data()};
-    float* outputs[] = {leftOut.data(), rightOut.data()};
-
-    effect->Process(inputs, outputs, kBlockSize);
-    const float firstRunValue = leftOut[0];
-
-    effect->Process(inputs, outputs, kBlockSize);
-    const float secondRunValue = leftOut[0];
-
+    const float firstRunValue = ProcessBlock(*effect, 0.0f, 0.0f).first;
+    const float secondRunValue = ProcessBlock(*effect, 0.0f, 0.0f).first;
     effect->Reset();
-    effect->Process(inputs, outputs, kBlockSize);
-    const float resetRunValue = leftOut[0];
+    const float resetRunValue = ProcessBlock(*effect, 0.0f, 0.0f).first;
 
     if (!(secondRunValue > firstRunValue) || !NearlyEqual(resetRunValue, firstRunValue))
     {
@@ -1073,75 +1263,32 @@ enum class HostileKind
 
 ByteVector MakeHostileModule(HostileKind kind)
 {
-    const std::vector<FuncTypeDef> types = {
-        {{WasmValueType::F32, WasmValueType::I32, WasmValueType::I32}, {WasmValueType::I32}},
-        {{}, {}},
-        {{WasmValueType::F32, WasmValueType::F32}, {WasmValueType::F32, WasmValueType::F32}},
-        {{}, {WasmValueType::I32}},
-    };
-
     // loop (br 0) end; unreachable — the unreachable makes the body valid for any result type.
     const ByteVector foreverOps = {0x03, 0x40, 0x0c, 0x00, 0x0b, 0x00};
 
-    ByteVector processOps;
+    GuestSpec spec;
 
     switch (kind)
     {
     case HostileKind::LoopingProcess:
-        processOps = foreverOps;
+        spec.processOps = foreverOps;
         break;
     case HostileKind::RecursiveProcess:
-        AppendOp(processOps, LocalGet(0));
-        AppendOp(processOps, LocalGet(1));
-        AppendOp(processOps, Call(2));
+        // Process is function 2 in a module with no imports.
+        AppendOp(spec.processOps, LocalGet(0));
+        AppendOp(spec.processOps, LocalGet(1));
+        AppendOp(spec.processOps, Call(2));
         break;
-    default:
-        AppendOp(processOps, LocalGet(0));
-        AppendOp(processOps, LocalGet(1));
+    case HostileKind::LoopingStart:
+        spec.startOps = foreverOps;
+        break;
+    case HostileKind::HugeMemory:
+        // One page past the store's 256 MiB limit.
+        spec.memoryMinPages = 4097;
         break;
     }
 
-    std::vector<DefinedFuncDef> functions = {
-        {0, I32Const(0)},
-        {1, {}},
-        {2, processOps},
-        {3, I32Const(0)},
-    };
-    std::optional<uint32_t> startFunction;
-
-    if (kind == HostileKind::LoopingStart)
-    {
-        functions.push_back({1, foreverOps});
-        startFunction = 4;
-    }
-
-    // 4097 pages is one page past the store's 256 MiB limit.
-    const bool hugeMemory = kind == HostileKind::HugeMemory;
-    return MakeModule(types, {}, {}, functions,
-                      {
-                          {"audiofx_prepare", 0},
-                          {"audiofx_reset", 1},
-                          {"audiofx_process", 2},
-                          {"audiofx_get_latency_samples", 3},
-                      },
-                      hugeMemory, {}, hugeMemory ? 4097u : 1u, startFunction);
-}
-
-std::unique_ptr<EffectProcessor> LoadModuleFile(const std::filesystem::path& modulePath, bool& loaded)
-{
-    auto effect = CreateWasmHost();
-    loaded = false;
-
-    if (!effect)
-    {
-        return nullptr;
-    }
-
-    ResourceRef moduleRef;
-    moduleRef.resourceType = "wasm";
-    moduleRef.filePath = modulePath.string();
-    loaded = effect->LoadResources({moduleRef}, {modulePath});
-    return effect;
+    return MakeGuestModule(spec);
 }
 
 double SecondsSince(std::chrono::steady_clock::time_point start)
@@ -1153,25 +1300,12 @@ double SecondsSince(std::chrono::steady_clock::time_point start)
 // deadline and the node must pass the input through dry from then on.
 bool TestHostileProcessIsStopped(const TempDir& tempDir, HostileKind kind, const char* label)
 {
-    const auto modulePath = tempDir.root / (std::string(label) + ".wasm");
+    auto effect = LoadPrepared(tempDir, (std::string(label) + ".wasm").c_str(), MakeHostileModule(kind));
 
-    if (!WriteBytes(modulePath, MakeHostileModule(kind)))
+    if (!effect)
     {
-        std::cerr << "Failed to write the " << label << " module.\n";
         return false;
     }
-
-    bool loaded = false;
-    auto effect = LoadModuleFile(modulePath, loaded);
-
-    if (!effect || !loaded)
-    {
-        std::cerr << "The " << label
-                  << " module failed to load: " << (effect ? effect->GetConfig("lastError") : std::string{}) << "\n";
-        return false;
-    }
-
-    effect->Prepare(kSampleRate, kBlockSize);
 
     std::array<float, kBlockSize> leftIn{};
     std::array<float, kBlockSize> rightIn{};
@@ -1338,36 +1472,6 @@ bool TestHostingGate(const TempDir& tempDir)
     return true;
 }
 
-ByteVector MakeDescriptorModule(const ByteVector& descriptorBlob)
-{
-    const std::vector<FuncTypeDef> types = {
-        {{WasmValueType::F32, WasmValueType::I32, WasmValueType::I32}, {WasmValueType::I32}},
-        {{}, {}},
-        {{WasmValueType::F32, WasmValueType::F32}, {WasmValueType::F32, WasmValueType::F32}},
-        {{}, {WasmValueType::I32}},
-    };
-
-    ByteVector processOps;
-    AppendOp(processOps, LocalGet(0));
-    AppendOp(processOps, LocalGet(1));
-
-    const std::vector<DefinedFuncDef> functions = {
-        {0, I32Const(0)}, {1, {}},          {2, processOps},
-        {3, I32Const(0)}, {3, I32Const(0)}, {3, I32Const(static_cast<int32_t>(descriptorBlob.size()))},
-    };
-
-    return MakeModule(types, {}, {}, functions,
-                      {
-                          {"audiofx_prepare", 0},
-                          {"audiofx_reset", 1},
-                          {"audiofx_process", 2},
-                          {"audiofx_get_latency_samples", 3},
-                          {"audiofx_descriptor_ptr", 4},
-                          {"audiofx_descriptor_len", 5},
-                      },
-                      true, {{0, descriptorBlob}});
-}
-
 // A module's category and thumbnail end up in UI markup and in the Custom Effect library.
 bool TestHostileDescriptorIsSanitised(const TempDir& tempDir)
 {
@@ -1376,7 +1480,7 @@ bool TestHostileDescriptorIsSanitised(const TempDir& tempDir)
         {"effect.name", "Looks Normal"},
         {"effect.category", "<iframe src=\"https://example.invalid\"></iframe>"},
         {"effect.thumbnailDataUrl", "https://example.invalid/pixel.png"},
-        {"param.0.id", "amount"},
+        {"param.amount.title", "Amount"},
     });
 
     if (!WriteBytes(modulePath, MakeDescriptorModule(blob)))
@@ -1425,7 +1529,12 @@ int main()
     allPassed = guitarfx::TestRegistryMetadata() && allPassed;
     allPassed = guitarfx::TestDescriptorInspection(tempDir) && allPassed;
     allPassed = guitarfx::TestDirectGainModule(tempDir) && allPassed;
-    allPassed = guitarfx::TestHighParamSlotsKeepTempoIndex(tempDir) && allPassed;
+    allPassed = guitarfx::TestTempoImport(tempDir) && allPassed;
+    allPassed = guitarfx::TestReorderedDescriptorKeepsValuesById(tempDir) && allPassed;
+    allPassed = guitarfx::TestHardCodedHandleTraps(tempDir) && allPassed;
+    allPassed = guitarfx::TestUnknownIdsHaveNoHandle(tempDir) && allPassed;
+    allPassed = guitarfx::TestOtherInterfacesAreRefused(tempDir) && allPassed;
+    allPassed = guitarfx::TestBadDescriptorsAreRefused(tempDir) && allPassed;
     allPassed = guitarfx::TestMonoInputToStereoGuestUsesDualMono(tempDir) && allPassed;
     allPassed = guitarfx::TestSignalGraphStereoModule(tempDir) && allPassed;
     allPassed = guitarfx::TestResourceBackedModule(tempDir) && allPassed;

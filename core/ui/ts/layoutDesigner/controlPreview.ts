@@ -7,7 +7,8 @@
  */
 
 import { GenericKnob } from "../knob.js";
-import { defaultControlsColorAttrs, renderCustomLayoutPreviewLayers } from "../layoutRenderer.js";
+import { applyKnobImageToKnobs } from "../layoutControlImages.js";
+import { defaultControlsColorAttrs, imageResolverFor, renderCustomLayoutPreviewLayers } from "../layoutRenderer.js";
 import type { LayoutResourceControlDef } from "../layoutRenderer.js";
 import type { EffectLayout, LayoutControl } from "../layoutTypes.js";
 import { parseParamTaper } from "../paramTaper.js";
@@ -161,7 +162,7 @@ export function defaultControlsPreviewHtml(layout: EffectLayout, paramDefs: Para
 
   return `
     <div class="layout-default-controls-preview custom-layout-backdrop${escapeHtml(themeClass)}${escapeHtml(colors.classes)}" style="${escapeHtml(wrapperStyle + colors.style)} pointer-events: none;">
-      ${innerHtml}
+      ${applyKnobImageToKnobs(innerHtml, layout.knobImage, imageResolverFor(layout))}
     </div>
   `;
 }

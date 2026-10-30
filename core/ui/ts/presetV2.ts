@@ -184,6 +184,12 @@ function parseIndexedDescriptorKey(key: string, prefix: string): { index: number
   return { index, field: key.slice(fieldSeparator + 1) };
 }
 
+// param.<id>.<field>, with the engine's id rule (IsValidGuestId): a numbered ABI 1 key is not one.
+function parseParamDescriptorKey(key: string): { id: string; field: string } | null {
+  const match = /^param\.([A-Za-z][A-Za-z0-9_]{0,31})\.(.+)$/.exec(key);
+  return match ? { id: match[1], field: match[2] } : null;
+}
+
 function parseWasmDescriptorEntries(configValue: unknown): WasmDescriptorEntry[] {
   if (typeof configValue !== "string" || !configValue.trim()) {
     return [];
@@ -212,7 +218,8 @@ function buildWasmNodeEffectInfo(base: EffectTypeInfo, node: Pick<GraphNode, "co
     return base;
   }
 
-  const paramGroups = new Map<number, Record<string, string>>();
+  // Keyed by id, in the order each id first appears (Custom Effect ABI 2: param.<id>.<field>).
+  const paramGroups = new Map<string, Record<string, string>>();
   const resourceGroups = new Map<number, Record<string, string>>();
   let displayName = "";
   let category = "";
@@ -248,11 +255,11 @@ function buildWasmNodeEffectInfo(base: EffectTypeInfo, node: Pick<GraphNode, "co
       continue;
     }
 
-    const paramKey = parseIndexedDescriptorKey(entry.key, "param");
+    const paramKey = parseParamDescriptorKey(entry.key);
     if (paramKey) {
-      const group = paramGroups.get(paramKey.index) ?? {};
+      const group = paramGroups.get(paramKey.id) ?? {};
       group[paramKey.field] = entry.value;
-      paramGroups.set(paramKey.index, group);
+      paramGroups.set(paramKey.id, group);
       continue;
     }
 
@@ -264,10 +271,11 @@ function buildWasmNodeEffectInfo(base: EffectTypeInfo, node: Pick<GraphNode, "co
     }
   }
 
+  const hostParamKeys = new Set((base.parameters ?? []).map((param) => param.key));
   const parameters = [...paramGroups.entries()]
-    .sort((left, right) => left[0] - right[0])
-    .map(([_index, fields]): ParameterDef | null => {
-      if (!fields.id) {
+    .map(([id, fields]): ParameterDef | null => {
+      // The engine refuses a descriptor that reuses a host control's id; never list one twice.
+      if (hostParamKeys.has(id)) {
         return null;
       }
       const labels = typeof fields.labels === "string"
@@ -277,8 +285,8 @@ function buildWasmNodeEffectInfo(base: EffectTypeInfo, node: Pick<GraphNode, "co
       const min = parseNumericDescriptorValue(fields.min, 0);
       const max = parseNumericDescriptorValue(fields.max, 1);
       return {
-        key: fields.id,
-        name: fields.title || fields.name || fields.id,
+        key: id,
+        name: fields.title || fields.name || id,
         default: parseNumericDescriptorValue(fields.default, 0),
         min,
         max: max >= min ? max : min,
@@ -369,6 +377,7 @@ const EFFECT_STUBS: EffectStub[] = [
   // Drive
   { type: EffectGuids.kOverdrive },
   { type: EffectGuids.kDistortion },
+  { type: EffectGuids.kMultibandDistortion },
   { type: EffectGuids.kFuzz },
   // Amp
   { type: EffectGuids.kAmpBuiltin },

@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="560" viewBox="0 0 800 560">
+<defs>
+  <linearGradient id="sheen" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#d7dade"/><stop offset="0.5" stop-color="#b3b7bd"/><stop offset="1" stop-color="#9ca1a8"/></linearGradient>
+  <filter id="brush"><feTurbulence type="fractalNoise" baseFrequency="0.002 0.9" numOctaves="2" seed="4"/><feColorMatrix values="0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 0.22 0"/></filter>
+</defs>
+<rect width="800" height="560" fill="url(#sheen)"/>
+<rect width="800" height="560" filter="url(#brush)"/>
+<rect x="1" y="1" width="798" height="558" fill="none" stroke="#6d7279" stroke-width="2"/>
+</svg>

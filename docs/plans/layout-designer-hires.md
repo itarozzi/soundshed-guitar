@@ -483,6 +483,13 @@ not working.
   - Either mode: a still `baseImageId` and `glareImageId`.
   - `knob.ts` moves a filmstrip to the frame for the value, or turns a face
     over its range. A legacy custom face still turns −135° to 135°.
+  - The layout's own `knobImage` (canvas panel, "Knobs") is the default for
+    every knob without one: the default controls of a `useDefaultControls`
+    layout, drawn at 38 px (`applyKnobImageToKnobs` rewrites the params
+    panel's knob markup), and each positioned knob whose `knobStyle` is
+    `"default"` or unset (`withLayoutKnobImage`). Pedal, Amp, Minimal or a
+    custom face keeps the knob's own look. It counts as `knob-image`, and
+    older apps, with no fallback written, draw standard knobs.
 - **Image toggles and sliders.** A toggle gets two pictures swapped by
   `:checked`. A slider's track and thumb come through custom properties
   holding absolute URLs, since a relative `url()` in a custom property
@@ -560,6 +567,26 @@ panels:
   - Warnings for a decode over 64 MB, a filmstrip taller than 16,384 px, and
     an image missing from the library.
   - Replace swaps an image everywhere the layout uses it, in one undo step.
+- **Image pickers and categories** (`layoutDesigner/imagePicker.ts`,
+  `layoutImageCategories.ts`). Every image list in the designer opens as a
+  dropdown of thumbnails over its hidden `<select>`, which stays the value the
+  bindings read.
+  - Tabs filter it: All, Knob, Background, Switch and Misc (`general`). It
+    opens on the chosen image's category, else the row's (a toggle's Switch),
+    else All. Your images come above the factory ones.
+  - An image is filed when it is added (Browse files it under the knob or
+    background it was picked for, an import under its archive's `type`), and
+    dragging one onto a tab refiles it (`setLayoutImageCategory`). The engine
+    keeps categories in `layouts/indexes/image-categories.json`, since image
+    ids are shared by every layout. An image never filed takes its category
+    from where the library's layouts use it.
+  - Browsing for a picture the library already holds reuses that image
+    (`FindIdenticalLayoutImage`) instead of copying it under a new id.
+  - Factory images ship in `ui/assets/layout-images/<category>/`, made by
+    `tools/gen-layout-images.mjs`: seven knob images (four faces, a scale
+    ring, a glare and a 21-frame LED ring filmstrip), five backgrounds and
+    four switch pairs. Their folder decides their category; they cannot be
+    refiled.
 - **Preview at panel size** (`layoutDesigner/sizePreview.ts`). The layout as
   the params panel draws it, by the real renderer and
   `applyCustomLayoutScaling`, in a Narrow 360 × 480, Laptop 760 × 520,

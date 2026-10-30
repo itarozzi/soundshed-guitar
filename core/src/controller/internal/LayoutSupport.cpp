@@ -114,6 +114,89 @@ std::filesystem::path ResolveFactoryLayoutsDir(const std::filesystem::path& bund
     return bundledAssetsRoot / "ui" / "assets" / "layouts";
 }
 
+std::filesystem::path ResolveFactoryLayoutImagesDir(const std::filesystem::path& factoryLayoutsDir)
+{
+    return factoryLayoutsDir.parent_path() / "layout-images";
+}
+
+bool IsLayoutImageCategory(std::string_view category)
+{
+    return category == "knob" || category == "background" || category == "switch" || category == "general";
+}
+
+namespace
+{
+std::filesystem::path ResolveLayoutImageCategoriesPath(const FileSystem& fileSystem)
+{
+    return fileSystem.ResolveSettingsDirectory() / "layouts" / "indexes" / "image-categories.json";
+}
+} // namespace
+
+std::map<std::string, std::string> LoadLayoutImageCategories(const FileSystem& fileSystem)
+{
+    std::map<std::string, std::string> categories;
+
+    try
+    {
+        std::ifstream input(ResolveLayoutImageCategoriesPath(fileSystem));
+        const auto root = nlohmann::json::parse(input, nullptr, false);
+        const auto found = root.is_object() ? root.find("categories") : root.end();
+
+        if (!root.is_object() || found == root.end() || !found->is_object())
+        {
+            return categories;
+        }
+
+        for (const auto& [imageId, category] : found->items())
+        {
+            if (category.is_string() && IsLayoutImageCategory(category.get<std::string>()))
+            {
+                categories.emplace(imageId, category.get<std::string>());
+            }
+        }
+    }
+    catch (...)
+    {
+    }
+
+    return categories;
+}
+
+bool SaveLayoutImageCategory(const FileSystem& fileSystem, const std::string& imageId, const std::string& category)
+{
+    if (imageId.empty() || (!category.empty() && !IsLayoutImageCategory(category)))
+    {
+        return false;
+    }
+
+    nlohmann::json categories = nlohmann::json::object();
+
+    for (const auto& [id, filed] : LoadLayoutImageCategories(fileSystem))
+    {
+        categories[id] = filed;
+    }
+
+    if (category.empty())
+    {
+        categories.erase(imageId);
+    }
+    else
+    {
+        categories[imageId] = category;
+    }
+
+    try
+    {
+        const auto path = ResolveLayoutImageCategoriesPath(fileSystem);
+        [[maybe_unused]] const auto ensured = fileSystem.EnsureDirectory(path.parent_path());
+        return util::WriteTextFileAtomic(path, nlohmann::json{{"version", 1}, {"categories", categories}}.dump(2));
+    }
+    catch (...)
+    {
+        return false;
+    }
+}
+
 namespace
 {
 using ImageSources = std::vector<LayoutImageSource>;
@@ -157,7 +240,8 @@ bool IsBareFileName(const std::string& name)
 
 /// Points `imageId` at `path`: a later folder replaces an earlier one's file but keeps the id's
 /// place in the list, as the library always has.
-void PutImage(ImageSources& sources, const std::string& imageId, const std::filesystem::path& path)
+void PutImage(ImageSources& sources, const std::string& imageId, const std::filesystem::path& path,
+              std::string category = {}, bool factory = false)
 {
     const auto existing = std::find_if(sources.begin(), sources.end(), [&imageId](const LayoutImageSource& source) {
         return source.imageId == imageId;
@@ -166,10 +250,12 @@ void PutImage(ImageSources& sources, const std::string& imageId, const std::file
     if (existing != sources.end())
     {
         existing->path = path;
+        existing->category = std::move(category);
+        existing->factory = factory;
     }
     else
     {
-        sources.push_back({imageId, path});
+        sources.push_back({imageId, path, std::move(category), factory});
     }
 }
 
@@ -236,7 +322,34 @@ void AddFactoryImages(ImageSources& sources, const std::filesystem::path& factor
 
             if (std::filesystem::is_regular_file(path, fileEc) && !LayoutImageMimeType(path.extension()).empty())
             {
-                PutImage(sources, imageId, path);
+                PutImage(sources, imageId, path, {}, true);
+            }
+        }
+    }
+}
+
+/// Factory images that belong to no layout, by stem, each filed under the folder it is in.
+void AddFactoryCategoryImages(ImageSources& sources, const std::filesystem::path& factoryLayoutsDir)
+{
+    const auto root = ResolveFactoryLayoutImagesDir(factoryLayoutsDir);
+
+    for (const char* category : {"knob", "background", "switch", "general"})
+    {
+        std::error_code ec;
+        const auto dir = root / category;
+
+        if (!std::filesystem::is_directory(dir, ec))
+        {
+            continue;
+        }
+
+        for (const auto& entry : std::filesystem::directory_iterator(dir, ec))
+        {
+            std::error_code entryEc;
+
+            if (entry.is_regular_file(entryEc) && !LayoutImageMimeType(entry.path().extension()).empty())
+            {
+                PutImage(sources, util::PathToUtf8(entry.path().stem()), entry.path(), category, true);
             }
         }
     }
@@ -320,7 +433,60 @@ std::vector<LayoutImageSource> CollectLayoutImageSources(const FileSystem& fileS
     }
 
     AddFactoryImages(sources, factoryLayoutsDir);
+    AddFactoryCategoryImages(sources, factoryLayoutsDir);
     return sources;
+}
+
+std::optional<LayoutImageSource> FindIdenticalLayoutImage(const FileSystem& fileSystem,
+                                                          const std::filesystem::path& factoryLayoutsDir,
+                                                          const std::filesystem::path& file,
+                                                          const std::filesystem::path& preferredImagesDir)
+{
+    std::error_code ec;
+    const auto size = std::filesystem::file_size(file, ec);
+
+    if (ec || size == 0)
+    {
+        return std::nullopt;
+    }
+
+    std::optional<std::vector<std::uint8_t>> bytes;
+    std::optional<LayoutImageSource> found;
+
+    for (auto& source : CollectLayoutImageSources(fileSystem, factoryLayoutsDir, true))
+    {
+        std::error_code sizeEc;
+
+        // Sizes first: only a file of the same size is read and compared.
+        if (std::filesystem::file_size(source.path, sizeEc) != size || sizeEc)
+        {
+            continue;
+        }
+
+        if (!bytes)
+        {
+            bytes = util::ReadFileBytes(file);
+        }
+
+        if (bytes->size() != size || util::ReadFileBytes(source.path) != *bytes)
+        {
+            continue;
+        }
+
+        const bool preferred = source.path.parent_path() == preferredImagesDir;
+
+        if (!found || preferred)
+        {
+            found = std::move(source);
+        }
+
+        if (preferred)
+        {
+            break;
+        }
+    }
+
+    return found;
 }
 
 std::string LayoutImageMimeType(const std::filesystem::path& extension)
@@ -445,6 +611,15 @@ std::vector<std::string> CollectLayoutImageIds(const nlohmann::json& layout)
             {
                 add(StringField(background, "value"));
             }
+        }
+    }
+
+    // The knob image the layout's knobs draw from when they have none of their own.
+    if (const auto knobImage = layout.find("knobImage"); knobImage != layout.end() && knobImage->is_object())
+    {
+        for (const char* key : {"imageId", "baseImageId", "glareImageId"})
+        {
+            add(StringField(*knobImage, key));
         }
     }
 

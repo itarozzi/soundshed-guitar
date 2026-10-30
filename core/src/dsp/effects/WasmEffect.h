@@ -10,6 +10,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
@@ -23,9 +24,10 @@ struct WasmMetadataEntry
     std::string value;
 };
 
+// A guest param's place in WasmModuleDescriptor::parameters is its declaration order, which is
+// only its order in the UI: the module reads it through the handle param_handle gives for its id.
 struct WasmGuestParameterDescriptor
 {
-    std::size_t slot = 0;
     ParameterDef definition;
 };
 
@@ -44,17 +46,20 @@ struct WasmModuleDescriptor
 class WasmSharedRuntime;
 
 // Hosts a Custom Effect: a WASM module, which is code from whoever wrote or shared it. It runs in
-// Wasmtime with three read-only host imports and no WASI, so it cannot reach files or the network.
+// Wasmtime with a few read-only host imports and no WASI, so it cannot reach files or the network.
+// The interface is Custom Effect ABI 2 (docs/wasm-module-authoring.md): the module looks its params
+// up by id with param_handle and reads them with param_value; ABI 1 modules are refused.
 // What is left is bounded here: every call into the guest has an epoch deadline (a guest that
 // loops traps and the node bypasses), the store caps memory and tables, the wasm stack is capped
 // below the smallest audio-thread stack, and modules load only while Custom Effects are enabled.
 class WasmEffect final : public EffectProcessor
 {
   public:
-    // Guest param slots 0..31. read_param(8) has always been the tempo, so slots 0..7 read at their
-    // own index and slots 8..31 read one higher, at 9..32.
-    static constexpr std::size_t kGuestMacroCount = 32;
-    static constexpr std::size_t kTempoParamIndex = 8;
+    static constexpr std::int32_t kAbiVersion = 2;
+    static constexpr std::size_t kMaxGuestParams = 64;
+    static constexpr std::size_t kMaxGuestIdLength = 32;
+    // SetParam's own keys. A guest param may not take one of these ids.
+    static constexpr std::array<std::string_view, 4> kHostParamIds{"mix", "inputGainDb", "outputGainDb", "bpm"};
     static constexpr const char* kDescriptorConfigKey = "wasmGuestDescriptor";
 
     static constexpr std::size_t kMaxModuleBytes = 32u * 1024u * 1024u;
@@ -122,7 +127,13 @@ class WasmEffect final : public EffectProcessor
         return "utility";
     }
 
-    float ReadGuestParam(int index) const;
+    [[nodiscard]] static bool IsHostParamId(std::string_view id);
+
+    // The host imports. A handle is opaque: numbered from a base picked afresh at every load, so a
+    // module that hard-codes one instead of asking param_handle fails on its first run.
+    std::int32_t GuestParamHandle(std::string_view id) const;
+    bool ReadGuestParamHandle(std::int32_t handle, float& value) const;
+    float GuestTempoBpm() const;
     int ReadGuestResourceSize(int slot) const;
     int ReadGuestResourceByte(int slot, int offset) const;
 
@@ -130,25 +141,31 @@ class WasmEffect final : public EffectProcessor
     bool LoadGuestDescriptor();
     bool RebuildRuntime();
     bool BuildRuntimeOnly();
+    bool CheckModuleImports();
+    bool CheckAbiVersion();
     bool LoadFunctionExport(const char* exportName, wasmtime_func_t& outFunction, bool required, bool& found);
+    std::optional<std::int32_t> CallGuestI32(wasmtime_func_t& function, const char* functionName);
     void ArmGuestDeadline(double budgetSeconds);
     bool InvokePrepare();
     bool InvokeProcess(float inputLeft, float inputRight, float& outputLeft, float& outputRight);
     int QueryLatencySamples();
     void ResetGuestDescriptor();
     void ApplyGuestDescriptor(const WasmModuleDescriptor& descriptor);
-    void ResetGuestMacrosToDefaults();
-    void ApplyPendingGuestParamValues();
     void TeardownRuntime();
     void SetError(const std::string& message);
 
-    std::array<double, kGuestMacroCount> mGuestMacros{};
-    std::array<double, kGuestMacroCount> mGuestMacroDefaults{};
+    // Indexed by declaration order. Values for ids no descriptor has declared yet wait in
+    // mPendingGuestParamValues; it is only written before a descriptor loads, or when one is
+    // replaced, never once SetParam can come from the audio thread.
+    std::array<double, kMaxGuestParams> mGuestValues{};
+    std::size_t mGuestParamCount = 0;
+    bool mHasGuestDescriptor = false;
+    std::int32_t mGuestHandleBase = 0;
     double mMix = 1.0;
     double mInputGainDb = 0.0;
     double mOutputGainDb = 0.0;
     double mBpm = 120.0;
-    std::unordered_map<std::string, std::size_t> mGuestParamSlots;
+    std::unordered_map<std::string, std::size_t> mGuestParamIndex;
     std::unordered_map<std::string, double> mPendingGuestParamValues;
     WasmModuleDescriptor mGuestDescriptor;
 

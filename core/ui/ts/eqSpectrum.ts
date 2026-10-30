@@ -31,10 +31,13 @@ export interface EqSpectrumBand {
   /** Where the band starts and ends; null for the open end of the lowest and highest. */
   lowHz: number | null;
   highHz: number | null;
-  /** The deepest cut since the last frame, 0 or more. */
+  /** The deepest cut since the last frame, 0 or more; for the Multi-band Distortion, how far
+   * past its clipper's knee the band was driven. */
   gainReductionDb: number;
   /** The band detector's level, dBFS. */
   levelDb: number;
+  /** The input level, dBFS, where the band's curve starts to act, when the engine sends it. */
+  thresholdDb?: number;
 }
 
 export interface EqSpectrum {
@@ -44,7 +47,7 @@ export interface EqSpectrum {
   maxFrequencyHz: number;
   floorDb: number;
   ceilingDb: number;
-  /** A node with band meters (the Multi-band Compressor): what it puts out, on the same bins. */
+  /** A node with band meters (a multi-band effect): what it puts out, on the same bins. */
   outputBinsDb?: readonly number[];
   /** And its bands, low band first. */
   bands?: readonly EqSpectrumBand[];
@@ -211,7 +214,7 @@ function finiteNumber(value: unknown): number | null {
 }
 
 /** A frame's output bins ("o") and bands ("b", [lowHz, highHz, gainReductionDb, levelDb] each,
- * a range end of 0 meaning open), when it has them. */
+ * then thresholdDb from newer engines, a range end of 0 meaning open), when it has them. */
 function parseBandMeters(
   payload: Record<string, unknown>,
   binCount: number,
@@ -227,7 +230,7 @@ function parseBandMeters(
     if (!Array.isArray(entry) || entry.length < 4) {
       return {};
     }
-    const [lowHz, highHz, gainReductionDb, levelDb] = entry.map(finiteNumber);
+    const [lowHz, highHz, gainReductionDb, levelDb, thresholdDb = null] = entry.map(finiteNumber);
     if (lowHz === null || highHz === null || gainReductionDb === null || levelDb === null) {
       return {};
     }
@@ -236,6 +239,7 @@ function parseBandMeters(
       highHz: highHz > 0 ? highHz : null,
       gainReductionDb: Math.max(0, gainReductionDb),
       levelDb,
+      ...(thresholdDb === null ? {} : { thresholdDb }),
     });
   }
   return {

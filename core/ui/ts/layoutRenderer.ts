@@ -14,7 +14,7 @@ import { formatParamValue } from "./paramValueFormat.js";
 // Shared with the signal-path renderer and the designer preview, which import it from here.
 export { formatParamValue };
 import { backgroundImageDrawnWidth, ensureLayoutImagesLoaded, knobFaceDrawnWidth, layoutLargestScale, resolveLayoutImageUrl } from "./layoutImages.js";
-import { imageKnob, imageToggle, overlayImageStyle, sliderAttributes, styledKnobSizeStyle, type ImageCssResolver } from "./layoutControlImages.js";
+import { applyKnobImageToKnobs, imageKnob, imageToggle, overlayImageStyle, sliderAttributes, styledKnobSizeStyle, withLayoutKnobImage, type ImageCssResolver } from "./layoutControlImages.js";
 import { layoutCanGrow, scalingAttribute } from "./layoutScaling.js";
 import { isLibraryPickerType, libraryPickerControlsHtml, libraryPickerNavigation, librarySlotHasBrowseButton } from "./resourceSlotMarkup.js";
 import type {
@@ -366,7 +366,7 @@ export function renderCustomLayoutBackdrop(
           ${labels}
         </div>
         <div class="custom-layout-default-controls${escapeHtml(colors.classes)}" style="${escapeHtml(wrapperStyle + colors.style)}">
-          ${innerHtml}
+          ${applyKnobImageToKnobs(innerHtml, layout.knobImage, imageResolverFor(layout))}
         </div>
       </div>
     </div>
@@ -574,10 +574,11 @@ function renderControls(
           >
         `;
       } else {
-        // Knob. A knobImage (a turning face or a filmstrip) wins; without one it draws as it always did.
+        // Knob. A knobImage (a turning face or a filmstrip), its own or the layout's, wins; without
+        // one it draws as it always did.
         const position = taper === "log" ? valueToTaperPosition(value, min ?? 0, max ?? 1, taper)
           : ((max ?? 1) > (min ?? 0) ? (value - (min ?? 0)) / ((max ?? 1) - (min ?? 0)) : 0);
-        const imageKnobParts = imageKnob(control.style, position, resolveImage);
+        const imageKnobParts = imageKnob(withLayoutKnobImage(control.style, layout.knobImage), position, resolveImage);
         const knobImageId = control.style?.knobImageId;
         const knobImageUrl = !imageKnobParts && knobImageId ? getLayoutImageUrl(knobImageId, knobFaceDrawnWidth(layout)) : null;
         const useCustomKnobImage = knobStyle === "custom" && !!knobImageUrl;

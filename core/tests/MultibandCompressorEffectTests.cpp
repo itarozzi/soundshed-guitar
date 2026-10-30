@@ -7,6 +7,9 @@
  *   - a loud tone in one band settles to the static curve; a quiet tone in another keeps its level
  *   - crossovers set out of order are kept apart, and under Nyquist
  *   - Mix 0 is the uncompressed all-pass; Makeup and Output move the level by what they say
+ *   - Knee: 0 is a hard knee, a wide one starts compressing below the threshold
+ *   - a band turned off passes untouched and meters nothing; Solo leaves only the soloed bands,
+ *     and switching either glides rather than clicks
  *   - the band meters report the crossovers in use, the gain reduction held since the last read
  *     and each band's level
  *   - the mono path matches the stereo one; dual mono keeps one side's level from the other
@@ -21,6 +24,7 @@
 #include <limits>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "dsp/effects/BuiltinEffects.h"
@@ -348,6 +352,117 @@ void TestMixMakeupAndOutput()
           Num(half, 2) + " dB, expected " + Num(expected, 2));
 }
 
+void TestKneeCurve()
+{
+    std::cout << "\n-- the knee curve --" << std::endl;
+
+    using multiband_compressor::GainReductionDb;
+    const double slope = 1.0 - 1.0 / 4.0;
+    Check(GainReductionDb(0.0, 4.0, 0.0) == 0.0 && std::abs(GainReductionDb(2.0, 4.0, 0.0) - 2.0 * slope) < 1.0e-12,
+          "knee 0 is a hard knee", Num(GainReductionDb(2.0, 4.0, 0.0), 3) + " dB at 2 dB over");
+    Check(std::abs(GainReductionDb(0.0, 4.0, 12.0) - slope * 1.5) < 1.0e-12,
+          "a 12 dB knee takes a quarter of its half-width at the threshold", Num(GainReductionDb(0.0, 4.0, 12.0), 3));
+    Check(GainReductionDb(-6.0, 4.0, 12.0) == 0.0 && std::abs(GainReductionDb(6.0, 4.0, 12.0) - 6.0 * slope) < 1.0e-12,
+          "and meets the straight lines at its edges");
+    Check(GainReductionDb(3.0, 4.0) == GainReductionDb(3.0, 4.0, 6.0), "6 dB is the default");
+}
+
+void TestKnee()
+{
+    std::cout << "\n-- Knee in the effect --" << std::endl;
+
+    // The low tone's mean square sits right on the threshold.
+    const auto low = Tone(-6.0, 3.0, 60.0);
+    const auto changeAt = [&low](double kneeDb) {
+        auto compressor = MakeCompressor(-9.0, 4.0);
+        compressor->SetParam("attack", 50.0);
+        compressor->SetParam("release", 500.0);
+        compressor->SetParam("knee1", kneeDb);
+        return ToneDb(Run(*compressor, low), 60.0, 2.0) - ToneDb(low, 60.0, 2.0);
+    };
+
+    const double hard = changeAt(0.0);
+    Check(hard > -0.6, "a hard knee leaves a tone on the threshold nearly alone", Num(hard, 2) + " dB");
+    // 12 dB half-width at 4:1: 0.75 * 12^2 / 48 = 2.25 dB.
+    const double wide = changeAt(24.0);
+    Check(std::abs(wide + 2.25) < 0.6, "a 24 dB knee is already compressing it", Num(wide, 2) + " dB, expected -2.25");
+}
+
+void TestOnAndSolo()
+{
+    std::cout << "\n-- On and Solo --" << std::endl;
+
+    const auto low = Tone(-6.0, 1.5, 60.0);
+    // Well clear of the 3 kHz crossover, so all of it is in the high band.
+    const auto high = Tone(-20.0, 1.5, 10000.0);
+    const auto both = Mix(low, high);
+
+    auto compressor = MakeCompressor(-40.0, 20.0);
+    compressor->SetParam("gain1", 6.0);
+    compressor->SetParam("on1", 0.0);
+    const auto off = Run(*compressor, low);
+    const double offChange = ToneDb(off, 60.0, 1.0) - ToneDb(low, 60.0, 1.0);
+    Check(std::abs(offChange) < 0.1, "a band turned off passes untouched, makeup and all", Num(offChange, 3) + " dB");
+    std::array<BandMeter, kBands> meters{};
+    compressor->ReadBandMeters(meters);
+    Check(meters[0].gainReductionDb == 0.0f, "and meters no reduction", Num(meters[0].gainReductionDb, 2) + " dB");
+
+    compressor = MakeCompressor(0.0, 1.0);
+    compressor->SetParam("solo4", 1.0);
+    auto out = Run(*compressor, both);
+    const double lowGone = ToneDb(out, 60.0, 1.0) - ToneDb(low, 60.0, 1.0);
+    const double highKept = ToneDb(out, 10000.0, 1.0) - ToneDb(high, 10000.0, 1.0);
+    Check(lowGone < -60.0, "soloing the high band silences the low one", Num(lowGone, 1) + " dB");
+    Check(std::abs(highKept) < 0.2, "and keeps the high one", Num(highKept, 3) + " dB");
+
+    compressor->SetParam("solo1", 1.0);
+    out = Run(*compressor, both);
+    const double bothKept = std::max(std::abs(ToneDb(out, 60.0, 1.0) - ToneDb(low, 60.0, 1.0)),
+                                     std::abs(ToneDb(out, 10000.0, 1.0) - ToneDb(high, 10000.0, 1.0)));
+    Check(bothKept < 0.2, "two soloed bands are both heard", "worst " + Num(bothKept, 3) + " dB");
+
+    compressor->SetParam("solo1", 0.0);
+    compressor->SetParam("solo4", 0.0);
+    out = Run(*compressor, both);
+    const double flat = RmsDb(out, 1.0) - RmsDb(both, 1.0);
+    Check(std::abs(flat) < 0.1, "with no solo, all of it again", Num(flat, 3) + " dB");
+}
+
+/// The largest step between neighbouring samples of `signal`.
+double LargestStep(const std::vector<float>& signal)
+{
+    double largest = 0.0;
+
+    for (std::size_t i = 1; i < signal.size(); ++i)
+    {
+        largest = std::max(largest, static_cast<double>(std::abs(signal[i] - signal[i - 1])));
+    }
+
+    return largest;
+}
+
+void TestSwitchingGlides()
+{
+    std::cout << "\n-- switching a band glides --" << std::endl;
+
+    // A 60 Hz sine at -6 dB moves at most 0.004 a sample; a hard mute would step by up to 0.5.
+    const auto low = Tone(-6.0, 1.0, 60.0);
+    const std::vector<float> first(low.begin(), low.begin() + low.size() / 2);
+    const std::vector<float> second(low.begin() + static_cast<std::ptrdiff_t>(low.size() / 2), low.end());
+
+    for (const auto& [key, value] : {std::pair{"solo4", 1.0}, std::pair{"on1", 0.0}})
+    {
+        auto compressor = MakeCompressor(-40.0, 20.0);
+        compressor->SetParam("gain1", 12.0);
+        auto out = Run(*compressor, first);
+        compressor->SetParam(key, value);
+        const auto after = Run(*compressor, second);
+        out.insert(out.end(), after.begin(), after.end());
+        const double step = LargestStep(out);
+        Check(step < 0.02, std::string(key) + " does not click", "largest step " + Num(step, 4));
+    }
+}
+
 void TestMonoMatchesStereo()
 {
     std::cout << "\n-- mono and stereo agree --" << std::endl;
@@ -411,6 +526,10 @@ int main()
     TestRatioOneAndThresholdPerBand();
     TestCrossoverOrdering();
     TestMixMakeupAndOutput();
+    TestKneeCurve();
+    TestKnee();
+    TestOnAndSolo();
+    TestSwitchingGlides();
     TestMonoMatchesStereo();
     TestDualMono();
     TestNonFiniteDoesNotLatch();

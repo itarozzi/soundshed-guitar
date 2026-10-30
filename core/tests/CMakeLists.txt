@@ -99,6 +99,7 @@ set(TEST_SOURCES
     NoiseGateTests.cpp
     MultibandGateEffectTests.cpp
     MultibandCompressorEffectTests.cpp
+    MultibandDistortionEffectTests.cpp
     NoiseGateLearnTests.cpp
     NoiseReductionEffectTests.cpp
     NonAsciiPathWorkflowTests.cpp

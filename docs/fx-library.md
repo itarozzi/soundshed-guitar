@@ -64,12 +64,15 @@ All UUID constants are defined in `core/src/dsp/EffectGuids.h`. The table below 
 | `kLimiterBrickwall` | `f4094126-b5de-4c5d-8d05-d56bd8c312d1` | `limiter_brickwall` |
 | `kNoiseReduction` | `b29b11b4-79ee-4e90-84f0-8a8ae5c6350b` | `noise_reduction` |
 | `kMultibandGate` | `51e2f89c-c174-4c1b-aa40-2e5a08dc745c` | `dynamics_multiband_gate` |
+| `kMultibandCompressor` | `2bdf5236-8d4a-485c-9302-3a0479c3614d` | `dynamics_multiband_compressor` |
 | `kOverdrive` | `fa9e05a8-168a-4293-aa91-6b770de3da1d` | `overdrive` |
 | `kDistortion` | `686773c9-30ac-4f33-b0f8-9222146d45b1` | `distortion` |
+| `kMultibandDistortion` | `86222aa0-53a4-4768-a05a-c68ef29a2bf4` | `multiband_distortion` |
 | `kFuzz` | `3a38b19c-1d97-4989-b5bb-12bcc59d1e6b` | `fuzz` |
 | `kEqParametric` | `4b4025ca-64cd-4180-be79-81873b618dba` | `eq_parametric` |
 | `kEqGraphic` | `ef8240ba-c973-4e09-ab65-4faf56a8ecbf` | `eq_graphic` |
 | `kPickupMatch` | `df1f4ed4-5d84-4a21-9474-ad6ab014fca5` | `pickup_match` |
+| `kEqPitchTracking` | `b8b9922c-72d0-4a5b-a387-4ebd13789e37` | `eq_pitch_tracking` |
 | `kDelayDigital` | `673d3e7a-e9ef-4c5d-a4c4-619dff3355ed` | `delay_digital` |
 | `kDelayDoubler` | `778aaef4-40e3-4efa-8782-6a8bfa1d1661` | `delay_doubler` |
 | `kDelayTape` | `c46cecdc-d800-416e-a9cf-b9a13bd3ab35` | `delay_tape` |
@@ -165,7 +168,7 @@ back to linear on both sides.
 Log-taper parameters: `ring_mod` `frequency`; `delay_digital` `highCut` and `lowCut`; `cab_ir`
 `lowCutHz` and `highCutHz`; `reverb_advanced` `lowCut` and `highCut`; `harmonizer` `highCut`;
 `vibe` `rate`; `tremolo` `crossover`; `dynamics_gate` `swell`; `reverb_verbal` `decay`, `preDelay`,
-`riseTime`, `echoTime` and `shapeTime`.
+`riseTime`, `echoTime` and `shapeTime`; `eq_pitch_tracking` `width1`–`width3` and `cutoff`.
 
 ### Conditional controls
 A parameter that means nothing in some modes can say when it shows: `ParameterDef::visibleWhenKey`
@@ -808,7 +811,7 @@ Fade (2 / 500 ms, -30 dB).
 
 ### Multi-band Compressor (`dynamics_multiband_compressor`)
 A compressor in four frequency bands, each compressed on its own level with its own threshold,
-ratio and makeup. It holds down a boomy low string without squashing the pick attack above it,
+ratio, knee and makeup, and each with On and Solo. It holds down a boomy low string without squashing the pick attack above it,
 or tames fizz without thinning the body. Engine: `MultibandCompressorEffect.h`, with the
 parameter table, crossover ordering and gain curve in `MultibandCompressorSupport.h`. Plan:
 docs/plans/multiband-compressor.md. No latency.
@@ -820,20 +823,29 @@ docs/plans/multiband-compressor.md. No latency.
   an octave above the one below, and the top one under 0.45 × the sample rate.
 - **Detectors.** Each band's mean square over 8, 4, 2 and 1 ms (low band first). Linked across
   channels (the louder side), separate in dual mono.
-- **Gain.** A 6 dB soft knee, then (1 − 1/ratio) of the overshoot. The reduction is smoothed in
+- **Gain.** A knee `kneeN` wide centred on the threshold (a parabola, so no corner; 0 is a hard
+  knee), then (1 − 1/ratio) of the overshoot. The reduction is smoothed in
   dB by `attack` and `release`, stretched 2× in the low band and 1.5× in the low mid (a fast
   release on a low note pumps and distorts it). Worked out every 16 samples; the applied gain
   ramps per sample.
 - **Mix** blends each band with itself uncompressed, so dry and wet share the crossover's
   phase and a half-way Mix does not comb. Makeup is on the compressed part; `output` trims the
   sum. Makeup, Mix and Output glide over 20 ms.
+- **On and Solo.** A band turned off passes untouched (no compression, no makeup) and meters no
+  reduction; its detector lets go at its release, so turning it back on starts from rest. While
+  any band is soloed only the soloed bands are heard, each as it would be (compressed if on,
+  untouched if off), and Output still applies. Both glide over 20 ms, so switching does not click.
+  Solo is saved with the preset like any other param.
 
 | Param | Range | Default | Notes |
 |---|---|---|---|
 | `crossover1`..`crossover3` | 40..1000, 150..5000, 600..12000 Hz | 200, 800, 3000 Hz | Group Crossovers, log taper |
 | `threshold1`..`threshold4` | -60..0 dB | -24 dB | Groups Low, Low Mid, High Mid, High |
 | `ratio1`..`ratio4` | 1..20 | 3 | Log taper; 1 leaves the band alone |
+| `knee1`..`knee4` | 0..24 dB | 6 dB | Width centred on the threshold; 0 is a hard knee |
 | `gain1`..`gain4` | -12..+12 dB | 0 | Makeup |
+| `on1`..`on4` | toggle | on | Off passes the band untouched |
+| `solo1`..`solo4` | toggle | off | Any soloed: only the soloed bands are heard |
 | `attack` | 0.1..100 ms | 10 ms | Log taper |
 | `release` | 10..1000 ms | 120 ms | Log taper |
 | `mix` | 0..1 | 1 | Per band, in phase |
@@ -841,7 +853,9 @@ docs/plans/multiband-compressor.md. No latency.
 
 **The node panel** draws the bands over the spectrum: the input shaded, the output as a line,
 each band's gain reduction hanging from the top with its number, and under the plot each band's
-level against its threshold. The crossovers can be dragged. The engine side is the EQ's spectrum
+level against its threshold, with the knee shaded around it. A band that is off is labelled so and
+never shows reduction; bands silenced by another's solo are shaded over, and a soloed band's name
+turns gold. The crossovers can be dragged. The engine side is the EQ's spectrum
 tap plus `EffectProcessor::BandMeterCount`/`ReadBandMeters`: a watched node with band meters is
 also tapped after it runs, and `sldS` carries its output bins and bands (docs/user-interface.md).
 
@@ -1167,6 +1181,63 @@ Max Treble Boost still caps treble added at any Amount.
 distance from the bridge, comb the string's harmonics by harmonic number. The notches move with the note played, so a fixed filter cannot follow them exactly; String
 Sensing applies their average. The classes also assume the
 measured load. A short cable, a 1M input or a rolled-off volume knob moves a real pickup's peak.
+
+### Pitch Tracking EQ (`eq_pitch_tracking`)
+**Experimental**: offered in the FX library (and Nano Q's effect picker) only with the
+Experimental Effects feature on.
+
+An EQ whose bands follow the note being played. A fixed band sits on a different harmonic of
+every note; here each band is placed at a multiple of the fundamental `dsp/PitchTracker.h` finds
+(see *Pitch tracker* under Ring Modulator), so it lifts or cuts the same harmonic, and the tone
+keeps the same character, anywhere on the neck.
+
+    in -+- band 1 - band 2 - band 3 - low-pass - x Level - out
+        +- pitch tracker (mono sum) -> each band at Harmonic x f0, the low-pass at Cutoff x f0
+
+| Parameter | Range | Default | Unit |
+|-----------|-------|---------|------|
+| `harmonic1` / `2` / `3` | 0.5–16, half steps | 2 / 4 / 6 | × f0 |
+| `gain1` / `2` / `3` | −18 to +18 | 4 / 3 / 2 | dB |
+| `width1` / `2` / `3` | 0.1–2, log taper | 0.5 | harmonics |
+| `lowPass` | Off / On | Off | enum |
+| `cutoff` | 1–32, log taper (shown with the low-pass on) | 8 | × f0 |
+| `glide` (advanced) | 0–200 | 20 | ms |
+| `lowestNote` (advanced) | E2 / D2 / B1 / F#1 | E2 | enum |
+| `level` | −12 to +12 | 0 | dB |
+
+- **Bands** are RBJ peaking sections. Harmonic 1 is the fundamental, 2 its octave, 3 the octave
+  and a fifth, 0.5 an octave below. Width is the bandwidth in harmonics, that is in units of f0,
+  so Q is Harmonic / Width (held to 0.2–80): a width under 1 touches one harmonic whatever note
+  is played. At width 0.5, +12 dB on the 3rd harmonic moves the 2nd and 4th by 0.6 and 1.1 dB.
+- **Low-pass** is key-tracked as a synth filter is: a 12 dB/octave Butterworth at Cutoff × f0, so
+  low notes are not fizzy and high ones not dull. At Cutoff 4 the 8th harmonic loses 12.3 dB on
+  a G2 and 12.5 dB on a G4.
+- **Tracking.** Until a first note is found the effect is flat, sample for sample; it then fades
+  in over 15 ms. The followed pitch glides to each new note over Glide, in octaves, and the
+  coefficients ramp every 32 samples. Through silence and chords, which the tracker cannot read,
+  the bands stay on the last note it held. The tracker needs a few periods of a note, so the
+  attack of each new note goes through with the previous note's EQ (15–40 ms, longest on low
+  notes). Lowest Note narrows the tracker's window for a guitar that never goes below it.
+- A band that the note pushes past 0.45 of the sample rate fades out over the half-octave below,
+  rather than piling up at the top.
+- Read-only feedback: `trackedFrequency` (the tracker's pitch), `fundamental` (the pitch the
+  bands follow, after Glide), `bandFrequency1`–`3` and `lowPassFrequency` (0 before a first note,
+  or with the low-pass off).
+- About 2.3 µs per 64-sample stereo block at 48 kHz in Release. On 20 s of the demo DI riff every
+  preset adds nothing above 12 kHz (no zipper or clicks from the moving filters), and the
+  tracker holds a guitar pitch for 98% of blocks.
+
+**Factory presets** set everything but Level and Lowest Note, the player's own. The first holds
+the defaults, and it is what a new node starts with.
+
+| Preset | What it does |
+|---|---|
+| Even Warmth | 2nd, 4th and 6th harmonics up 4, 3 and 2 dB |
+| Odd Bite | 3rd, 5th and 7th up 5, 3 and 2 dB: reedier, more forward |
+| Hollow | 2nd, 4th and 6th cut 9, 7 and 5 dB: a hollow, clarinet-like tone |
+| Singing Fundamental | Fundamental +6 dB, 2nd +2 dB, 8th −3 dB, for leads |
+| Tame Fizz | 7th, 9th and 11th cut 5 dB, low-pass at 12 × f0, for a fizzy drive |
+| Even Brightness | Only the key-tracked low-pass, at 6 × f0 |
 
 ### Digital Delay (`delay_digital`)
 Clean stereo digital delay, with its tone filters and drive inside the feedback loop.
@@ -1789,6 +1860,63 @@ model the next time its preset is, and is not migrated again.
 to within 1 dB of bypass on a plucked-string guitar phrase; `DrivePedalTests --calibrate` prints
 the correction to add to each trim entry and the refitted exponent.
 
+### Multi-band Distortion (`multiband_distortion`)
+A distortion in four frequency bands, each driven into a clipper of its own with its own Drive,
+Character and Level. One clipper fed a whole chord intermodulates every note with every other,
+and the low strings push it hardest, so chords smear and the lows flub; split first and each
+band only intermodulates with itself, so the lows can stay tight while the mids scream.
+Engine: `MultibandDistortionEffect.h`, with the parameter table, curves and level-match table in
+`MultibandDistortionSupport.h`. Plan: docs/plans/multiband-distortion.md. Category `drive`.
+
+- **Bands** are the Multi-band Compressor's: the same three movable crossovers, ranges and
+  defaults (200, 800, 3000 Hz), the same LR4 split with all-pass compensation
+  (`dsp/LinkwitzRileyCrossover.h`, which also holds the ordering both use). With every band
+  clean they add up to a flat all-pass.
+- **Oversampled once, as a whole.** The input goes up through the drive pedals' minimum-phase
+  half-bands (`dsp/HalfBandIir.h`), is split, clipped and summed near 192 kHz (4× at
+  44.1/48 kHz, 2× at 88.2/96, 1× above) and comes down once, so every band and its clean copy
+  share one phase. Each clipper is antialiased (`drive::ClipCurve::Antialiased`). A 5 kHz tone
+  hard-clipped at full drive leaves its fold-backs 65 dB under it. The antialiasing averages
+  successive oversampled samples, which takes 0.3 dB off 16 kHz even when clean.
+- **Drive** is 0..48 dB into a knee 12 dB over the nominal operating level (`LevelTargets.h`),
+  so at 0 a normal note passes all but clean. It is **level-matched**: a table per Character,
+  built once, of how much RMS the curve loses on a nominal sine at each dB of Drive, relative
+  to Drive 0, scales the clipper's output back up. Turning Drive up changes how dirty a band
+  is, not how loud a nominal note is; quieter playing comes up relative to it, as through any
+  clipper. At high Drive whatever leaks into a band from its neighbours is driven up too, so
+  the bands tend to even out: that is what a multi-band clipper does.
+- **Character** per band: Tape (atan, the softest), Tube (soft knee, negative side at 0.7: even
+  harmonics), Diode (soft knee), Hard (flat limit) and Fuzz (flat limit, negative side at 0.5).
+  A change crossfades the band from the old curve to the new over 10 ms.
+- **Mix** blends each band's driven signal with the same band clean, in phase; **Level** trims
+  the band after it; **Output** the sum. Drive, Level, Mix and Output glide over 20 ms, worked
+  out every 16 samples and ramped per sample. A 2 Hz DC blocker follows the sum (the lopsided
+  curves make DC), then the drive pedals' soft ceiling near 0 dBFS.
+- **No latency** reported, as for the drive pedals. About 24 µs per stereo 64-sample block in
+  Release (1.8% of the 48 kHz deadline), a little under the 8× Distortion pedal.
+
+| Param | Range | Default | Notes |
+|---|---|---|---|
+| `crossover1`..`crossover3` | 40..1000, 150..5000, 600..12000 Hz | 200, 800, 3000 Hz | Group Crossovers, log taper |
+| `drive1`..`drive4` | 0..48 dB | 18, 28, 36, 30 dB | Groups Low, Low Mid, High Mid, High |
+| `character1`..`character4` | Tape, Tube, Diode, Hard, Fuzz | Tube | Enum |
+| `level1`..`level4` | -24..+12 dB | 0 | After the mix |
+| `mix` | 0..1 | 1 | Per band, in phase |
+| `output` | -18..+18 dB | 0 | |
+
+**The node panel** is the Multi-band Compressor's (`multibandPlot.ts`,
+`signalPath/paramsPanel/multibandPanel.ts`): input spectrum shaded, output as a line (the gap
+up top is the harmonics each band adds), the crossovers draggable. What hangs from the top of
+each band, in red, is how far its peaks were driven past the knee since the last frame; the
+strip under the plot is each band's peak level against the input level where its clipper
+starts to bend. The engine sends that level as each band meter's `thresholdDb`, since it
+depends on the nominal level the UI does not know.
+
+**Factory presets:** Standard (default), Tight Crunch (low band near clean from 160 Hz), Chord
+Clarity (every band alike, Tape at the ends), Fat Lows (Tape low band at 24 dB from 250 Hz),
+Mid Scream (High Mid Diode at 34 dB), Fizz-free Lead (top band nearly clean, -6 dB), Parallel
+Grit (Hard at Mix 0.4) and Splatter (Fuzz up top).
+
 ### VCA Compressor (`compressor_vca`)
 Clean, precise VCA-style compressor.
 
@@ -2392,7 +2520,8 @@ note). Their rates go no faster than 1/8 triplets. They were chosen when a new p
 ### Pitch tracking in Synth Voice, the Auto Arpeggiator and the tuner
 
 The same `dsp/PitchTracker.h` (see *Pitch tracker* under Ring Modulator) follows the note for
-three more features, each of which used to run a brute-force YIN of its own.
+three more features, each of which used to run a brute-force YIN of its own. The Pitch Tracking
+EQ (`eq_pitch_tracking`) uses it too, to place its bands.
 
 | Feature | How it uses the tracker |
 |---|---|

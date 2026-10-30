@@ -5,6 +5,7 @@
 #include "dsp/EffectGuids.h"
 #include "dsp/effects/GainEffect.h"
 #include "dsp/effects/MultibandCompressorEffect.h"
+#include "dsp/effects/MultibandDistortionEffect.h"
 #include "dsp/effects/MultibandGateEffect.h"
 #include "dsp/effects/NoiseGateEffect.h"
 #include "dsp/effects/NoiseReductionEffect.h"
@@ -108,6 +109,7 @@ inline void RegisterAllEffects()
     RegisterLimiterEffect();
     RegisterOverdriveEffect();
     RegisterDistortionEffect();
+    RegisterMultibandDistortionEffect();
     RegisterFuzzEffect();
 
     // EQ

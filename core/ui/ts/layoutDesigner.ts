@@ -10,6 +10,7 @@ import { CanvasProperties } from "./layoutDesigner/canvasProperties.js";
 import { LayoutStore } from "./layoutDesigner/layoutStore.js";
 import { ElementProperties } from "./layoutDesigner/elementProperties.js";
 import { getLayoutImageUrl, imageOptionsHtml, reusableLayoutImages } from "./layoutDesigner/images.js";
+import { watchImageSelects } from "./layoutDesigner/imagePicker.js";
 import { isDialogOpen, showConfirm } from "./dialogs.js";
 import type { CopiedTextLabelPayload, DragState, LayoutResourceCandidate, SelectedElement } from "./layoutDesigner/types.js";
 import { ensureLayoutImagesLoaded } from "./layoutImages.js";
@@ -237,6 +238,7 @@ export class LayoutDesignerModal {
     this.controlsLayer = document.getElementById("layout-designer-controls");
     this.sidebar = document.getElementById("layout-designer-sidebar");
     this.sidebarContent = document.getElementById("layout-designer-sidebar-content");
+    if (this.sidebarContent) watchImageSelects(this.sidebarContent);
     this.layersList = document.getElementById("layout-designer-layers");
     bindLayersList(this.layersList, this.layersHost);
 
@@ -256,8 +258,6 @@ export class LayoutDesignerModal {
     this.zoomOutBtn = document.getElementById("layout-designer-zoom-out") as HTMLButtonElement;
     this.zoomResetBtn = document.getElementById("layout-designer-zoom-reset") as HTMLButtonElement;
     this.zoomLabel = document.getElementById("layout-designer-zoom-label");
-
-    console.log("[LayoutDesigner] initialize - addBgBtn found:", !!this.addBgBtn);
 
     // Dimension inputs
     this.widthInput = document.getElementById("layout-designer-width") as HTMLInputElement;
@@ -1265,7 +1265,6 @@ export class LayoutDesignerModal {
   }
 
   private browseBackgroundImage(layerIndex?: number): void {
-    console.log("[LayoutDesigner] browseBackgroundImage called");
     const targetLayerIndex = layerIndex ?? (this.layout ? nextFreeBackgroundLayer(this.layout.backgrounds) : 0);
     if (targetLayerIndex === null) {
       showNotification(`Maximum ${MAX_BACKGROUND_LAYERS} background layers`);

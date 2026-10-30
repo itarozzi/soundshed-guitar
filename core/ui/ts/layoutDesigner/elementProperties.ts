@@ -7,6 +7,7 @@
  * changes, and rebinding on every keystroke would drop focus mid-edit.
  */
 
+import { withLayoutKnobImage } from "../layoutControlImages.js";
 import { layoutGridSize, snapToGrid } from "../layoutTypes.js";
 import { bindAlignGroup, renderAlignGroup } from "./alignTools.js";
 import { bindControlImageGroup, bindOverlayImageGroup, renderControlImageGroup, renderOverlayImageGroup } from "./controlImageProperties.js";
@@ -36,6 +37,8 @@ export class ElementProperties {
     if (!control) return;
 
     const isResourceControl = this.host.isResourceControl(control);
+    // Whether this knob draws the layout's knob image while it has none of its own.
+    const takesLayoutKnob = withLayoutKnobImage({ ...control.style, knobImage: undefined }, layout.knobImage)?.knobImage !== undefined;
     const paramDef = isResourceControl ? undefined : paramDefs.find((p) => p.key === paramKey);
     const resourceDef = isResourceControl
       ? resourceCandidates.find((candidate) => candidate.controlKey === paramKey)
@@ -180,7 +183,7 @@ export class ElementProperties {
       ${isResourceControl ? renderWidthGroup(control) : ""}
       ${renderAlignGroup()}
       ${styleSection}
-      ${renderControlImageGroup(control, isResourceControl, (purpose, selected) => this.host.renderImageOptionsHtml(purpose, selected))}
+      ${renderControlImageGroup(control, isResourceControl, (purpose, selected) => this.host.renderImageOptionsHtml(purpose, selected), takesLayoutKnob)}
 
       <div class="layout-property-group">
         <button type="button" class="btn btn-secondary btn-sm btn-block layout-danger-btn" id="prop-delete-control">Remove from Layout</button>

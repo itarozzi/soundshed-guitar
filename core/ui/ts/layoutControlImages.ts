@@ -9,6 +9,7 @@
  */
 
 import { filmstripBackground, filmstripFrame, filmstripFrameCount, knobFaceAngle, type LayoutKnobImage } from "./layoutKnobImages.js";
+import { parseParamTaper, valueToTaperPosition } from "./paramTaper.js";
 import { escapeHtml } from "./utils.js";
 
 /** The knob size every knob was drawn at before knobDiameter existed. */
@@ -143,6 +144,56 @@ export function knobDiameter(style: ControlImageStyle | undefined): number {
 export function imageKnob(style: ControlImageStyle | undefined, position: number, resolve: ImageCssResolver) {
   const knobImage = usableKnobImage(style?.knobImage);
   return knobImage ? imageKnobMarkup(knobImage, knobDiameter(style), position, resolve) : null;
+}
+
+/**
+ * `style` with the layout's knobImage in it when the knob takes the layout's: it has no usable
+ * knobImage of its own and its knobStyle is "default" or unset (Pedal, Amp, Minimal or a custom
+ * face is a choice of its own). Otherwise `style` unchanged.
+ */
+export function withLayoutKnobImage<T extends ControlImageStyle & { knobStyle?: unknown }>(
+  style: T | undefined,
+  layoutKnobImage: unknown,
+): T | undefined {
+  if (!usableKnobImage(layoutKnobImage) || usableKnobImage(style?.knobImage)) return style;
+  if (style?.knobStyle !== undefined && style.knobStyle !== "default") return style;
+  return { ...(style ?? {}), knobImage: layoutKnobImage } as T;
+}
+
+/**
+ * `html` with each standard knob in it (.node-param-knob without an image of its own) drawn
+ * from `knobImage` at the original 38 px, turned to the value its data attributes hold. The
+ * default controls of a useDefaultControls layout are built by the params panel, which knows
+ * nothing of layouts, so the image goes in here. `html` unchanged when `knobImage` is not usable.
+ */
+export function applyKnobImageToKnobs(html: string, knobImage: unknown, resolve: ImageCssResolver): string {
+  const usable = usableKnobImage(knobImage);
+  if (!usable || !html.includes("node-param-knob")) return html;
+  const template = document.createElement("template");
+  template.innerHTML = html;
+  let changed = false;
+  template.content.querySelectorAll<HTMLElement>(".node-param-knob:not([data-custom-knob-image])").forEach((knob) => {
+    const parts = imageKnobMarkup(usable, DEFAULT_KNOB_DIAMETER, knobPosition(knob), resolve);
+    if (!parts) return;
+    // The markup is built as a string for the positioned controls; parse it once to copy it over.
+    const probe = document.createElement("template");
+    probe.innerHTML = `<div${parts.attributes}>${parts.children}</div>`;
+    const source = probe.content.firstElementChild as HTMLElement;
+    for (const attribute of Array.from(source.attributes)) knob.setAttribute(attribute.name, attribute.value);
+    knob.setAttribute("style", `${knob.getAttribute("style") ?? ""} ${parts.style}`.trim());
+    knob.prepend(...Array.from(source.childNodes));
+    changed = true;
+  });
+  return changed ? template.innerHTML : html;
+}
+
+/** A knob element's position (0..1) from its data-value, data-min, data-max and data-taper. */
+function knobPosition(knob: HTMLElement): number {
+  const value = parseFloat(knob.dataset.value ?? "");
+  const min = parseFloat(knob.dataset.min ?? "0");
+  const max = parseFloat(knob.dataset.max ?? "1");
+  if (![value, min, max].every(Number.isFinite)) return 0;
+  return valueToTaperPosition(value, min, max, parseParamTaper(knob.dataset.taper));
 }
 
 /** Extra style for a styled knob drawn at its knobDiameter; empty at the original size. */
