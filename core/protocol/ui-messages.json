@@ -97,6 +97,7 @@
     "measurePresetLevel",
     "movePresetFolder",
     "movePresetToFolder",
+    "moveScene",
     "moveSetlistSlot",
     "newPreset",
     "openUrl",

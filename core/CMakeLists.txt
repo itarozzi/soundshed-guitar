@@ -564,6 +564,7 @@ set(GUITARFX_CORE_SOURCES
     src/controller/PluginControllerCustomEffects.cpp
     src/controller/PluginControllerPresets.cpp
     src/controller/PluginControllerPresetEdits.cpp
+    src/controller/PluginControllerScenes.cpp
     src/controller/PluginControllerPresetFolders.cpp
     src/controller/PluginControllerSetlists.cpp
     src/controller/PluginControllerMixer.cpp
