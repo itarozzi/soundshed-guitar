@@ -80,6 +80,51 @@
   pointer-events: none;
 }
 
+/* The add tools: a column of icon buttons down the left of the canvas. */
+.layout-designer-tool-rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 6px;
+  background: var(--ld-chrome-bg);
+  border-right: 1px solid var(--ld-border);
+}
+
+.layout-designer-tool {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ld-text-secondary);
+  cursor: pointer;
+}
+
+.layout-designer-tool svg {
+  width: 18px;
+  height: 18px;
+}
+
+.layout-designer-tool:hover,
+.layout-designer-tool:focus-visible {
+  outline: none;
+  color: var(--ld-text);
+  background: color-mix(in srgb, var(--ld-text) 8%, transparent);
+  border-color: var(--ld-border);
+}
+
+.layout-designer-tool-divider {
+  width: 20px;
+  height: 1px;
+  margin: 4px 0;
+  background: var(--ld-border);
+}
+
 .layout-designer-zoom-group {
   gap: 2px !important;
   margin-left: auto;
